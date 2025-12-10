@@ -19,13 +19,18 @@ export function useGeneralChat(initialContext?: Record<string, any>) {
         interactionType: InteractionType = InteractionType.TEXT_INPUT,
         actionMetadata?: ActionMetadata
     ) => {
+        console.log('[sendMessage] Starting, current messages:', messages.length, messages.map(m => m.role));
+
         // Add user message
         const userMessage: GeneralChatMessage = {
             role: 'user',
             content,
             timestamp: new Date().toISOString()
         };
-        setMessages(prev => [...prev, userMessage]);
+        setMessages(prev => {
+            console.log('[setMessages] Adding user message, prev:', prev.length, prev.map(m => m.role));
+            return [...prev, userMessage];
+        });
 
         setIsLoading(true);
         setError(null);
@@ -74,7 +79,10 @@ export function useGeneralChat(initialContext?: Record<string, any>) {
                         suggested_actions: chunk.payload.suggested_actions,
                         custom_payload: chunk.payload.custom_payload
                     };
-                    setMessages(prev => [...prev, assistantMessage]);
+                    setMessages(prev => {
+                        console.log('[setMessages] Adding assistant message, prev:', prev.length, prev.map(m => m.role));
+                        return [...prev, assistantMessage];
+                    });
                     setStreamingText('');
                     setStatusText(null);
                 }

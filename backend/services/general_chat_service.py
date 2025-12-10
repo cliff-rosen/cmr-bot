@@ -72,6 +72,7 @@ class GeneralChatService:
 
             while iteration < MAX_TOOL_ITERATIONS:
                 iteration += 1
+                logger.info(f"Loop iteration {iteration}")
 
                 if anthropic_tools:
                     response = await self.async_client.messages.create(
@@ -134,9 +135,21 @@ class GeneralChatService:
                             tool_result_str = f"Unknown tool: {tool_name}"
 
                         # Add tool interaction to messages
+                        # Convert content blocks to proper format for Anthropic API
+                        assistant_content = []
+                        for block in response.content:
+                            if block.type == "text":
+                                assistant_content.append({"type": "text", "text": block.text})
+                            elif block.type == "tool_use":
+                                assistant_content.append({
+                                    "type": "tool_use",
+                                    "id": block.id,
+                                    "name": block.name,
+                                    "input": block.input
+                                })
                         messages.append({
                             "role": "assistant",
-                            "content": response.content
+                            "content": assistant_content
                         })
                         messages.append({
                             "role": "user",
@@ -152,9 +165,11 @@ class GeneralChatService:
 
                     else:
                         # No tool call - stream text response
+                        logger.info(f"No tool call, streaming {len(text_blocks)} text blocks")
                         for block in text_blocks:
                             collected_text += block.text
 
+                        logger.info(f"Collected text length: {len(collected_text)}")
                         for char in collected_text:
                             token_response = ChatStreamChunk(
                                 token=char,
@@ -165,6 +180,7 @@ class GeneralChatService:
                                 debug=None
                             )
                             yield token_response.model_dump_json()
+                        logger.info("Breaking out of loop")
                         break
 
                 else:
@@ -192,11 +208,12 @@ class GeneralChatService:
                     break
 
             # Build final payload
+            logger.info(f"Building final payload with collected_text length: {len(collected_text)}")
             final_payload = ChatResponsePayload(
                 message=collected_text,
                 suggested_values=None,
                 suggested_actions=None,
-                custom_payload={"tool_results": tool_data_accumulator} if tool_data_accumulator else None
+                custom_payload={"type": "tool_results", "data": tool_data_accumulator} if tool_data_accumulator else None
             )
 
             final_response = ChatStreamChunk(
@@ -207,6 +224,7 @@ class GeneralChatService:
                 error=None,
                 debug=None
             )
+            logger.info(f"Yielding final response with status=complete")
             yield final_response.model_dump_json()
 
         except Exception as e:
