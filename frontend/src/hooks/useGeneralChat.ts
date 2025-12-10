@@ -63,9 +63,9 @@ export function useGeneralChat(initialContext?: Record<string, any>) {
                     setStatusText(chunk.status);
                 }
 
-                // Handle token streaming - clear status when tokens start flowing
+                // Handle token streaming - clear status only if it's a "Running" status (not "Completed")
                 if (chunk.token) {
-                    setStatusText(null);
+                    setStatusText(prev => prev?.startsWith('Completed') ? prev : null);
                     collectedText += chunk.token;
                     setStreamingText(collectedText);
                 }
