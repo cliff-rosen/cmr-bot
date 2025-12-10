@@ -68,7 +68,7 @@ class GeneralChatService:
 
             iteration = 0
             collected_text = ""
-            tool_data_accumulator = []
+            tool_call_history = []  # Track all tool calls with inputs and outputs
 
             while iteration < MAX_TOOL_ITERATIONS:
                 iteration += 1
@@ -121,18 +121,28 @@ class GeneralChatService:
 
                                 if isinstance(tool_result, ToolResult):
                                     tool_result_str = tool_result.text
-                                    if tool_result.data:
-                                        tool_data_accumulator.append(tool_result.data)
+                                    tool_output_data = tool_result.data
                                 elif isinstance(tool_result, str):
                                     tool_result_str = tool_result
+                                    tool_output_data = None
                                 else:
                                     tool_result_str = str(tool_result)
+                                    tool_output_data = None
 
                             except Exception as e:
                                 logger.error(f"Tool execution error: {e}", exc_info=True)
                                 tool_result_str = f"Error executing tool: {str(e)}"
+                                tool_output_data = None
                         else:
                             tool_result_str = f"Unknown tool: {tool_name}"
+                            tool_output_data = None
+
+                        # Record tool call in history
+                        tool_call_history.append({
+                            "tool_name": tool_name,
+                            "input": tool_input,
+                            "output": tool_output_data if tool_output_data else tool_result_str
+                        })
 
                         # Add tool interaction to messages
                         # Convert content blocks to proper format for Anthropic API
@@ -208,12 +218,12 @@ class GeneralChatService:
                     break
 
             # Build final payload
-            logger.info(f"Building final payload with collected_text length: {len(collected_text)}")
+            logger.info(f"Building final payload with collected_text length: {len(collected_text)}, tool_calls: {len(tool_call_history)}")
             final_payload = ChatResponsePayload(
                 message=collected_text,
                 suggested_values=None,
                 suggested_actions=None,
-                custom_payload={"type": "tool_results", "data": tool_data_accumulator} if tool_data_accumulator else None
+                custom_payload={"type": "tool_history", "data": tool_call_history} if tool_call_history else None
             )
 
             final_response = ChatStreamChunk(

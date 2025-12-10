@@ -94,7 +94,7 @@ class WebRetrievalService:
                         timestamp=datetime.utcnow().isoformat()
                     )
 
-        except aiohttp.ClientTimeout:
+        except asyncio.TimeoutError:
             raise Exception(f"Request timed out after {timeout} seconds")
         except aiohttp.ClientError as e:
             raise Exception(f"Network error: {str(e)}")

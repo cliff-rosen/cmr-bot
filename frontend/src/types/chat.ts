@@ -35,6 +35,12 @@ export interface CustomPayload {
     data: any;
 }
 
+export interface ToolCall {
+    tool_name: string;
+    input: Record<string, any>;
+    output: string | Record<string, any>;
+}
+
 export interface ActionMetadata {
     action_identifier: string;
     action_data?: any;
