@@ -13,7 +13,7 @@ import aiohttp
 from sqlalchemy.orm import Session
 
 from config.settings import settings
-from schemas.canonical_types import CanonicalSearchResult
+from schemas.base import CanonicalSearchResult
 
 logger = logging.getLogger(__name__)
 

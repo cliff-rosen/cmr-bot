@@ -1,0 +1,211 @@
+# Personal AI Agent System Specification
+
+## Overview
+
+A personal AI agent system designed for daily use, optimized for deep integration, autonomy, and continuous improvement. This system prioritizes utility and control over productization concerns, enabling capabilities that consumer AI products cannot offer due to security, economics, or multi-tenant constraints.
+
+## Core Design Principles
+
+- **Full control over security perimeter** - No artificial limitations on integrations or data access
+- **Self-improving** - The system evaluates and enhances its own capabilities over time
+- **Asset-centric** - Persistent collaborative workspace rather than ephemeral chat outputs
+- **Hierarchical and async** - Delegation to sub-agents with background execution
+- **Transparent** - Visibility into what the system knows, what it's doing, and why
+
+---
+
+## System Components
+
+### 1. Primary Agent
+
+The main conversational interface and coordinator. Maintains full context about the user, active projects, and system state. Responsible for:
+
+- Direct interaction with the user
+- Delegation decisions (when to fork tasks, which sub-agent to use)
+- Coordination across sub-agents and background processes
+- Access to the full tool and skill library
+
+### 2. Sub-Agents
+
+Specialized agents that can be spawned or delegated to by the primary agent. Characteristics:
+
+- Focused scope (e.g., real estate monitoring, research synthesis, email triage)
+- Can be persistent (always-on monitors) or ephemeral (spun up for a task)
+- Report back to primary agent asynchronously
+- Created through the agent-building capability, not hardcoded
+
+### 3. Scheduler Service
+
+A scheduling layer exposed as a tool, enabling:
+
+- One-time scheduled tasks
+- Recurring jobs (daily, weekly, custom intervals)
+- Conditional scheduling (run when X condition is met)
+- Job monitoring, pause, resume, cancel
+- Integration with the notification system for completion/failure alerts
+
+### 4. Asset Workspace
+
+A persistent, collaborative space where generated and imported assets live as first-class objects:
+
+- Documents, code, structured data, research collections
+- Version history and change tracking
+- Assets remain available for ongoing collaboration
+- Integration with RAG infrastructure for assets too large for context
+
+### 5. Dashboard / Control Plane
+
+A UI layer providing visibility and control across the system:
+
+- Agent registry: what agents exist, their status, current activity
+- Task queue: queued, running, completed, failed tasks
+- Schedule view: upcoming scheduled jobs
+- Notification center: alerts and items needing attention
+- Drill-down capability into any agent or task
+- Access to asset workspace
+- Memory management interface
+
+---
+
+## Core Capabilities
+
+### Deep Integrations
+
+Full access to personal and professional systems without consumer-product limitations:
+
+- **Email** - Full read/write, search, categorization, drafting, sending
+- **Calendar** - Complete access for scheduling, analysis, coordination
+- **Files** - Local and cloud storage, full indexing and retrieval
+- **Other systems** - Extensible to any API or service as needed
+
+### Self-Improvement
+
+The system can evaluate and enhance its own performance:
+
+- **Tool creation** - Generate new tools based on identified needs or user request
+- **Prompt revision** - Refine its own prompts based on outcome evaluation
+- **Skill development** - Create new reusable skills from successful patterns
+- **Performance reflection** - Analyze what worked, what didn't, and why
+
+### Async and Background Execution
+
+Long-running and persistent processes run independently:
+
+- Tasks fork off from the primary conversation and execute in parallel
+- Background monitors run persistently (e.g., real estate scanner, news monitors)
+- Status tracking and inquiry available at any time
+- Proactive notifications when results are ready or intervention needed
+
+### Hierarchical Delegation
+
+Work flows from primary agent to sub-agents as appropriate:
+
+- Primary agent decides when to delegate vs. handle directly
+- Context handoff: sub-agents receive relevant context for their task
+- Results flow back to primary agent for synthesis and presentation
+- User can interact with sub-agents directly if desired
+
+---
+
+## Tool and Skill Architecture
+
+### Tools
+
+Atomic capabilities that perform specific functions. Available at multiple levels of abstraction:
+
+**Atomic tools** - Single operations
+- Call SERP API and return results
+- Send an email
+- Read a file
+
+**Composed tools** - Multi-step operations with logic
+- Search with query refinement loop until criteria met
+- Email thread summarization with key point extraction
+- File analysis with structured output
+
+### Skills
+
+Reusable capability patterns that combine tools, prompts, and logic:
+
+- A skill might be "research a topic" which combines search, source evaluation, synthesis
+- Skills can be created by the system or defined by the user
+- Skills are the building blocks for agent behaviors
+
+### Agent Creation
+
+The system can create new specialized agents by combining:
+
+- A set of tools the agent can use
+- Skills that define its capabilities
+- Configuration (goals, constraints, reporting preferences)
+- Scheduling parameters if it's a persistent monitor
+
+---
+
+## RAG Infrastructure
+
+Multiple strategies for handling assets that exceed context limits:
+
+### Indexing and Retrieval
+- Chunking strategies appropriate to content type
+- Embedding and semantic search
+- Keyword and metadata search
+- Hybrid retrieval combining approaches
+
+### Compression and Summarization
+- Hierarchical summaries (full doc → section summaries → key points)
+- Progressive disclosure (summary in context, detail on demand)
+- Key entity and concept extraction
+
+### Asset Type Handling
+- Documents: summarization, section indexing, key point extraction
+- Code: function/class indexing, dependency mapping, documentation extraction
+- Structured data: schema awareness, statistical summaries, query interface
+- Research collections: cross-document synthesis, citation tracking
+
+---
+
+## Memory System
+
+A transparent, tiered memory system superior to existing consumer implementations:
+
+### Transparency and Control
+- All memories visible and browsable
+- Easy editing and deletion
+- Clear provenance (where did this memory come from)
+- Explicit vs. inferred distinction
+
+### Tiered Structure
+- **Working memory** - Current conversation and active task context
+- **Recent memory** - Last days/weeks, higher retrieval priority
+- **Long-term memory** - Persistent facts, preferences, history
+- **Project memory** - Context specific to ongoing projects
+
+### Memory Types
+- Facts about the user
+- Preferences and patterns
+- Project context and status
+- Decision history and rationale
+- Relationship and entity information
+
+### Temporal Weighting
+- Recent information surfaces more readily
+- Older information available but requires more explicit retrieval
+- Decay or archival for stale information
+- Pinning for information that should always be accessible
+
+---
+
+## Open Questions
+
+1. **Self-improvement triggers** - Autonomous detection of improvement opportunities vs. prompted reflection mode vs. both?
+
+2. **Asset versioning model** - Simple version history vs. full branching/merging?
+
+3. **Sub-agent autonomy levels** - How much can sub-agents do before checking back in?
+
+4. **Notification preferences** - How to balance proactive updates vs. respecting attention?
+
+5. **Infrastructure choices** - Message queue architecture, state store, execution environment for background processes
+
+6. **Security model** - Even without multi-tenant concerns, what guardrails on agent autonomy?

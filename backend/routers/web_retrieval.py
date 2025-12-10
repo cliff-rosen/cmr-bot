@@ -10,10 +10,8 @@ from datetime import datetime
 from pydantic import BaseModel, Field, HttpUrl
 import logging
 
-from schemas.canonical_types import CanonicalWebpage
-
 from services.auth_service import validate_token
-from services.web_retrieval_service import WebRetrievalService, WebRetrievalServiceResult
+from services.web_retrieval_service import WebRetrievalService, WebRetrievalServiceResult, CanonicalWebpage
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/web-retrieval", tags=["web-retrieval"])

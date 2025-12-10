@@ -12,7 +12,7 @@ from pydantic import BaseModel, Field
 
 import logging
 
-from schemas.canonical_types import CanonicalSearchResult
+from schemas.base import CanonicalSearchResult
 
 from services.auth_service import validate_token
 from services.search_service import SearchService

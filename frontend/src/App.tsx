@@ -6,8 +6,6 @@ import { Toaster } from './components/ui/toaster';
 import { ThemeProvider } from './context/ThemeContext';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { ProfileProvider } from './context/ProfileContext';
-import { ResearchStreamProvider } from './context/ResearchStreamContext';
-import { StreamChatProvider } from './context/StreamChatContext';
 
 // utils
 import { setStreamSessionExpiredHandler } from './lib/api/streamUtils';
@@ -15,19 +13,11 @@ import { setStreamSessionExpiredHandler } from './lib/api/streamUtils';
 // components
 import TopBar from './components/TopBar';
 import { LoginForm } from './components/features/auth';
-// Existing pages (keep for admin access)
+
+// pages
+import MainPage from './pages/MainPage';
 import Profile from './pages/Profile';
 import TokenLogin from './pages/TokenLogin';
-
-// Knowledge Horizon pages
-import NewStreamPage from './pages/NewStreamPage';
-import NewStreamChatPage from './pages/NewStreamChatPage';
-import DashboardPage from './pages/DashboardPage';
-import StreamsPage from './pages/StreamsPage';
-import EditStreamPage from './pages/EditStreamPage';
-import RetrievalWizardPage from './pages/RetrievalWizardPage';
-import ReportsPage from './pages/ReportsPage';
-import ToolsPage from './pages/ToolsPage';
 
 // Inner component that uses auth context
 function AppContent() {
@@ -41,26 +31,14 @@ function AppContent() {
 
   // Main app content when authenticated
   const AuthenticatedApp = () => {
-    const defaultRoute = '/dashboard';
-
     return (
       <div className="h-screen flex flex-col dark:bg-gray-900 bg-gray-50">
         <TopBar />
-        <main className="flex-1 overflow-y-auto pt-16">
+        <main className="flex-1 overflow-hidden pt-16">
           <Routes>
-            {/* Knowledge Horizon Routes */}
-            <Route path="/" element={<Navigate to={defaultRoute} />} />
-            <Route path="/dashboard" element={<DashboardPage />} />
-            <Route path="/streams" element={<StreamsPage />} />
-            <Route path="/streams/:id/edit" element={<EditStreamPage />} />
-            <Route path="/streams/:streamId/configure-retrieval" element={<RetrievalWizardPage />} />
-            <Route path="/new-stream" element={<NewStreamPage />} />
-            <Route path="/new-stream/chat" element={<NewStreamChatPage />} />
-            <Route path="/reports" element={<ReportsPage />} />
-            <Route path="/tools" element={<ToolsPage />} />
+            <Route path="/" element={<MainPage />} />
             <Route path="/profile" element={<Profile />} />
             <Route path="/settings" element={<Navigate to="/profile" replace />} />
-
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </main>
@@ -86,11 +64,7 @@ function AppContent() {
   return (
     <ThemeProvider>
       <ProfileProvider>
-        <ResearchStreamProvider>
-          <StreamChatProvider>
-            <AuthenticatedApp />
-          </StreamChatProvider>
-        </ResearchStreamProvider>
+        <AuthenticatedApp />
       </ProfileProvider>
       <Toaster />
     </ThemeProvider>
@@ -113,4 +87,4 @@ function App() {
   );
 }
 
-export default App; 
+export default App;

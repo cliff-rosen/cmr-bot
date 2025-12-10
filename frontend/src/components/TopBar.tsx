@@ -1,8 +1,7 @@
 import { useTheme } from '../context/ThemeContext';
 import { NavLink, useLocation } from 'react-router-dom';
-import { MoonIcon, SunIcon, UserCircleIcon, HomeIcon, DocumentTextIcon, BeakerIcon, WrenchScrewdriverIcon } from '@heroicons/react/24/outline';
+import { MoonIcon, SunIcon, UserCircleIcon, ChatBubbleLeftRightIcon } from '@heroicons/react/24/outline';
 import settings from '../config/settings';
-import { HelpGuide } from '@/components/features/help';
 import { useAuth } from '../context/AuthContext';
 
 
@@ -31,22 +30,9 @@ export default function TopBar() {
 
                 {/* Navigation */}
                 <nav className="flex items-center gap-2">
-                    {/* Knowledge Horizon Navigation */}
-                    <NavLink to="/dashboard" className={getLinkClass('/dashboard')}>
-                        <HomeIcon className="h-5 w-5 mr-2" />
-                        Dashboard
-                    </NavLink>
-                    <NavLink to="/streams" className={getLinkClass('/streams')}>
-                        <BeakerIcon className="h-5 w-5 mr-2" />
-                        Streams
-                    </NavLink>
-                    <NavLink to="/reports" className={getLinkClass('/reports')}>
-                        <DocumentTextIcon className="h-5 w-5 mr-2" />
-                        Reports
-                    </NavLink>
-                    <NavLink to="/tools" className={getLinkClass('/tools')}>
-                        <WrenchScrewdriverIcon className="h-5 w-5 mr-2" />
-                        Tools
+                    <NavLink to="/" className={getLinkClass('/')}>
+                        <ChatBubbleLeftRightIcon className="h-5 w-5 mr-2" />
+                        Agent
                     </NavLink>
                 </nav>
             </div>
@@ -55,7 +41,6 @@ export default function TopBar() {
                 <button onClick={toggleTheme} className="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-white">
                     {isDarkMode ? <SunIcon className="h-6 w-6" /> : <MoonIcon className="h-6 w-6" />}
                 </button>
-                <HelpGuide />
                 <NavLink to="/profile" className={getLinkClass('/profile')}>
                     <UserCircleIcon className="h-6 w-6" />
                 </NavLink>
@@ -68,4 +53,4 @@ export default function TopBar() {
             </div>
         </header>
     );
-} 
+}

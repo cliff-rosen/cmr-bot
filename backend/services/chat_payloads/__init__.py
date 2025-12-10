@@ -1,10 +1,8 @@
 """
 Chat Payloads Package
 
-This package contains all page-specific payload configurations and context builders.
-Each module defines payloads and context for a specific page in the application.
-
-Import this package to automatically register all page configurations.
+This package contains the payload configuration registry for the chat system.
+Page-specific payload configurations can be registered to provide rich interactions.
 """
 
 from .registry import (
@@ -20,12 +18,6 @@ from .registry import (
     has_page_payloads,
     register_page
 )
-
-# Import all page configurations to register them
-from . import edit_stream
-from . import streams_list
-from . import new_stream
-from . import reports
 
 __all__ = [
     'PayloadConfig',
