@@ -70,25 +70,50 @@ class GeneralChatService:
             collected_text = ""
             tool_call_history = []  # Track all tool calls with inputs and outputs
 
+            # Build API call kwargs - only include tools if we have them
+            api_kwargs = {
+                "model": CHAT_MODEL,
+                "max_tokens": CHAT_MAX_TOKENS,
+                "temperature": 0.7,
+                "system": system_prompt,
+                "messages": messages
+            }
+            if anthropic_tools:
+                api_kwargs["tools"] = anthropic_tools
+
             while iteration < MAX_TOOL_ITERATIONS:
                 iteration += 1
                 logger.info(f"Loop iteration {iteration}")
 
-                # Build API call kwargs - only include tools if we have them
-                api_kwargs = {
-                    "model": CHAT_MODEL,
-                    "max_tokens": CHAT_MAX_TOKENS,
-                    "temperature": 0.7,
-                    "system": system_prompt,
-                    "messages": messages
-                }
-                if anthropic_tools:
-                    api_kwargs["tools"] = anthropic_tools
+                # Always stream - collect response and check for tool use
+                response_content = []
+                current_text = ""
 
-                # Non-streaming call to check for tool use
-                response = await self.async_client.messages.create(**api_kwargs)
+                async with self.async_client.messages.stream(**api_kwargs) as stream:
+                    async for event in stream:
+                        # Handle text streaming
+                        if hasattr(event, 'type'):
+                            if event.type == 'content_block_delta' and hasattr(event, 'delta'):
+                                if hasattr(event.delta, 'text'):
+                                    text = event.delta.text
+                                    current_text += text
+                                    collected_text += text
+                                    token_response = ChatStreamChunk(
+                                        token=text,
+                                        response_text=None,
+                                        payload=None,
+                                        status="streaming",
+                                        error=None,
+                                        debug=None
+                                    )
+                                    yield token_response.model_dump_json()
 
-                tool_use_blocks = [b for b in response.content if b.type == "tool_use"]
+                    # Get the final response to check for tool use
+                    final_response = await stream.get_final_message()
+                    response_content = final_response.content
+
+                # Check for tool use in the response
+                tool_use_blocks = [b for b in response_content if b.type == "tool_use"]
 
                 if tool_use_blocks:
                     # Handle tool call
@@ -147,10 +172,9 @@ class GeneralChatService:
                         "output": tool_output_data if tool_output_data else tool_result_str
                     })
 
-                    # Add tool interaction to messages
-                    # Convert content blocks to proper format for Anthropic API
+                    # Add tool interaction to messages for next iteration
                     assistant_content = []
-                    for block in response.content:
+                    for block in response_content:
                         if block.type == "text":
                             assistant_content.append({"type": "text", "text": block.text})
                         elif block.type == "tool_use":
@@ -174,26 +198,17 @@ class GeneralChatService:
                             }
                         ]
                     })
+
+                    # Update api_kwargs with new messages for next iteration
+                    api_kwargs["messages"] = messages
+
+                    # Reset collected_text for next iteration (tool responses get new text)
+                    collected_text = ""
                     continue
 
                 else:
-                    # No tool call - stream the final text response
-                    logger.info(f"No tool call, streaming final response")
-
-                    async with self.async_client.messages.stream(**api_kwargs) as stream:
-                        async for text in stream.text_stream:
-                            collected_text += text
-                            token_response = ChatStreamChunk(
-                                token=text,
-                                response_text=None,
-                                payload=None,
-                                status="streaming",
-                                error=None,
-                                debug=None
-                            )
-                            yield token_response.model_dump_json()
-
-                    logger.info(f"Collected text length: {len(collected_text)}")
+                    # No tool call - we're done
+                    logger.info(f"No tool call, response complete. Collected text length: {len(collected_text)}")
                     break
 
             # Build final payload
