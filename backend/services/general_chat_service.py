@@ -125,6 +125,7 @@ class GeneralChatService:
                     logger.info(f"Tool call: {tool_name} with input: {tool_input}")
 
                     # Send tool starting status
+                    logger.info(f"Sending tool running status for {tool_name}")
                     tool_status = ChatStatusResponse(
                         status=f"Running {tool_name}...",
                         payload={"tool": tool_name, "phase": "running"},
@@ -173,6 +174,7 @@ class GeneralChatService:
                     })
 
                     # Send tool completed status
+                    logger.info(f"Sending tool completed status for {tool_name}")
                     tool_complete_status = ChatStatusResponse(
                         status=f"Completed {tool_name}",
                         payload={"tool": tool_name, "phase": "completed"},
@@ -211,8 +213,19 @@ class GeneralChatService:
                     # Update api_kwargs with new messages for next iteration
                     api_kwargs["messages"] = messages
 
-                    # Reset collected_text for next iteration (tool responses get new text)
-                    collected_text = ""
+                    # Add newline separator before next iteration's text
+                    separator = "\n\n"
+                    collected_text += separator
+                    separator_response = ChatStreamChunk(
+                        token=separator,
+                        response_text=None,
+                        payload=None,
+                        status="streaming",
+                        error=None,
+                        debug=None
+                    )
+                    yield separator_response.model_dump_json()
+
                     continue
 
                 else:
