@@ -174,37 +174,44 @@ class GeneralChatService:
                         continue
 
                     else:
-                        # No tool call - stream text response
-                        logger.info(f"No tool call, streaming {len(text_blocks)} text blocks")
-                        for block in text_blocks:
-                            collected_text += block.text
+                        # No tool call - now stream the final text response
+                        logger.info(f"No tool call, switching to streaming for final response")
+
+                        # Use streaming API for the final response
+                        async with self.async_client.messages.stream(
+                            model=CHAT_MODEL,
+                            max_tokens=CHAT_MAX_TOKENS,
+                            temperature=0.7,
+                            system=system_prompt,
+                            messages=messages,
+                            tools=anthropic_tools
+                        ) as stream:
+                            async for text in stream.text_stream:
+                                collected_text += text
+                                token_response = ChatStreamChunk(
+                                    token=text,
+                                    response_text=None,
+                                    payload=None,
+                                    status="streaming",
+                                    error=None,
+                                    debug=None
+                                )
+                                yield token_response.model_dump_json()
 
                         logger.info(f"Collected text length: {len(collected_text)}")
-                        for char in collected_text:
-                            token_response = ChatStreamChunk(
-                                token=char,
-                                response_text=None,
-                                payload=None,
-                                status="streaming",
-                                error=None,
-                                debug=None
-                            )
-                            yield token_response.model_dump_json()
                         logger.info("Breaking out of loop")
                         break
 
                 else:
-                    # No tools - just stream response
-                    stream = self.client.messages.stream(
+                    # No tools registered - just stream response
+                    async with self.async_client.messages.stream(
                         model=CHAT_MODEL,
                         max_tokens=CHAT_MAX_TOKENS,
                         temperature=0.7,
                         system=system_prompt,
                         messages=messages
-                    )
-
-                    with stream as stream_manager:
-                        for text in stream_manager.text_stream:
+                    ) as stream:
+                        async for text in stream.text_stream:
                             collected_text += text
                             token_response = ChatStreamChunk(
                                 token=text,
