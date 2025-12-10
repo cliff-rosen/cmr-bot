@@ -124,10 +124,10 @@ class GeneralChatService:
 
                     logger.info(f"Tool call: {tool_name} with input: {tool_input}")
 
-                    # Send tool status
+                    # Send tool starting status
                     tool_status = ChatStatusResponse(
-                        status=f"Using {tool_name}...",
-                        payload={"tool": tool_name},
+                        status=f"Running {tool_name}...",
+                        payload={"tool": tool_name, "phase": "running"},
                         error=None,
                         debug=None
                     )
@@ -171,6 +171,15 @@ class GeneralChatService:
                         "input": tool_input,
                         "output": tool_output_data if tool_output_data else tool_result_str
                     })
+
+                    # Send tool completed status
+                    tool_complete_status = ChatStatusResponse(
+                        status=f"Completed {tool_name}",
+                        payload={"tool": tool_name, "phase": "completed"},
+                        error=None,
+                        debug=None
+                    )
+                    yield tool_complete_status.model_dump_json()
 
                     # Add tool interaction to messages for next iteration
                     assistant_content = []
