@@ -389,6 +389,7 @@ export default function MainPage() {
                     conversations={conversations}
                     currentConversationId={conversationId}
                     isLoading={isLoadingConversations}
+                    confirmDeleteId={confirmDeleteConvId}
                     onNewConversation={handleNewConversation}
                     onSelectConversation={handleSelectConversation}
                     onDeleteConversation={handleDeleteConversation}
