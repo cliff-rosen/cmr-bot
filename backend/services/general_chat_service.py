@@ -387,6 +387,10 @@ class GeneralChatService:
         if asset_context:
             context_section += f"\n{asset_context}\n"
 
+        logger.info(f"Profile context: {profile_context}")
+        logger.info(f"Memory context: {memory_context}")
+        logger.info(f"Asset context: {asset_context}")
+
         return context_section
 
     def _get_profile_context(self, include_profile: bool = True) -> str:

@@ -1,28 +1,43 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useProfile } from '../context/ProfileContext';
 
 export default function Profile() {
     const { user } = useAuth();
-    const { userProfile, isLoading, error, clearError } = useProfile();
+    const { userProfile, isLoading, error, updateProfile, clearError } = useProfile();
 
     // Form state
     const [userForm, setUserForm] = useState({
-        display_name: userProfile?.display_name || user?.username || '',
-        bio: userProfile?.bio || ''
+        display_name: '',
+        bio: ''
     });
 
-    const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
+    const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
+
+    // Sync form with profile data when it loads
+    useEffect(() => {
+        if (userProfile) {
+            setUserForm({
+                display_name: userProfile.display_name || '',
+                bio: userProfile.bio || ''
+            });
+        }
+    }, [userProfile]);
 
     const handleUserFormSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         setSaveStatus('saving');
-        // TODO: Implement profile update API call
-        // For now, just show saved status
-        setTimeout(() => {
+
+        try {
+            await updateProfile({
+                display_name: userForm.display_name || undefined,
+                bio: userForm.bio || undefined
+            });
             setSaveStatus('saved');
             setTimeout(() => setSaveStatus('idle'), 2000);
-        }, 500);
+        } catch {
+            setSaveStatus('error');
+        }
     };
 
     return (
@@ -57,6 +72,12 @@ export default function Profile() {
                     {saveStatus === 'saved' && (
                         <div className="mb-4 bg-green-50 dark:bg-green-900/50 border border-green-200 dark:border-green-700 rounded-lg p-4">
                             <p className="text-green-800 dark:text-green-200">Profile saved successfully!</p>
+                        </div>
+                    )}
+
+                    {saveStatus === 'error' && (
+                        <div className="mb-4 bg-red-50 dark:bg-red-900/50 border border-red-200 dark:border-red-700 rounded-lg p-4">
+                            <p className="text-red-800 dark:text-red-200">Failed to save profile. Please try again.</p>
                         </div>
                     )}
 
