@@ -37,6 +37,7 @@ class GeneralChatService:
         self.user_id = user_id
         self.client = anthropic.Anthropic(api_key=os.getenv('ANTHROPIC_API_KEY'))
         self.async_client = anthropic.AsyncAnthropic(api_key=os.getenv('ANTHROPIC_API_KEY'))
+        self.conv_service = ConversationService(db, user_id)
 
     # =========================================================================
     # Tool Configuration Helpers
@@ -349,11 +350,10 @@ class GeneralChatService:
             user_prompt = request.message
 
             # Handle conversation persistence
-            conv_service = ConversationService(self.db, self.user_id)
-            conversation_id = self._setup_conversation(conv_service, request, user_prompt)
+            conversation_id = self._setup_conversation(request, user_prompt)
 
             # Load message history
-            messages = self._load_message_history(conv_service, conversation_id)
+            messages = self._load_message_history(conversation_id)
 
             # Get tools configuration
             tools_by_name, anthropic_tools, tool_descriptions, tool_executor_context = self._get_tools_config(
@@ -482,7 +482,7 @@ class GeneralChatService:
                 ).model_dump_json()
 
             # Save assistant message
-            conv_service.add_message(
+            self.conv_service.add_message(
                 conversation_id=conversation_id,
                 role="assistant",
                 content=collected_text,
@@ -518,38 +518,29 @@ class GeneralChatService:
                 debug={"error_type": type(e).__name__}
             ).model_dump_json()
 
-    def _setup_conversation(
-        self,
-        conv_service: ConversationService,
-        request,
-        user_prompt: str
-    ) -> int:
+    def _setup_conversation(self, request, user_prompt: str) -> int:
         """Set up conversation and save user message. Returns conversation_id."""
         if request.conversation_id:
-            conversation = conv_service.get_conversation(request.conversation_id)
+            conversation = self.conv_service.get_conversation(request.conversation_id)
             if not conversation:
                 raise ValueError(f"Conversation {request.conversation_id} not found")
             conversation_id = conversation.conversation_id
         else:
-            conversation = conv_service.create_conversation()
+            conversation = self.conv_service.create_conversation()
             conversation_id = conversation.conversation_id
 
-        conv_service.add_message(
+        self.conv_service.add_message(
             conversation_id=conversation_id,
             role="user",
             content=user_prompt
         )
-        conv_service.auto_title_if_needed(conversation_id)
+        self.conv_service.auto_title_if_needed(conversation_id)
 
         return conversation_id
 
-    def _load_message_history(
-        self,
-        conv_service: ConversationService,
-        conversation_id: int
-    ) -> List[Dict[str, str]]:
+    def _load_message_history(self, conversation_id: int) -> List[Dict[str, str]]:
         """Load message history from database."""
-        db_messages = conv_service.get_messages(conversation_id)
+        db_messages = self.conv_service.get_messages(conversation_id)
         return [
             {"role": msg.role, "content": msg.content}
             for msg in db_messages
