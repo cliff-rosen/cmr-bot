@@ -3,9 +3,8 @@ import {
     WrenchScrewdriverIcon, XMarkIcon, PlusIcon, DocumentIcon,
     CpuChipIcon, LightBulbIcon, BookmarkIcon, Cog6ToothIcon,
     ArrowsPointingOutIcon, UserIcon, HeartIcon, BuildingOfficeIcon,
-    FolderIcon, ClockIcon
+    FolderIcon, ClockIcon, TrashIcon
 } from '@heroicons/react/24/solid';
-import { BookmarkIcon as BookmarkOutlineIcon } from '@heroicons/react/24/outline';
 import { Memory, MemoryType, Asset } from '../../lib/api';
 import { ToolCall } from '../../types/chat';
 
@@ -16,6 +15,7 @@ interface ContextPanelProps {
     onAddWorkingMemory: (content: string) => void;
     onToggleMemoryPinned: (memId: number) => void;
     onToggleAssetContext: (assetId: number) => void;
+    onClearAllAssetsFromContext: () => void;
     onToolHistoryClick: (toolHistory: ToolCall[]) => void;
     onExpandMemories: () => void;
     onExpandAssets: () => void;
@@ -46,23 +46,24 @@ export default function ContextPanel({
     onAddWorkingMemory,
     onToggleMemoryPinned,
     onToggleAssetContext,
+    onClearAllAssetsFromContext,
     onToolHistoryClick,
     onExpandMemories,
     onExpandAssets
 }: ContextPanelProps) {
     const [newMemoryInput, setNewMemoryInput] = useState('');
 
-    // Simplified memory view: pinned + last 3 recent (non-pinned)
+    // Memories: only show pinned (no recent in narrow view per user feedback)
     const pinnedMemories = memories.filter(m => m.is_pinned && m.is_active);
-    const recentMemories = memories
-        .filter(m => !m.is_pinned && m.is_active)
-        .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
-        .slice(0, 3);
     const totalMemoryCount = memories.filter(m => m.is_active).length;
 
-    // Assets in context
+    // Assets: in context + top 5 recent not in context
     const contextAssets = assets.filter(a => a.is_in_context);
-    const otherAssets = assets.filter(a => !a.is_in_context);
+    const recentAvailableAssets = assets
+        .filter(a => !a.is_in_context)
+        .sort((a, b) => new Date(b.updated_at || b.created_at).getTime() - new Date(a.updated_at || a.created_at).getTime())
+        .slice(0, 5);
+    const hiddenAssetCount = assets.filter(a => !a.is_in_context).length - recentAvailableAssets.length;
 
     const handleAddMemory = () => {
         if (newMemoryInput.trim()) {
@@ -103,7 +104,7 @@ export default function ContextPanel({
                     </div>
                 </div>
 
-                {/* Memories Section - Simplified View */}
+                {/* Memories Section - Pinned Only */}
                 <div className="border-b border-gray-200 dark:border-gray-700">
                     <div className="px-4 py-3 bg-gray-100 dark:bg-gray-800">
                         <div className="flex items-center justify-between">
@@ -144,83 +145,49 @@ export default function ContextPanel({
                         </div>
                     </div>
 
-                    {/* Pinned + Recent memories */}
+                    {/* Pinned memories only */}
                     <div className="p-2 space-y-1">
-                        {pinnedMemories.length === 0 && recentMemories.length === 0 ? (
+                        {pinnedMemories.length === 0 ? (
                             <div className="text-center text-gray-400 dark:text-gray-500 text-xs py-3">
-                                No memories yet
+                                No pinned memories
                             </div>
                         ) : (
-                            <>
-                                {/* Pinned memories */}
-                                {pinnedMemories.map((mem) => {
-                                    const typeInfo = getMemoryTypeInfo(mem.memory_type);
-                                    return (
-                                        <div
-                                            key={mem.memory_id}
-                                            className={`flex items-start gap-2 px-2 py-1.5 rounded ${typeInfo.bg}`}
-                                        >
-                                            <BookmarkIcon className="h-3 w-3 mt-0.5 flex-shrink-0 text-blue-500" />
-                                            <span className="flex-1 text-gray-700 dark:text-gray-300 text-xs leading-relaxed line-clamp-2">
-                                                {mem.content}
-                                            </span>
-                                            <button
-                                                onClick={() => onToggleMemoryPinned(mem.memory_id)}
-                                                className="text-blue-500 hover:text-blue-600 flex-shrink-0"
-                                                title="Unpin"
-                                            >
-                                                <XMarkIcon className="h-3 w-3" />
-                                            </button>
-                                        </div>
-                                    );
-                                })}
-
-                                {/* Divider if both pinned and recent exist */}
-                                {pinnedMemories.length > 0 && recentMemories.length > 0 && (
-                                    <div className="text-xs text-gray-400 dark:text-gray-500 px-2 py-1">
-                                        Recent
-                                    </div>
-                                )}
-
-                                {/* Recent memories */}
-                                {recentMemories.map((mem) => {
-                                    const typeInfo = getMemoryTypeInfo(mem.memory_type);
-                                    const TypeIcon = typeInfo.icon;
-                                    return (
-                                        <div
-                                            key={mem.memory_id}
-                                            className="flex items-start gap-2 px-2 py-1.5 rounded bg-gray-50 dark:bg-gray-800/50"
-                                        >
-                                            <TypeIcon className={`h-3 w-3 mt-0.5 flex-shrink-0 ${typeInfo.color}`} />
-                                            <span className="flex-1 text-gray-700 dark:text-gray-300 text-xs leading-relaxed line-clamp-2">
-                                                {mem.content}
-                                            </span>
-                                            <button
-                                                onClick={() => onToggleMemoryPinned(mem.memory_id)}
-                                                className="text-gray-400 hover:text-blue-500 flex-shrink-0"
-                                                title="Pin"
-                                            >
-                                                <BookmarkOutlineIcon className="h-3 w-3" />
-                                            </button>
-                                        </div>
-                                    );
-                                })}
-
-                                {/* Show more indicator */}
-                                {totalMemoryCount > pinnedMemories.length + recentMemories.length && (
-                                    <button
-                                        onClick={onExpandMemories}
-                                        className="w-full text-xs text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 py-1"
+                            pinnedMemories.map((mem) => {
+                                const typeInfo = getMemoryTypeInfo(mem.memory_type);
+                                return (
+                                    <div
+                                        key={mem.memory_id}
+                                        className={`flex items-start gap-2 px-2 py-1.5 rounded ${typeInfo.bg}`}
                                     >
-                                        +{totalMemoryCount - pinnedMemories.length - recentMemories.length} more...
-                                    </button>
-                                )}
-                            </>
+                                        <BookmarkIcon className="h-3 w-3 mt-0.5 flex-shrink-0 text-blue-500" />
+                                        <span className="flex-1 text-gray-700 dark:text-gray-300 text-xs leading-relaxed line-clamp-2">
+                                            {mem.content}
+                                        </span>
+                                        <button
+                                            onClick={() => onToggleMemoryPinned(mem.memory_id)}
+                                            className="text-blue-500 hover:text-blue-600 flex-shrink-0"
+                                            title="Unpin"
+                                        >
+                                            <XMarkIcon className="h-3 w-3" />
+                                        </button>
+                                    </div>
+                                );
+                            })
+                        )}
+
+                        {/* Show more indicator */}
+                        {totalMemoryCount > pinnedMemories.length && (
+                            <button
+                                onClick={onExpandMemories}
+                                className="w-full text-xs text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 py-1"
+                            >
+                                +{totalMemoryCount - pinnedMemories.length} unpinned...
+                            </button>
                         )}
                     </div>
                 </div>
 
-                {/* Assets in Context Section */}
+                {/* Assets Section */}
                 <div className="border-b border-gray-200 dark:border-gray-700">
                     <div className="px-4 py-3 bg-gray-100 dark:bg-gray-800">
                         <div className="flex items-center justify-between">
@@ -231,56 +198,74 @@ export default function ContextPanel({
                                 </span>
                                 <span className="text-xs text-gray-500">({assets.length})</span>
                             </div>
-                            <button
-                                onClick={onExpandAssets}
-                                className="p-1 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700 rounded"
-                                title="Expand assets"
-                            >
-                                <ArrowsPointingOutIcon className="h-4 w-4" />
-                            </button>
+                            <div className="flex items-center gap-1">
+                                {contextAssets.length > 0 && (
+                                    <button
+                                        onClick={onClearAllAssetsFromContext}
+                                        className="p-1 text-gray-400 hover:text-red-500 hover:bg-gray-200 dark:hover:bg-gray-700 rounded"
+                                        title="Clear all from context"
+                                    >
+                                        <TrashIcon className="h-4 w-4" />
+                                    </button>
+                                )}
+                                <button
+                                    onClick={onExpandAssets}
+                                    className="p-1 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700 rounded"
+                                    title="Expand assets"
+                                >
+                                    <ArrowsPointingOutIcon className="h-4 w-4" />
+                                </button>
+                            </div>
                         </div>
                     </div>
                     <div className="p-2 space-y-1">
+                        {/* Assets in context */}
                         {contextAssets.length === 0 ? (
                             <div className="text-center text-gray-400 dark:text-gray-500 text-xs py-2">
                                 No assets in context
                             </div>
                         ) : (
-                            contextAssets.map((asset) => (
-                                <div key={asset.asset_id} className="flex items-center gap-2 px-2 py-1.5 rounded bg-orange-50 dark:bg-orange-900/20">
-                                    <span className="flex-1 text-gray-700 dark:text-gray-300 text-xs truncate">{asset.name}</span>
-                                    <button
-                                        onClick={() => onToggleAssetContext(asset.asset_id)}
-                                        className="text-gray-400 hover:text-red-500 flex-shrink-0"
-                                        title="Remove from context"
-                                    >
-                                        <XMarkIcon className="h-3 w-3" />
-                                    </button>
-                                </div>
-                            ))
-                        )}
-                        {/* Show available assets */}
-                        {otherAssets.length > 0 && (
                             <>
-                                <div className="text-xs text-gray-400 dark:text-gray-500 px-2 py-1">
-                                    Available
+                                <div className="text-xs text-gray-500 dark:text-gray-400 px-2 py-1 font-medium">
+                                    In Context ({contextAssets.length})
                                 </div>
-                                {otherAssets.slice(0, 2).map((asset) => (
+                                {contextAssets.map((asset) => (
+                                    <div key={asset.asset_id} className="flex items-center gap-2 px-2 py-1.5 rounded bg-orange-50 dark:bg-orange-900/20">
+                                        <span className="flex-1 text-gray-700 dark:text-gray-300 text-xs truncate">{asset.name}</span>
+                                        <button
+                                            onClick={() => onToggleAssetContext(asset.asset_id)}
+                                            className="text-gray-400 hover:text-red-500 flex-shrink-0"
+                                            title="Remove from context"
+                                        >
+                                            <XMarkIcon className="h-3 w-3" />
+                                        </button>
+                                    </div>
+                                ))}
+                            </>
+                        )}
+
+                        {/* Recent available assets (top 5) */}
+                        {recentAvailableAssets.length > 0 && (
+                            <>
+                                <div className="text-xs text-gray-400 dark:text-gray-500 px-2 py-1 mt-2">
+                                    Recent
+                                </div>
+                                {recentAvailableAssets.map((asset) => (
                                     <button
                                         key={asset.asset_id}
                                         onClick={() => onToggleAssetContext(asset.asset_id)}
-                                        className="w-full text-left flex items-center gap-2 px-2 py-1 rounded text-xs text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800"
+                                        className="w-full text-left flex items-center gap-2 px-2 py-1.5 rounded text-xs text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800"
                                     >
                                         <PlusIcon className="h-3 w-3" />
                                         <span className="truncate">{asset.name}</span>
                                     </button>
                                 ))}
-                                {otherAssets.length > 2 && (
+                                {hiddenAssetCount > 0 && (
                                     <button
                                         onClick={onExpandAssets}
                                         className="w-full text-xs text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 py-1"
                                     >
-                                        +{otherAssets.length - 2} more...
+                                        +{hiddenAssetCount} more...
                                     </button>
                                 )}
                             </>

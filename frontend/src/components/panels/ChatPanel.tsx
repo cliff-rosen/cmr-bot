@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import { PaperAirplaneIcon, WrenchScrewdriverIcon } from '@heroicons/react/24/solid';
+import { PaperAirplaneIcon, WrenchScrewdriverIcon, DocumentPlusIcon } from '@heroicons/react/24/solid';
 import { MarkdownRenderer } from '../common';
 import { GeneralChatMessage, ToolCall, SuggestedValue, SuggestedAction } from '../../types/chat';
 
@@ -13,6 +13,7 @@ interface ChatPanelProps {
     onValueSelect: (value: string) => void;
     onActionClick: (action: any) => void;
     onToolHistoryClick: (toolHistory: ToolCall[]) => void;
+    onSaveMessageAsAsset: (message: GeneralChatMessage) => void;
 }
 
 export default function ChatPanel({
@@ -24,7 +25,8 @@ export default function ChatPanel({
     onSendMessage,
     onValueSelect,
     onActionClick,
-    onToolHistoryClick
+    onToolHistoryClick,
+    onSaveMessageAsAsset
 }: ChatPanelProps) {
     const [input, setInput] = useState('');
     const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -116,16 +118,30 @@ export default function ChatPanel({
                                     <p className="text-xs opacity-60">
                                         {new Date(message.timestamp).toLocaleTimeString()}
                                     </p>
-                                    {/* Tool history indicator */}
-                                    {message.role === 'assistant' && message.custom_payload?.type === 'tool_history' && (
+                                    <div className="flex items-center gap-2">
+                                        {/* Tool history indicator */}
+                                        {message.role === 'assistant' && message.custom_payload?.type === 'tool_history' && (
+                                            <button
+                                                onClick={() => onToolHistoryClick(message.custom_payload?.data as ToolCall[])}
+                                                className="flex items-center gap-1 text-xs text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300"
+                                            >
+                                                <WrenchScrewdriverIcon className="h-3 w-3" />
+                                                {(message.custom_payload?.data as ToolCall[])?.length} tool call(s)
+                                            </button>
+                                        )}
+                                        {/* Save as asset button */}
                                         <button
-                                            onClick={() => onToolHistoryClick(message.custom_payload?.data as ToolCall[])}
-                                            className="flex items-center gap-1 text-xs text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300"
+                                            onClick={() => onSaveMessageAsAsset(message)}
+                                            className={`flex items-center gap-1 text-xs hover:opacity-80 ${
+                                                message.role === 'user'
+                                                    ? 'text-blue-200'
+                                                    : 'text-gray-500 dark:text-gray-400'
+                                            }`}
+                                            title="Save as asset"
                                         >
-                                            <WrenchScrewdriverIcon className="h-3 w-3" />
-                                            {(message.custom_payload?.data as ToolCall[])?.length} tool call(s)
+                                            <DocumentPlusIcon className="h-3 w-3" />
                                         </button>
-                                    )}
+                                    </div>
                                 </div>
                             </div>
                         </div>

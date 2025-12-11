@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { ChevronLeftIcon, ChevronRightIcon } from '@heroicons/react/24/solid';
 import { useGeneralChat } from '../hooks/useGeneralChat';
-import { InteractionType, ToolCall } from '../types/chat';
+import { InteractionType, ToolCall, GeneralChatMessage } from '../types/chat';
 import { memoryApi, Memory, assetApi, Asset } from '../lib/api';
 import {
     ConversationSidebar,
@@ -223,6 +223,31 @@ export default function MainPage() {
         }
     };
 
+    const handleClearAllAssetsFromContext = async () => {
+        try {
+            const contextAssets = assets.filter(a => a.is_in_context);
+            await Promise.all(contextAssets.map(a => assetApi.toggleContext(a.asset_id)));
+            setAssets(prev => prev.map(a => ({ ...a, is_in_context: false })));
+        } catch (err) {
+            console.error('Failed to clear assets from context:', err);
+        }
+    };
+
+    const handleSaveMessageAsAsset = async (message: GeneralChatMessage) => {
+        try {
+            const newAsset = await assetApi.create({
+                name: `${message.role === 'user' ? 'User' : 'Assistant'} message - ${new Date(message.timestamp).toLocaleString()}`,
+                asset_type: 'document',
+                content: message.content,
+                description: `Chat message from ${message.role}`,
+                source_conversation_id: conversationId || undefined
+            });
+            setAssets(prev => [newAsset, ...prev]);
+        } catch (err) {
+            console.error('Failed to save message as asset:', err);
+        }
+    };
+
     // Workspace handlers
     const handleSaveToolOutputAsAsset = async (toolCall: ToolCall) => {
         try {
@@ -285,6 +310,7 @@ export default function MainPage() {
                 onValueSelect={handleValueSelect}
                 onActionClick={handleActionClick}
                 onToolHistoryClick={setSelectedToolHistory}
+                onSaveMessageAsAsset={handleSaveMessageAsAsset}
             />
 
             {/* Resizable Divider */}
@@ -334,6 +360,7 @@ export default function MainPage() {
                     onAddWorkingMemory={handleAddWorkingMemory}
                     onToggleMemoryPinned={handleToggleMemoryPinned}
                     onToggleAssetContext={handleToggleAssetContext}
+                    onClearAllAssetsFromContext={handleClearAllAssetsFromContext}
                     onToolHistoryClick={setSelectedToolHistory}
                     onExpandMemories={() => setIsMemoryModalOpen(true)}
                     onExpandAssets={() => setIsAssetModalOpen(true)}
