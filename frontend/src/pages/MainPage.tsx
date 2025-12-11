@@ -1,9 +1,10 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { PaperAirplaneIcon, WrenchScrewdriverIcon, XMarkIcon, PlusIcon, ChatBubbleLeftRightIcon, TrashIcon, ChevronLeftIcon, ChevronRightIcon, Cog6ToothIcon, DocumentIcon, CpuChipIcon, LightBulbIcon, BookmarkIcon, ArchiveBoxArrowDownIcon } from '@heroicons/react/24/solid';
+import { PaperAirplaneIcon, WrenchScrewdriverIcon, XMarkIcon, PlusIcon, ChatBubbleLeftRightIcon, TrashIcon, ChevronLeftIcon, ChevronRightIcon, Cog6ToothIcon, DocumentIcon, CpuChipIcon, LightBulbIcon, BookmarkIcon, ArchiveBoxArrowDownIcon, UserIcon, HeartIcon, BuildingOfficeIcon, FolderIcon, ClockIcon } from '@heroicons/react/24/solid';
+import { BookmarkIcon as BookmarkOutlineIcon } from '@heroicons/react/24/outline';
 import { useGeneralChat } from '../hooks/useGeneralChat';
 import { InteractionType, ToolCall } from '../types/chat';
 import { MarkdownRenderer, JsonRenderer } from '../components/common';
-import { memoryApi, Memory, assetApi, Asset } from '../lib/api';
+import { memoryApi, Memory, MemoryType, assetApi, Asset } from '../lib/api';
 
 const SIDEBAR_WIDTH = 256;
 const CONTEXT_PANEL_WIDTH = 280;
@@ -40,6 +41,7 @@ export default function MainPage() {
     const [memories, setMemories] = useState<Memory[]>([]);
     const [assets, setAssets] = useState<Asset[]>([]);
     const [newMemoryInput, setNewMemoryInput] = useState('');
+    const [memoryFilter, setMemoryFilter] = useState<MemoryType | 'all' | 'pinned'>('all');
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const inputRef = useRef<HTMLTextAreaElement>(null);
     const containerRef = useRef<HTMLDivElement>(null);
@@ -222,10 +224,41 @@ export default function MainPage() {
         }
     };
 
+    // Helper to get memory type icon and color
+    const getMemoryTypeInfo = (type: MemoryType) => {
+        switch (type) {
+            case 'fact':
+                return { icon: UserIcon, color: 'text-blue-500', bg: 'bg-blue-100 dark:bg-blue-900/30', label: 'Fact' };
+            case 'preference':
+                return { icon: HeartIcon, color: 'text-pink-500', bg: 'bg-pink-100 dark:bg-pink-900/30', label: 'Preference' };
+            case 'entity':
+                return { icon: BuildingOfficeIcon, color: 'text-purple-500', bg: 'bg-purple-100 dark:bg-purple-900/30', label: 'Entity' };
+            case 'project':
+                return { icon: FolderIcon, color: 'text-green-500', bg: 'bg-green-100 dark:bg-green-900/30', label: 'Project' };
+            case 'working':
+                return { icon: ClockIcon, color: 'text-yellow-500', bg: 'bg-yellow-100 dark:bg-yellow-900/30', label: 'Session' };
+            default:
+                return { icon: LightBulbIcon, color: 'text-gray-500', bg: 'bg-gray-100 dark:bg-gray-900/30', label: type };
+        }
+    };
+
     // Derived data for context panel
-    const workingMemories = memories.filter(m => m.memory_type === 'working' && m.is_active);
-    const pinnedMemories = memories.filter(m => m.is_pinned);
-    const otherMemories = memories.filter(m => !m.is_pinned && m.memory_type !== 'working');
+    const filteredMemories = memories.filter(m => {
+        if (!m.is_active) return false;
+        if (memoryFilter === 'all') return true;
+        if (memoryFilter === 'pinned') return m.is_pinned;
+        return m.memory_type === memoryFilter;
+    });
+    const pinnedCount = memories.filter(m => m.is_pinned && m.is_active).length;
+    const memoryCounts = {
+        all: memories.filter(m => m.is_active).length,
+        pinned: pinnedCount,
+        fact: memories.filter(m => m.memory_type === 'fact' && m.is_active).length,
+        preference: memories.filter(m => m.memory_type === 'preference' && m.is_active).length,
+        entity: memories.filter(m => m.memory_type === 'entity' && m.is_active).length,
+        project: memories.filter(m => m.memory_type === 'project' && m.is_active).length,
+        working: memories.filter(m => m.memory_type === 'working' && m.is_active).length,
+    };
     const contextAssets = assets.filter(a => a.is_in_context);
     const otherAssets = assets.filter(a => !a.is_in_context);
 
@@ -683,89 +716,171 @@ export default function MainPage() {
                         </div>
                     </div>
 
-                    {/* Working Memory Section */}
+                    {/* Memories Section */}
                     <div className="border-b border-gray-200 dark:border-gray-700">
                         <div className="px-4 py-3 bg-gray-100 dark:bg-gray-800">
-                            <div className="flex items-center gap-2">
-                                <LightBulbIcon className="h-4 w-4 text-yellow-600 dark:text-yellow-400" />
-                                <span className="text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase">
-                                    Working Memory
-                                </span>
+                            <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-2">
+                                    <LightBulbIcon className="h-4 w-4 text-yellow-600 dark:text-yellow-400" />
+                                    <span className="text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase">
+                                        Memories
+                                    </span>
+                                    <span className="text-xs text-gray-500">({memoryCounts.all})</span>
+                                </div>
                             </div>
                         </div>
-                        <div className="p-3 space-y-2">
-                            {/* Add new working memory */}
-                            <div className="flex gap-1">
-                                <input
-                                    type="text"
-                                    value={newMemoryInput}
-                                    onChange={(e) => setNewMemoryInput(e.target.value)}
-                                    onKeyDown={(e) => e.key === 'Enter' && handleAddWorkingMemory()}
-                                    placeholder="Add a note..."
-                                    className="flex-1 px-2 py-1 text-sm rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
-                                />
+
+                        {/* Memory Type Filter Tabs */}
+                        <div className="px-2 py-2 border-b border-gray-200 dark:border-gray-700 overflow-x-auto">
+                            <div className="flex gap-1 min-w-max">
                                 <button
-                                    onClick={handleAddWorkingMemory}
-                                    className="px-2 py-1 text-xs bg-yellow-500 text-white rounded hover:bg-yellow-600"
+                                    onClick={() => setMemoryFilter('all')}
+                                    className={`px-2 py-1 text-xs rounded-full transition-colors ${
+                                        memoryFilter === 'all'
+                                            ? 'bg-gray-200 dark:bg-gray-700 text-gray-900 dark:text-white'
+                                            : 'text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800'
+                                    }`}
                                 >
-                                    +
+                                    All
+                                </button>
+                                <button
+                                    onClick={() => setMemoryFilter('pinned')}
+                                    className={`px-2 py-1 text-xs rounded-full transition-colors flex items-center gap-1 ${
+                                        memoryFilter === 'pinned'
+                                            ? 'bg-blue-100 dark:bg-blue-900/50 text-blue-700 dark:text-blue-300'
+                                            : 'text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800'
+                                    }`}
+                                >
+                                    <BookmarkIcon className="h-3 w-3" />
+                                    {memoryCounts.pinned > 0 && memoryCounts.pinned}
+                                </button>
+                                <button
+                                    onClick={() => setMemoryFilter('fact')}
+                                    className={`px-2 py-1 text-xs rounded-full transition-colors flex items-center gap-1 ${
+                                        memoryFilter === 'fact'
+                                            ? 'bg-blue-100 dark:bg-blue-900/50 text-blue-700 dark:text-blue-300'
+                                            : 'text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800'
+                                    }`}
+                                >
+                                    <UserIcon className="h-3 w-3" />
+                                    {memoryCounts.fact > 0 && memoryCounts.fact}
+                                </button>
+                                <button
+                                    onClick={() => setMemoryFilter('preference')}
+                                    className={`px-2 py-1 text-xs rounded-full transition-colors flex items-center gap-1 ${
+                                        memoryFilter === 'preference'
+                                            ? 'bg-pink-100 dark:bg-pink-900/50 text-pink-700 dark:text-pink-300'
+                                            : 'text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800'
+                                    }`}
+                                >
+                                    <HeartIcon className="h-3 w-3" />
+                                    {memoryCounts.preference > 0 && memoryCounts.preference}
+                                </button>
+                                <button
+                                    onClick={() => setMemoryFilter('entity')}
+                                    className={`px-2 py-1 text-xs rounded-full transition-colors flex items-center gap-1 ${
+                                        memoryFilter === 'entity'
+                                            ? 'bg-purple-100 dark:bg-purple-900/50 text-purple-700 dark:text-purple-300'
+                                            : 'text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800'
+                                    }`}
+                                >
+                                    <BuildingOfficeIcon className="h-3 w-3" />
+                                    {memoryCounts.entity > 0 && memoryCounts.entity}
+                                </button>
+                                <button
+                                    onClick={() => setMemoryFilter('project')}
+                                    className={`px-2 py-1 text-xs rounded-full transition-colors flex items-center gap-1 ${
+                                        memoryFilter === 'project'
+                                            ? 'bg-green-100 dark:bg-green-900/50 text-green-700 dark:text-green-300'
+                                            : 'text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800'
+                                    }`}
+                                >
+                                    <FolderIcon className="h-3 w-3" />
+                                    {memoryCounts.project > 0 && memoryCounts.project}
+                                </button>
+                                <button
+                                    onClick={() => setMemoryFilter('working')}
+                                    className={`px-2 py-1 text-xs rounded-full transition-colors flex items-center gap-1 ${
+                                        memoryFilter === 'working'
+                                            ? 'bg-yellow-100 dark:bg-yellow-900/50 text-yellow-700 dark:text-yellow-300'
+                                            : 'text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800'
+                                    }`}
+                                >
+                                    <ClockIcon className="h-3 w-3" />
+                                    {memoryCounts.working > 0 && memoryCounts.working}
                                 </button>
                             </div>
-                            {/* Working memory list */}
-                            {workingMemories.length === 0 ? (
-                                <div className="text-center text-gray-400 dark:text-gray-500 text-xs py-2">
-                                    No active notes
+                        </div>
+
+                        {/* Quick add working memory */}
+                        {memoryFilter === 'working' && (
+                            <div className="px-3 py-2 border-b border-gray-200 dark:border-gray-700">
+                                <div className="flex gap-1">
+                                    <input
+                                        type="text"
+                                        value={newMemoryInput}
+                                        onChange={(e) => setNewMemoryInput(e.target.value)}
+                                        onKeyDown={(e) => e.key === 'Enter' && handleAddWorkingMemory()}
+                                        placeholder="Add session note..."
+                                        className="flex-1 px-2 py-1 text-xs rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
+                                    />
+                                    <button
+                                        onClick={handleAddWorkingMemory}
+                                        className="px-2 py-1 text-xs bg-yellow-500 text-white rounded hover:bg-yellow-600"
+                                    >
+                                        +
+                                    </button>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Memory list */}
+                        <div className="p-2 space-y-1 max-h-64 overflow-y-auto">
+                            {filteredMemories.length === 0 ? (
+                                <div className="text-center text-gray-400 dark:text-gray-500 text-xs py-4">
+                                    {memoryFilter === 'all'
+                                        ? "No memories yet. The AI will remember important things you share."
+                                        : `No ${memoryFilter === 'pinned' ? 'pinned' : memoryFilter} memories`}
                                 </div>
                             ) : (
-                                workingMemories.map((mem) => (
-                                    <div key={mem.memory_id} className="flex items-start gap-2 px-2 py-1.5 rounded bg-yellow-50 dark:bg-yellow-900/20 text-sm">
-                                        <span className="flex-1 text-gray-700 dark:text-gray-300 text-xs">{mem.content}</span>
-                                        <button
-                                            onClick={() => handleToggleMemoryPinned(mem.memory_id)}
-                                            className="text-gray-400 hover:text-yellow-500"
-                                            title="Pin memory"
+                                filteredMemories.map((mem) => {
+                                    const typeInfo = getMemoryTypeInfo(mem.memory_type);
+                                    const TypeIcon = typeInfo.icon;
+                                    return (
+                                        <div
+                                            key={mem.memory_id}
+                                            className={`flex items-start gap-2 px-2 py-1.5 rounded ${typeInfo.bg}`}
                                         >
-                                            <BookmarkIcon className="h-3 w-3" />
-                                        </button>
-                                        <button
-                                            onClick={() => handleDeleteMemory(mem.memory_id)}
-                                            className="text-gray-400 hover:text-red-500"
-                                        >
-                                            <XMarkIcon className="h-3 w-3" />
-                                        </button>
-                                    </div>
-                                ))
+                                            <TypeIcon className={`h-3 w-3 mt-0.5 flex-shrink-0 ${typeInfo.color}`} />
+                                            <span className="flex-1 text-gray-700 dark:text-gray-300 text-xs leading-relaxed">
+                                                {mem.content}
+                                            </span>
+                                            <div className="flex items-center gap-1 flex-shrink-0">
+                                                <button
+                                                    onClick={() => handleToggleMemoryPinned(mem.memory_id)}
+                                                    className={`${mem.is_pinned ? 'text-blue-500' : 'text-gray-400 hover:text-blue-500'}`}
+                                                    title={mem.is_pinned ? "Unpin" : "Pin memory"}
+                                                >
+                                                    {mem.is_pinned ? (
+                                                        <BookmarkIcon className="h-3 w-3" />
+                                                    ) : (
+                                                        <BookmarkOutlineIcon className="h-3 w-3" />
+                                                    )}
+                                                </button>
+                                                <button
+                                                    onClick={() => handleDeleteMemory(mem.memory_id)}
+                                                    className="text-gray-400 hover:text-red-500"
+                                                    title="Delete memory"
+                                                >
+                                                    <XMarkIcon className="h-3 w-3" />
+                                                </button>
+                                            </div>
+                                        </div>
+                                    );
+                                })
                             )}
                         </div>
                     </div>
-
-                    {/* Pinned Memories Section */}
-                    {pinnedMemories.length > 0 && (
-                        <div className="border-b border-gray-200 dark:border-gray-700">
-                            <div className="px-4 py-3 bg-gray-100 dark:bg-gray-800">
-                                <div className="flex items-center gap-2">
-                                    <BookmarkIcon className="h-4 w-4 text-blue-600 dark:text-blue-400" />
-                                    <span className="text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase">
-                                        Pinned
-                                    </span>
-                                </div>
-                            </div>
-                            <div className="p-3 space-y-1">
-                                {pinnedMemories.map((mem) => (
-                                    <div key={mem.memory_id} className="flex items-start gap-2 px-2 py-1.5 rounded text-sm">
-                                        <span className="flex-1 text-gray-700 dark:text-gray-300 text-xs">{mem.content}</span>
-                                        <button
-                                            onClick={() => handleToggleMemoryPinned(mem.memory_id)}
-                                            className="text-blue-500 hover:text-blue-600"
-                                            title="Unpin"
-                                        >
-                                            <BookmarkIcon className="h-3 w-3" />
-                                        </button>
-                                    </div>
-                                ))}
-                            </div>
-                        </div>
-                    )}
 
                     {/* Assets in Context Section */}
                     <div className="border-b border-gray-200 dark:border-gray-700">
