@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect } from 'react';
 import { generalChatApi } from '../lib/api/generalChatApi';
-import { conversationApi } from '../lib/api/conversationApi';
+import { conversationApi, Conversation } from '../lib/api/conversationApi';
 import {
     GeneralChatMessage,
     InteractionType,
@@ -15,11 +15,25 @@ export function useGeneralChat(initialContext?: Record<string, any>) {
     const [streamingText, setStreamingText] = useState('');
     const [statusText, setStatusText] = useState<string | null>(null);
     const [conversationId, setConversationId] = useState<number | null>(null);
-    const [isLoadingConversation, setIsLoadingConversation] = useState(true);
+    const [isLoadingConversation, setIsLoadingConversation] = useState(false);
 
-    // No auto-load on mount - client controls when to load a conversation
+    // Conversation list management
+    const [conversations, setConversations] = useState<Conversation[]>([]);
+    const [isLoadingConversations, setIsLoadingConversations] = useState(true);
+
+    // Load conversation list on mount
     useEffect(() => {
-        setIsLoadingConversation(false);
+        const loadConversations = async () => {
+            try {
+                const convs = await conversationApi.list(50);
+                setConversations(convs);
+            } catch (err) {
+                console.error('Failed to load conversations:', err);
+            } finally {
+                setIsLoadingConversations(false);
+            }
+        };
+        loadConversations();
     }, []);
 
     const sendMessage = useCallback(async (
@@ -133,12 +147,38 @@ export function useGeneralChat(initialContext?: Record<string, any>) {
             setMessages([]);
             setContext(initialContext || {});
             setError(null);
+            // Add to conversations list
+            setConversations(prev => [conversation, ...prev]);
             return conversation.conversation_id;
         } catch (err) {
             console.error('Failed to create conversation:', err);
             throw err;
         }
     }, [initialContext]);
+
+    const deleteConversation = useCallback(async (id: number) => {
+        try {
+            await conversationApi.delete(id);
+            setConversations(prev => prev.filter(c => c.conversation_id !== id));
+            // If we deleted the current conversation, reset state
+            if (id === conversationId) {
+                setConversationId(null);
+                setMessages([]);
+            }
+        } catch (err) {
+            console.error('Failed to delete conversation:', err);
+            throw err;
+        }
+    }, [conversationId]);
+
+    const refreshConversations = useCallback(async () => {
+        try {
+            const convs = await conversationApi.list(50);
+            setConversations(convs);
+        } catch (err) {
+            console.error('Failed to refresh conversations:', err);
+        }
+    }, []);
 
     const loadConversation = useCallback(async (id: number) => {
         try {
@@ -169,18 +209,26 @@ export function useGeneralChat(initialContext?: Record<string, any>) {
     }, []);
 
     return {
+        // Chat state
         messages,
         context,
         isLoading,
         error,
         streamingText,
         statusText,
+        // Conversation state
         conversationId,
+        conversations,
         isLoadingConversation,
+        isLoadingConversations,
+        // Chat actions
         sendMessage,
         updateContext,
         reset,
+        // Conversation actions
         newConversation,
-        loadConversation
+        loadConversation,
+        deleteConversation,
+        refreshConversations
     };
 }

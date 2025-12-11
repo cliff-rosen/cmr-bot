@@ -1,9 +1,9 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { PaperAirplaneIcon, WrenchScrewdriverIcon, XMarkIcon, PlusIcon, ChatBubbleLeftRightIcon, TrashIcon, ChevronLeftIcon, ChevronRightIcon, Cog6ToothIcon, DocumentIcon, CpuChipIcon, LightBulbIcon, BookmarkIcon } from '@heroicons/react/24/solid';
+import { PaperAirplaneIcon, WrenchScrewdriverIcon, XMarkIcon, PlusIcon, ChatBubbleLeftRightIcon, TrashIcon, ChevronLeftIcon, ChevronRightIcon, Cog6ToothIcon, DocumentIcon, CpuChipIcon, LightBulbIcon, BookmarkIcon, ArchiveBoxArrowDownIcon } from '@heroicons/react/24/solid';
 import { useGeneralChat } from '../hooks/useGeneralChat';
 import { InteractionType, ToolCall } from '../types/chat';
 import { MarkdownRenderer, JsonRenderer } from '../components/common';
-import { conversationApi, Conversation, memoryApi, Memory, assetApi, Asset } from '../lib/api';
+import { memoryApi, Memory, assetApi, Asset } from '../lib/api';
 
 const SIDEBAR_WIDTH = 256;
 const CONTEXT_PANEL_WIDTH = 280;
@@ -25,13 +25,14 @@ export default function MainPage() {
         streamingText,
         statusText,
         conversationId,
+        conversations,
+        isLoadingConversations,
         newConversation,
-        loadConversation
+        loadConversation,
+        deleteConversation
     } = useGeneralChat({});
     const [input, setInput] = useState('');
     const [selectedToolHistory, setSelectedToolHistory] = useState<ToolCall[] | null>(null);
-    const [conversations, setConversations] = useState<Conversation[]>([]);
-    const [isLoadingConversations, setIsLoadingConversations] = useState(true);
     const [isSidebarOpen, setIsSidebarOpen] = useState(true);
     const [isContextPanelOpen, setIsContextPanelOpen] = useState(true);
     const [workspaceWidth, setWorkspaceWidth] = useState(400);
@@ -87,18 +88,8 @@ export default function MainPage() {
         };
     }, [isDragging, isSidebarOpen, isContextPanelOpen]);
 
-    // Load conversation list, memories, and assets
+    // Load memories and assets on mount
     useEffect(() => {
-        const loadConversations = async () => {
-            try {
-                const convs = await conversationApi.list(50);
-                setConversations(convs);
-            } catch (err) {
-                console.error('Failed to load conversations:', err);
-            } finally {
-                setIsLoadingConversations(false);
-            }
-        };
         const loadMemoriesAndAssets = async () => {
             try {
                 const [mems, assts] = await Promise.all([
@@ -111,25 +102,10 @@ export default function MainPage() {
                 console.error('Failed to load memories/assets:', err);
             }
         };
-        loadConversations();
         loadMemoriesAndAssets();
     }, []);
 
-    // Refresh conversation list when conversationId changes (new conversation created)
-    useEffect(() => {
-        if (conversationId) {
-            const refreshConversations = async () => {
-                try {
-                    const convs = await conversationApi.list(50);
-                    setConversations(convs);
-                } catch (err) {
-                    console.error('Failed to refresh conversations:', err);
-                }
-            };
-            refreshConversations();
-        }
-    }, [conversationId]);
-
+    // Conversation handlers - delegate to hook
     const handleNewConversation = async () => {
         try {
             await newConversation();
@@ -152,11 +128,7 @@ export default function MainPage() {
         e.stopPropagation();
         if (!confirm('Delete this conversation?')) return;
         try {
-            await conversationApi.delete(convId);
-            setConversations(prev => prev.filter(c => c.conversation_id !== convId));
-            if (convId === conversationId) {
-                await newConversation();
-            }
+            await deleteConversation(convId);
         } catch (err) {
             console.error('Failed to delete conversation:', err);
         }
@@ -227,6 +199,26 @@ export default function MainPage() {
             setAssets(prev => prev.filter(a => a.asset_id !== assetId));
         } catch (err) {
             console.error('Failed to delete asset:', err);
+        }
+    };
+
+    // Save tool output as asset
+    const handleSaveToolOutputAsAsset = async (toolCall: ToolCall) => {
+        try {
+            const content = typeof toolCall.output === 'string'
+                ? toolCall.output
+                : JSON.stringify(toolCall.output, null, 2);
+
+            const newAsset = await assetApi.create({
+                name: `${toolCall.tool_name} result`,
+                asset_type: 'data',
+                content,
+                description: `Output from ${toolCall.tool_name} tool call`,
+                source_conversation_id: conversationId || undefined
+            });
+            setAssets(prev => [newAsset, ...prev]);
+        } catch (err) {
+            console.error('Failed to save as asset:', err);
         }
     };
 
@@ -602,7 +594,17 @@ export default function MainPage() {
                                             </div>
                                         </div>
                                         <div>
-                                            <h4 className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase mb-1">Output</h4>
+                                            <div className="flex items-center justify-between mb-1">
+                                                <h4 className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Output</h4>
+                                                <button
+                                                    onClick={() => handleSaveToolOutputAsAsset(toolCall)}
+                                                    className="flex items-center gap-1 px-2 py-1 text-xs text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded transition-colors"
+                                                    title="Save output as asset"
+                                                >
+                                                    <ArchiveBoxArrowDownIcon className="h-3 w-3" />
+                                                    Save as Asset
+                                                </button>
+                                            </div>
                                             <div className="bg-gray-50 dark:bg-gray-900 rounded p-2 text-sm max-h-64 overflow-y-auto">
                                                 {typeof toolCall.output === 'string' ? (
                                                     <pre className="whitespace-pre-wrap text-gray-700 dark:text-gray-300">{toolCall.output}</pre>
