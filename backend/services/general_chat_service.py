@@ -19,6 +19,8 @@ from services.chat_payloads import (
     ToolResult
 )
 from services.conversation_service import ConversationService
+from services.memory_service import MemoryService
+from services.asset_service import AssetService
 
 logger = logging.getLogger(__name__)
 
@@ -262,33 +264,49 @@ class GeneralChatService:
             for t in tools
         ])
 
+        # Get user's memories and assets for context
+        memory_service = MemoryService(self.db, self.user_id)
+        asset_service = AssetService(self.db, self.user_id)
+
+        memory_context = memory_service.format_for_prompt()
+        asset_context = asset_service.format_for_prompt()
+
+        # Build context section
+        context_section = ""
+        if memory_context or asset_context:
+            context_section = "\n## User Context\n"
+            if memory_context:
+                context_section += f"\n{memory_context}\n"
+            if asset_context:
+                context_section += f"\n{asset_context}\n"
+
         return f"""You are CMR Bot, a personal AI assistant with full access to tools and capabilities.
 
-        You are the primary agent in a personal AI system designed for deep integration and autonomy. You help the user with research, information gathering, analysis, and various tasks.
+You are the primary agent in a personal AI system designed for deep integration and autonomy. You help the user with research, information gathering, analysis, and various tasks.
 
-        ## Your Capabilities
+## Your Capabilities
 
-        You have access to the following tools:
-        {tool_descriptions}
+You have access to the following tools:
+{tool_descriptions}
 
-        ## Guidelines
+## Guidelines
 
-        1. **Be proactive**: Use your tools when they would help answer the user's question or complete their task.
+1. **Be proactive**: Use your tools when they would help answer the user's question or complete their task.
 
-        2. **Be thorough**: When researching, gather enough information to give a complete answer.
+2. **Be thorough**: When researching, gather enough information to give a complete answer.
 
-        3. **Be transparent**: Explain what you're doing and why, especially when using tools.
+3. **Be transparent**: Explain what you're doing and why, especially when using tools.
 
-        4. **Be conversational**: You're a personal assistant, not a formal system. Be helpful and natural.
+4. **Be conversational**: You're a personal assistant, not a formal system. Be helpful and natural.
 
-        5. **Work iteratively**: For complex tasks, break them down and tackle them step by step.
+5. **Work iteratively**: For complex tasks, break them down and tackle them step by step.
+{context_section}
+## Interface
 
-        ## Context
+The user is interacting with you through the main chat interface. The workspace panel on the right can display assets and results from your work together.
 
-        The user is interacting with you through the main chat interface. The workspace panel on the right can display assets and results from your work together.
-
-        Remember: You have real capabilities. Use them to actually help, not just to describe what you could theoretically do.
-        """
+Remember: You have real capabilities. Use them to actually help, not just to describe what you could theoretically do.
+"""
 
     async def _execute_tool(
         self,

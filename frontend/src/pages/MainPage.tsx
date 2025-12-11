@@ -1,9 +1,9 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { PaperAirplaneIcon, WrenchScrewdriverIcon, XMarkIcon, PlusIcon, ChatBubbleLeftRightIcon, TrashIcon, ChevronLeftIcon, ChevronRightIcon, Cog6ToothIcon, DocumentIcon, CpuChipIcon } from '@heroicons/react/24/solid';
+import { PaperAirplaneIcon, WrenchScrewdriverIcon, XMarkIcon, PlusIcon, ChatBubbleLeftRightIcon, TrashIcon, ChevronLeftIcon, ChevronRightIcon, Cog6ToothIcon, DocumentIcon, CpuChipIcon, LightBulbIcon, BookmarkIcon } from '@heroicons/react/24/solid';
 import { useGeneralChat } from '../hooks/useGeneralChat';
 import { InteractionType, ToolCall } from '../types/chat';
 import { MarkdownRenderer, JsonRenderer } from '../components/common';
-import { conversationApi, Conversation } from '../lib/api';
+import { conversationApi, Conversation, memoryApi, Memory, assetApi, Asset } from '../lib/api';
 
 const SIDEBAR_WIDTH = 256;
 const CONTEXT_PANEL_WIDTH = 280;
@@ -36,6 +36,9 @@ export default function MainPage() {
     const [isContextPanelOpen, setIsContextPanelOpen] = useState(true);
     const [workspaceWidth, setWorkspaceWidth] = useState(400);
     const [isDragging, setIsDragging] = useState(false);
+    const [memories, setMemories] = useState<Memory[]>([]);
+    const [assets, setAssets] = useState<Asset[]>([]);
+    const [newMemoryInput, setNewMemoryInput] = useState('');
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const inputRef = useRef<HTMLTextAreaElement>(null);
     const containerRef = useRef<HTMLDivElement>(null);
@@ -84,7 +87,7 @@ export default function MainPage() {
         };
     }, [isDragging, isSidebarOpen, isContextPanelOpen]);
 
-    // Load conversation list
+    // Load conversation list, memories, and assets
     useEffect(() => {
         const loadConversations = async () => {
             try {
@@ -96,7 +99,20 @@ export default function MainPage() {
                 setIsLoadingConversations(false);
             }
         };
+        const loadMemoriesAndAssets = async () => {
+            try {
+                const [mems, assts] = await Promise.all([
+                    memoryApi.list(),
+                    assetApi.list()
+                ]);
+                setMemories(mems);
+                setAssets(assts);
+            } catch (err) {
+                console.error('Failed to load memories/assets:', err);
+            }
+        };
         loadConversations();
+        loadMemoriesAndAssets();
     }, []);
 
     // Refresh conversation list when conversationId changes (new conversation created)
@@ -145,6 +161,81 @@ export default function MainPage() {
             console.error('Failed to delete conversation:', err);
         }
     };
+
+    // Memory handlers
+    const handleAddWorkingMemory = async () => {
+        if (!newMemoryInput.trim()) return;
+        try {
+            const newMem = await memoryApi.create({
+                content: newMemoryInput.trim(),
+                memory_type: 'working',
+                source_conversation_id: conversationId || undefined
+            });
+            setMemories(prev => [newMem, ...prev]);
+            setNewMemoryInput('');
+        } catch (err) {
+            console.error('Failed to add memory:', err);
+        }
+    };
+
+    const handleToggleMemoryActive = async (memId: number) => {
+        try {
+            const result = await memoryApi.toggleActive(memId);
+            setMemories(prev => prev.map(m =>
+                m.memory_id === memId ? { ...m, is_active: result.is_active } : m
+            ));
+        } catch (err) {
+            console.error('Failed to toggle memory:', err);
+        }
+    };
+
+    const handleToggleMemoryPinned = async (memId: number) => {
+        try {
+            const result = await memoryApi.togglePinned(memId);
+            setMemories(prev => prev.map(m =>
+                m.memory_id === memId ? { ...m, is_pinned: result.is_pinned } : m
+            ));
+        } catch (err) {
+            console.error('Failed to toggle memory pin:', err);
+        }
+    };
+
+    const handleDeleteMemory = async (memId: number) => {
+        try {
+            await memoryApi.delete(memId);
+            setMemories(prev => prev.filter(m => m.memory_id !== memId));
+        } catch (err) {
+            console.error('Failed to delete memory:', err);
+        }
+    };
+
+    // Asset handlers
+    const handleToggleAssetContext = async (assetId: number) => {
+        try {
+            const result = await assetApi.toggleContext(assetId);
+            setAssets(prev => prev.map(a =>
+                a.asset_id === assetId ? { ...a, is_in_context: result.is_in_context } : a
+            ));
+        } catch (err) {
+            console.error('Failed to toggle asset context:', err);
+        }
+    };
+
+    const handleDeleteAsset = async (assetId: number) => {
+        try {
+            await assetApi.delete(assetId);
+            setAssets(prev => prev.filter(a => a.asset_id !== assetId));
+        } catch (err) {
+            console.error('Failed to delete asset:', err);
+        }
+    };
+
+    // Derived data for context panel
+    const workingMemories = memories.filter(m => m.memory_type === 'working' && m.is_active);
+    const pinnedMemories = memories.filter(m => m.is_pinned);
+    const otherMemories = memories.filter(m => !m.is_pinned && m.memory_type !== 'working');
+    const contextAssets = assets.filter(a => a.is_in_context);
+    const otherAssets = assets.filter(a => !a.is_in_context);
 
     const scrollToBottom = () => {
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -590,6 +681,138 @@ export default function MainPage() {
                         </div>
                     </div>
 
+                    {/* Working Memory Section */}
+                    <div className="border-b border-gray-200 dark:border-gray-700">
+                        <div className="px-4 py-3 bg-gray-100 dark:bg-gray-800">
+                            <div className="flex items-center gap-2">
+                                <LightBulbIcon className="h-4 w-4 text-yellow-600 dark:text-yellow-400" />
+                                <span className="text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase">
+                                    Working Memory
+                                </span>
+                            </div>
+                        </div>
+                        <div className="p-3 space-y-2">
+                            {/* Add new working memory */}
+                            <div className="flex gap-1">
+                                <input
+                                    type="text"
+                                    value={newMemoryInput}
+                                    onChange={(e) => setNewMemoryInput(e.target.value)}
+                                    onKeyDown={(e) => e.key === 'Enter' && handleAddWorkingMemory()}
+                                    placeholder="Add a note..."
+                                    className="flex-1 px-2 py-1 text-sm rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
+                                />
+                                <button
+                                    onClick={handleAddWorkingMemory}
+                                    className="px-2 py-1 text-xs bg-yellow-500 text-white rounded hover:bg-yellow-600"
+                                >
+                                    +
+                                </button>
+                            </div>
+                            {/* Working memory list */}
+                            {workingMemories.length === 0 ? (
+                                <div className="text-center text-gray-400 dark:text-gray-500 text-xs py-2">
+                                    No active notes
+                                </div>
+                            ) : (
+                                workingMemories.map((mem) => (
+                                    <div key={mem.memory_id} className="flex items-start gap-2 px-2 py-1.5 rounded bg-yellow-50 dark:bg-yellow-900/20 text-sm">
+                                        <span className="flex-1 text-gray-700 dark:text-gray-300 text-xs">{mem.content}</span>
+                                        <button
+                                            onClick={() => handleToggleMemoryPinned(mem.memory_id)}
+                                            className="text-gray-400 hover:text-yellow-500"
+                                            title="Pin memory"
+                                        >
+                                            <BookmarkIcon className="h-3 w-3" />
+                                        </button>
+                                        <button
+                                            onClick={() => handleDeleteMemory(mem.memory_id)}
+                                            className="text-gray-400 hover:text-red-500"
+                                        >
+                                            <XMarkIcon className="h-3 w-3" />
+                                        </button>
+                                    </div>
+                                ))
+                            )}
+                        </div>
+                    </div>
+
+                    {/* Pinned Memories Section */}
+                    {pinnedMemories.length > 0 && (
+                        <div className="border-b border-gray-200 dark:border-gray-700">
+                            <div className="px-4 py-3 bg-gray-100 dark:bg-gray-800">
+                                <div className="flex items-center gap-2">
+                                    <BookmarkIcon className="h-4 w-4 text-blue-600 dark:text-blue-400" />
+                                    <span className="text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase">
+                                        Pinned
+                                    </span>
+                                </div>
+                            </div>
+                            <div className="p-3 space-y-1">
+                                {pinnedMemories.map((mem) => (
+                                    <div key={mem.memory_id} className="flex items-start gap-2 px-2 py-1.5 rounded text-sm">
+                                        <span className="flex-1 text-gray-700 dark:text-gray-300 text-xs">{mem.content}</span>
+                                        <button
+                                            onClick={() => handleToggleMemoryPinned(mem.memory_id)}
+                                            className="text-blue-500 hover:text-blue-600"
+                                            title="Unpin"
+                                        >
+                                            <BookmarkIcon className="h-3 w-3" />
+                                        </button>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Assets in Context Section */}
+                    <div className="border-b border-gray-200 dark:border-gray-700">
+                        <div className="px-4 py-3 bg-gray-100 dark:bg-gray-800">
+                            <div className="flex items-center gap-2">
+                                <DocumentIcon className="h-4 w-4 text-orange-600 dark:text-orange-400" />
+                                <span className="text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase">
+                                    Assets in Context
+                                </span>
+                            </div>
+                        </div>
+                        <div className="p-3 space-y-1">
+                            {contextAssets.length === 0 ? (
+                                <div className="text-center text-gray-400 dark:text-gray-500 text-xs py-2">
+                                    No assets loaded
+                                </div>
+                            ) : (
+                                contextAssets.map((asset) => (
+                                    <div key={asset.asset_id} className="flex items-center gap-2 px-2 py-1.5 rounded bg-orange-50 dark:bg-orange-900/20 text-sm">
+                                        <span className="flex-1 text-gray-700 dark:text-gray-300 text-xs truncate">{asset.name}</span>
+                                        <button
+                                            onClick={() => handleToggleAssetContext(asset.asset_id)}
+                                            className="text-gray-400 hover:text-red-500"
+                                            title="Remove from context"
+                                        >
+                                            <XMarkIcon className="h-3 w-3" />
+                                        </button>
+                                    </div>
+                                ))
+                            )}
+                            {/* Show other assets that can be added */}
+                            {otherAssets.length > 0 && (
+                                <div className="mt-2 pt-2 border-t border-gray-200 dark:border-gray-700">
+                                    <div className="text-xs text-gray-500 mb-1">Available:</div>
+                                    {otherAssets.slice(0, 3).map((asset) => (
+                                        <button
+                                            key={asset.asset_id}
+                                            onClick={() => handleToggleAssetContext(asset.asset_id)}
+                                            className="w-full text-left flex items-center gap-2 px-2 py-1 rounded text-xs text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800"
+                                        >
+                                            <PlusIcon className="h-3 w-3" />
+                                            {asset.name}
+                                        </button>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
+                    </div>
+
                     {/* Recent Tool Calls Section */}
                     {lastToolHistory && lastToolHistory.length > 0 && (
                         <div className="border-b border-gray-200 dark:border-gray-700">
@@ -614,21 +837,6 @@ export default function MainPage() {
                             </div>
                         </div>
                     )}
-
-                    {/* Assets Section (Placeholder) */}
-                    <div className="border-b border-gray-200 dark:border-gray-700">
-                        <div className="px-4 py-3 bg-gray-100 dark:bg-gray-800">
-                            <div className="flex items-center gap-2">
-                                <DocumentIcon className="h-4 w-4 text-orange-600 dark:text-orange-400" />
-                                <span className="text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase">
-                                    Assets in Context
-                                </span>
-                            </div>
-                        </div>
-                        <div className="p-4 text-center text-gray-400 dark:text-gray-500 text-sm">
-                            No assets loaded
-                        </div>
-                    </div>
                 </div>
             </div>
         </div>

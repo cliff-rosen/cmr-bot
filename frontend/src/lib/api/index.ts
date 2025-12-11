@@ -96,3 +96,9 @@ export const formatTimestamp = (timestamp: string): string => {
 // Re-export API clients
 export { conversationApi } from './conversationApi';
 export type { Conversation, ConversationWithMessages, Message } from './conversationApi';
+
+export { memoryApi } from './memoryApi';
+export type { Memory, MemoryCreate, MemoryUpdate, MemoryType } from './memoryApi';
+
+export { assetApi } from './assetApi';
+export type { Asset, AssetCreate, AssetUpdate, AssetType } from './assetApi';
