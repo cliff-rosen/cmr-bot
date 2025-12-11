@@ -135,6 +135,9 @@ class Memory(Base):
     content = Column(Text, nullable=False)
     source_conversation_id = Column(Integer, ForeignKey("conversations.conversation_id", ondelete="SET NULL"), nullable=True)
 
+    # Embedding for semantic search (stored as JSON array)
+    embedding = Column(JSON, nullable=True)
+
     # Temporal
     created_at = Column(DateTime, default=datetime.utcnow)
     expires_at = Column(DateTime, nullable=True)  # For working memory auto-cleanup

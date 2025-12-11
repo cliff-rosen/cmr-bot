@@ -181,6 +181,12 @@ FETCH_WEBPAGE_TOOL = ToolConfig(
 
 def register_builtin_tools():
     """Register all built-in tools. Called at startup."""
+    # Search tools
     register_tool(WEB_SEARCH_TOOL)
     register_tool(FETCH_WEBPAGE_TOOL)
-    logger.info(f"Registered {2} built-in tools")
+
+    # Memory tools
+    from .memory_tools import register_memory_tools
+    register_memory_tools()
+
+    logger.info("Registered all built-in tools")

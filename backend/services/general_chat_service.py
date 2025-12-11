@@ -45,7 +45,6 @@ class GeneralChatService:
         from routers.general_chat import ChatStreamChunk, ChatStatusResponse
 
         try:
-            system_prompt = self._build_system_prompt(request.context)
             user_prompt = request.message
 
             # Handle conversation persistence
@@ -78,6 +77,15 @@ class GeneralChatService:
                 {"role": msg.role, "content": msg.content}
                 for msg in db_messages
             ]
+
+            # Build system prompt with semantic memory search based on user's message
+            system_prompt = self._build_system_prompt(request.context, user_message=user_prompt)
+
+            # Build tool context (passed to tool executors)
+            tool_context = {
+                **(request.context or {}),
+                "conversation_id": conversation_id
+            }
 
             # Get all available tools
             tools = get_all_tools()
@@ -166,7 +174,7 @@ class GeneralChatService:
 
                 # Execute tool
                 tool_result_str, tool_output_data = await self._execute_tool(
-                    tool_name, tool_input, tools_by_name, request.context
+                    tool_name, tool_input, tools_by_name, tool_context
                 )
 
                 # Record tool call in history
@@ -254,8 +262,13 @@ class GeneralChatService:
             )
             yield error_response.model_dump_json()
 
-    def _build_system_prompt(self, context: Dict[str, Any]) -> str:
-        """Build the system prompt for the primary agent."""
+    def _build_system_prompt(self, context: Dict[str, Any], user_message: Optional[str] = None) -> str:
+        """Build the system prompt for the primary agent.
+
+        Args:
+            context: Request context
+            user_message: The user's current message (for semantic memory search)
+        """
 
         # Get list of available tools for the prompt
         tools = get_all_tools()
@@ -268,7 +281,8 @@ class GeneralChatService:
         memory_service = MemoryService(self.db, self.user_id)
         asset_service = AssetService(self.db, self.user_id)
 
-        memory_context = memory_service.format_for_prompt()
+        # Include semantically relevant memories based on user's message
+        memory_context = memory_service.format_for_prompt(include_relevant=user_message)
         asset_context = asset_service.format_for_prompt()
 
         # Build context section
@@ -282,31 +296,42 @@ class GeneralChatService:
 
         return f"""You are CMR Bot, a personal AI assistant with full access to tools and capabilities.
 
-You are the primary agent in a personal AI system designed for deep integration and autonomy. You help the user with research, information gathering, analysis, and various tasks.
+        You are the primary agent in a personal AI system designed for deep integration and autonomy. You help the user with research, information gathering, analysis, and various tasks.
 
-## Your Capabilities
+        ## Your Capabilities
 
-You have access to the following tools:
-{tool_descriptions}
+        You have access to the following tools:
+        {tool_descriptions}
 
-## Guidelines
+        ## Guidelines
 
-1. **Be proactive**: Use your tools when they would help answer the user's question or complete their task.
+        1. **Be proactive**: Use your tools when they would help answer the user's question or complete their task.
 
-2. **Be thorough**: When researching, gather enough information to give a complete answer.
+        2. **Be thorough**: When researching, gather enough information to give a complete answer.
 
-3. **Be transparent**: Explain what you're doing and why, especially when using tools.
+        3. **Be transparent**: Explain what you're doing and why, especially when using tools.
 
-4. **Be conversational**: You're a personal assistant, not a formal system. Be helpful and natural.
+        4. **Be conversational**: You're a personal assistant, not a formal system. Be helpful and natural.
 
-5. **Work iteratively**: For complex tasks, break them down and tackle them step by step.
-{context_section}
-## Interface
+        5. **Work iteratively**: For complex tasks, break them down and tackle them step by step.
 
-The user is interacting with you through the main chat interface. The workspace panel on the right can display assets and results from your work together.
+        ## Memory Management
 
-Remember: You have real capabilities. Use them to actually help, not just to describe what you could theoretically do.
-"""
+        You have the ability to remember things about the user across conversations using the save_memory tool. Proactively save important information when the user shares:
+        - Personal details (name, job, location, timezone)
+        - Preferences (communication style, likes/dislikes, how they want things done)
+        - Projects they're working on
+        - People, companies, or things they reference frequently
+        - Important context that would be useful in future conversations
+
+        If you notice the user correcting something you remembered wrong, use delete_memory to remove the incorrect information and save the correct version.
+        {context_section}
+        ## Interface
+
+        The user is interacting with you through the main chat interface. The workspace panel on the right can display assets and results from your work together.
+
+        Remember: You have real capabilities. Use them to actually help, not just to describe what you could theoretically do.
+        """
 
     async def _execute_tool(
         self,
