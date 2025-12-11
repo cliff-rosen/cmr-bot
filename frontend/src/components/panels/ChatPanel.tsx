@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
-import { PaperAirplaneIcon, WrenchScrewdriverIcon, DocumentPlusIcon } from '@heroicons/react/24/solid';
+import { PaperAirplaneIcon, WrenchScrewdriverIcon, DocumentPlusIcon, ArrowTopRightOnSquareIcon } from '@heroicons/react/24/solid';
 import { MarkdownRenderer } from '../common';
-import { GeneralChatMessage, ToolCall, SuggestedValue, SuggestedAction } from '../../types/chat';
+import { GeneralChatMessage, ToolCall, SuggestedValue, SuggestedAction, WorkspacePayload, parseWorkspacePayload } from '../../types/chat';
 
 interface ChatPanelProps {
     messages: GeneralChatMessage[];
@@ -14,6 +14,7 @@ interface ChatPanelProps {
     onActionClick: (action: any) => void;
     onToolHistoryClick: (toolHistory: ToolCall[]) => void;
     onSaveMessageAsAsset: (message: GeneralChatMessage) => void;
+    onPayloadClick: (payload: WorkspacePayload) => void;
 }
 
 export default function ChatPanel({
@@ -26,7 +27,8 @@ export default function ChatPanel({
     onValueSelect,
     onActionClick,
     onToolHistoryClick,
-    onSaveMessageAsAsset
+    onSaveMessageAsAsset,
+    onPayloadClick
 }: ChatPanelProps) {
     const [input, setInput] = useState('');
     const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -99,7 +101,13 @@ export default function ChatPanel({
                     </div>
                 )}
 
-                {messages.map((message, idx) => (
+                {messages.map((message, idx) => {
+                    // Parse payload from assistant messages
+                    const { text: displayText, payload } = message.role === 'assistant'
+                        ? parseWorkspacePayload(message.content)
+                        : { text: message.content, payload: null };
+
+                    return (
                     <div key={idx}>
                         <div className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}>
                             <div
@@ -110,10 +118,27 @@ export default function ChatPanel({
                                 }`}
                             >
                                 {message.role === 'assistant' ? (
-                                    <MarkdownRenderer content={message.content} />
+                                    <MarkdownRenderer content={displayText} />
                                 ) : (
-                                    <div className="text-sm whitespace-pre-wrap">{message.content}</div>
+                                    <div className="text-sm whitespace-pre-wrap">{displayText}</div>
                                 )}
+
+                                {/* Payload indicator */}
+                                {payload && (
+                                    <button
+                                        onClick={() => onPayloadClick(payload)}
+                                        className="mt-2 w-full flex items-center justify-between gap-2 px-3 py-2 bg-white/50 dark:bg-gray-700/50 rounded-lg border border-gray-200 dark:border-gray-600 hover:bg-white dark:hover:bg-gray-700 transition-colors"
+                                    >
+                                        <span className="text-sm font-medium text-gray-700 dark:text-gray-200">
+                                            {payload.title}
+                                        </span>
+                                        <span className="flex items-center gap-1 text-xs text-blue-600 dark:text-blue-400">
+                                            <ArrowTopRightOnSquareIcon className="h-3 w-3" />
+                                            View in Workspace
+                                        </span>
+                                    </button>
+                                )}
+
                                 <div className="flex items-center justify-between mt-2">
                                     <p className="text-xs opacity-60">
                                         {new Date(message.timestamp).toLocaleTimeString()}
@@ -184,7 +209,8 @@ export default function ChatPanel({
                             </div>
                         )}
                     </div>
-                ))}
+                    );
+                })}
 
                 {/* Streaming message */}
                 {streamingText && (

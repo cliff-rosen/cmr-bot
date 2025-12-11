@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { ChevronLeftIcon, ChevronRightIcon } from '@heroicons/react/24/solid';
 import { useGeneralChat } from '../hooks/useGeneralChat';
-import { InteractionType, ToolCall, GeneralChatMessage } from '../types/chat';
+import { InteractionType, ToolCall, GeneralChatMessage, WorkspacePayload } from '../types/chat';
 import { memoryApi, Memory, assetApi, Asset } from '../lib/api';
 import {
     ConversationSidebar,
@@ -51,6 +51,7 @@ export default function MainPage() {
 
     // Content state
     const [selectedToolHistory, setSelectedToolHistory] = useState<ToolCall[] | null>(null);
+    const [activePayload, setActivePayload] = useState<WorkspacePayload | null>(null);
     const [memories, setMemories] = useState<Memory[]>([]);
     const [assets, setAssets] = useState<Asset[]>([]);
 
@@ -268,6 +269,37 @@ export default function MainPage() {
         }
     };
 
+    // Payload handlers
+    const handlePayloadClick = (payload: WorkspacePayload) => {
+        setSelectedToolHistory(null); // Clear tool history when viewing a payload
+        setActivePayload(payload);
+    };
+
+    const handlePayloadEdit = (updatedPayload: WorkspacePayload) => {
+        setActivePayload(updatedPayload);
+    };
+
+    const handleSavePayloadAsAsset = async (payload: WorkspacePayload) => {
+        try {
+            const assetType = payload.type === 'code' ? 'code' : 'document';
+            const newAsset = await assetApi.create({
+                name: payload.title,
+                asset_type: assetType,
+                content: payload.content,
+                description: `${payload.type} created from chat`,
+                source_conversation_id: conversationId || undefined
+            });
+            setAssets(prev => [newAsset, ...prev]);
+        } catch (err) {
+            console.error('Failed to save payload as asset:', err);
+        }
+    };
+
+    const handleWorkspaceClose = () => {
+        setSelectedToolHistory(null);
+        setActivePayload(null);
+    };
+
     return (
         <div ref={containerRef} className={`flex h-full ${isDragging ? 'select-none' : ''}`}>
             {/* Left Sidebar - Conversation List (Collapsible) */}
@@ -309,8 +341,12 @@ export default function MainPage() {
                 onSendMessage={handleSendMessage}
                 onValueSelect={handleValueSelect}
                 onActionClick={handleActionClick}
-                onToolHistoryClick={setSelectedToolHistory}
+                onToolHistoryClick={(history) => {
+                    setActivePayload(null);
+                    setSelectedToolHistory(history);
+                }}
                 onSaveMessageAsAsset={handleSaveMessageAsAsset}
+                onPayloadClick={handlePayloadClick}
             />
 
             {/* Resizable Divider */}
@@ -329,8 +365,11 @@ export default function MainPage() {
             >
                 <WorkspacePanel
                     selectedToolHistory={selectedToolHistory}
-                    onClose={() => setSelectedToolHistory(null)}
+                    activePayload={activePayload}
+                    onClose={handleWorkspaceClose}
                     onSaveAsAsset={handleSaveToolOutputAsAsset}
+                    onSavePayloadAsAsset={handleSavePayloadAsAsset}
+                    onPayloadEdit={handlePayloadEdit}
                 />
             </div>
 
