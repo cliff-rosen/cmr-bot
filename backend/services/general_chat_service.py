@@ -13,7 +13,6 @@ import logging
 
 from schemas.general_chat import ChatResponsePayload
 from services.chat_payloads import (
-    get_tool,
     get_all_tools,
     ToolResult
 )
@@ -35,309 +34,11 @@ class GeneralChatService:
     def __init__(self, db: Session, user_id: int):
         self.db = db
         self.user_id = user_id
-        self.client = anthropic.Anthropic(api_key=os.getenv('ANTHROPIC_API_KEY'))
         self.async_client = anthropic.AsyncAnthropic(api_key=os.getenv('ANTHROPIC_API_KEY'))
         self.conv_service = ConversationService(db, user_id)
 
     # =========================================================================
-    # Tool Configuration Helpers
-    # =========================================================================
-
-    def _get_filtered_tools(self, enabled_tools: Optional[List[str]] = None) -> List[Any]:
-        """
-        Get tools filtered by enabled list.
-
-        Args:
-            enabled_tools: List of tool IDs to enable (None = all tools)
-
-        Returns:
-            List of tool configs
-        """
-        all_tools = get_all_tools()
-        if enabled_tools is not None:
-            enabled_set = set(enabled_tools)
-            return [t for t in all_tools if t.name in enabled_set]
-        return all_tools
-
-    def _get_tools_config(
-        self,
-        enabled_tools: Optional[List[str]] = None,
-        conversation_id: Optional[int] = None,
-        request_context: Optional[Dict[str, Any]] = None
-    ) -> Tuple[Dict[str, Any], Optional[List[Dict[str, Any]]], str, Dict[str, Any]]:
-        """
-        Get all tool-related configuration.
-
-        Args:
-            enabled_tools: List of tool IDs to enable (None = all tools)
-            conversation_id: Current conversation ID (for tool executor context)
-            request_context: Additional context from request (for tool executor context)
-
-        Returns:
-            Tuple of (tools_by_name, anthropic_tools, tool_descriptions, tool_executor_context)
-        """
-        tools = self._get_filtered_tools(enabled_tools)
-
-        # Build lookup dict
-        tools_by_name = {tool.name: tool for tool in tools}
-
-        # Build Anthropic API format
-        anthropic_tools = [
-            {
-                "name": tool.name,
-                "description": tool.description,
-                "input_schema": tool.input_schema
-            }
-            for tool in tools
-        ] if tools else None
-
-        # Build descriptions for system prompt
-        tool_descriptions = "\n".join([
-            f"- **{t.name}**: {t.description}"
-            for t in tools
-        ]) if tools else "No tools currently enabled."
-
-        # Build context passed to tool executors
-        tool_executor_context = {
-            **(request_context or {}),
-            "conversation_id": conversation_id
-        }
-
-        return tools_by_name, anthropic_tools, tool_descriptions, tool_executor_context
-
-    # =========================================================================
-    # Context Building Helpers
-    # =========================================================================
-
-    def _get_profile_context(self, include_profile: bool = True) -> str:
-        """
-        Get formatted user profile for system prompt.
-
-        Args:
-            include_profile: Whether to include profile info
-
-        Returns:
-            Formatted profile string or empty string
-        """
-        if not include_profile:
-            return ""
-
-        profile_service = ProfileService(self.db, self.user_id)
-        return profile_service.format_for_prompt()
-
-    def _get_memory_context(self, user_message: Optional[str] = None) -> str:
-        """
-        Get formatted memories for system prompt.
-
-        Args:
-            user_message: Current message for semantic search
-
-        Returns:
-            Formatted memory string
-        """
-        memory_service = MemoryService(self.db, self.user_id)
-        return memory_service.format_for_prompt(include_relevant=user_message)
-
-    def _get_asset_context(self) -> str:
-        """
-        Get formatted assets for system prompt.
-
-        Returns:
-            Formatted asset string
-        """
-        asset_service = AssetService(self.db, self.user_id)
-        return asset_service.format_for_prompt()
-
-    def _build_context_section(
-        self,
-        user_message: Optional[str] = None,
-        include_profile: bool = True
-    ) -> str:
-        """
-        Build the complete user context section for system prompt.
-
-        Args:
-            user_message: Current message for semantic memory search
-            include_profile: Whether to include profile info
-
-        Returns:
-            Formatted context section string
-        """
-        profile_context = self._get_profile_context(include_profile)
-        memory_context = self._get_memory_context(user_message)
-        asset_context = self._get_asset_context()
-
-        if not any([profile_context, memory_context, asset_context]):
-            return ""
-
-        context_section = "\n## User Context\n"
-        if profile_context:
-            context_section += f"\n{profile_context}\n"
-        if memory_context:
-            context_section += f"\n{memory_context}\n"
-        if asset_context:
-            context_section += f"\n{asset_context}\n"
-
-        return context_section
-
-    # =========================================================================
-    # System Prompt Building
-    # =========================================================================
-
-    def _build_system_prompt(
-        self,
-        tool_descriptions: str,
-        user_message: Optional[str] = None,
-        include_profile: bool = True
-    ) -> str:
-        """
-        Build the system prompt for the primary agent.
-
-        Args:
-            tool_descriptions: Pre-formatted tool descriptions
-            user_message: The user's current message (for semantic memory search)
-            include_profile: Whether to include user profile information
-        """
-        context_section = self._build_context_section(user_message, include_profile)
-
-        return f"""You are CMR Bot, a personal AI assistant with full access to tools and capabilities.
-
-        You are the primary agent in a personal AI system designed for deep integration and autonomy. You help the user with research, information gathering, analysis, and various tasks.
-
-        ## Your Capabilities
-
-        You have access to the following tools:
-        {tool_descriptions}
-
-        ## Guidelines
-
-        1. **Be proactive**: Use your tools when they would help answer the user's question or complete their task.
-
-        2. **Be thorough**: When researching, gather enough information to give a complete answer.
-
-        3. **Be transparent**: Explain what you're doing and why, especially when using tools.
-
-        4. **Be conversational**: You're a personal assistant, not a formal system. Be helpful and natural.
-
-        5. **Work iteratively**: For complex tasks, break them down and tackle them step by step.
-
-        ## Memory Management
-
-        You have the ability to remember things about the user across conversations using the save_memory tool. Proactively save important information when the user shares:
-        - Personal details (name, job, location, timezone)
-        - Preferences (communication style, likes/dislikes, how they want things done)
-        - Projects they're working on
-        - People, companies, or things they reference frequently
-        - Important context that would be useful in future conversations
-
-        If you notice the user correcting something you remembered wrong, use delete_memory to remove the incorrect information and save the correct version.
-        {context_section}
-        ## Workspace Payloads
-
-        The user has a workspace panel that can display structured content alongside your chat messages. When your response would benefit from structured presentation, include a payload block at the END of your response using this exact format:
-
-        ```payload
-        {{
-        "type": "<payload_type>",
-        "title": "<short title>",
-        "content": "<the structured content>"
-        }}
-        ```
-
-        **Payload types and when to use them:**
-
-        - `draft` - For any written content the user might want to iterate on: emails, letters, documents, messages, blog posts, code, etc. The user can edit these directly in the workspace.
-
-        - `summary` - For summarized information from research, articles, or analysis. Use when presenting key takeaways or condensed information.
-
-        - `data` - For structured data like weather, statistics, comparisons, lists of items with properties, etc. Format the content as a readable summary.
-
-        - `code` - For code snippets, scripts, or technical implementations. The user can copy or save these easily.
-
-        - `plan` - For action plans, step-by-step instructions, or project outlines.
-
-        **Examples:**
-
-        User asks "Write me an email declining a meeting":
-        - Provide a brief conversational response
-        - Include a `draft` payload with the email text
-
-        User asks "What's the weather in NYC?":
-        - Provide a conversational summary
-        - Include a `data` payload with the weather details
-
-        User asks "Summarize the key points from that article":
-        - Provide brief commentary
-        - Include a `summary` payload with the bullet points
-
-        **Important:**
-        - Only include ONE payload per response
-        - The payload must be valid JSON inside the code block
-        - Always provide some conversational text BEFORE the payload
-        - Not every response needs a payload - use them when structured content adds value
-        - The payload appears in the workspace panel where users can edit, save, or act on it
-
-        ## Interface
-
-        The user is interacting with you through the main chat interface. The workspace panel on the right displays payloads and assets from your collaboration.
-
-        Remember: You have real capabilities. Use them to actually help, not just to describe what you could theoretically do.
-        """
-
-    # =========================================================================
-    # Tool Execution
-    # =========================================================================
-
-    async def _execute_tool(
-        self,
-        tool_name: str,
-        tool_input: Dict[str, Any],
-        tools_by_name: Dict[str, Any],
-        context: Dict[str, Any]
-    ) -> Tuple[str, Any]:
-        """Execute a tool and return (result_str, output_data)."""
-        tool_config = tools_by_name.get(tool_name)
-
-        if not tool_config:
-            return f"Unknown tool: {tool_name}", None
-
-        try:
-            tool_result = await asyncio.to_thread(
-                tool_config.executor,
-                tool_input,
-                self.db,
-                self.user_id,
-                context
-            )
-
-            if isinstance(tool_result, ToolResult):
-                return tool_result.text, tool_result.data
-            elif isinstance(tool_result, str):
-                return tool_result, None
-            else:
-                return str(tool_result), None
-
-        except Exception as e:
-            logger.error(f"Tool execution error: {e}", exc_info=True)
-            return f"Error executing tool: {str(e)}", None
-
-    def _format_assistant_content(self, response_content: list) -> list:
-        """Format response content blocks for Anthropic API."""
-        assistant_content = []
-        for block in response_content:
-            if block.type == "text":
-                assistant_content.append({"type": "text", "text": block.text})
-            elif block.type == "tool_use":
-                assistant_content.append({
-                    "type": "tool_use",
-                    "id": block.id,
-                    "name": block.name,
-                    "input": block.input
-                })
-        return assistant_content
-
-    # =========================================================================
-    # Main Chat Stream Handler
+    # Public API
     # =========================================================================
 
     async def stream_chat_message(self, request) -> AsyncGenerator[str, None]:
@@ -396,14 +97,12 @@ class GeneralChatService:
                 iteration += 1
                 logger.info(f"Loop iteration {iteration}")
 
-                current_text = ""
                 async with self.async_client.messages.stream(**api_kwargs) as stream:
                     async for event in stream:
                         if hasattr(event, 'type'):
                             if event.type == 'content_block_delta' and hasattr(event, 'delta'):
                                 if hasattr(event.delta, 'text'):
                                     text = event.delta.text
-                                    current_text += text
                                     collected_text += text
                                     yield ChatStreamChunk(
                                         token=text,
@@ -518,6 +217,10 @@ class GeneralChatService:
                 debug={"error_type": type(e).__name__}
             ).model_dump_json()
 
+    # =========================================================================
+    # Conversation Helpers
+    # =========================================================================
+
     def _setup_conversation(self, request, user_prompt: str) -> int:
         """Set up conversation and save user message. Returns conversation_id."""
         if request.conversation_id:
@@ -545,3 +248,271 @@ class GeneralChatService:
             {"role": msg.role, "content": msg.content}
             for msg in db_messages
         ]
+
+    # =========================================================================
+    # System Prompt Building
+    # =========================================================================
+
+    def _build_system_prompt(
+        self,
+        tool_descriptions: str,
+        user_message: Optional[str] = None,
+        include_profile: bool = True
+    ) -> str:
+        """
+        Build the system prompt for the primary agent.
+
+        Args:
+            tool_descriptions: Pre-formatted tool descriptions
+            user_message: The user's current message (for semantic memory search)
+            include_profile: Whether to include user profile information
+        """
+        context_section = self._build_context_section(user_message, include_profile)
+
+        return f"""You are CMR Bot, a personal AI assistant with full access to tools and capabilities.
+
+        You are the primary agent in a personal AI system designed for deep integration and autonomy. You help the user with research, information gathering, analysis, and various tasks.
+
+        ## Your Capabilities
+
+        You have access to the following tools:
+        {tool_descriptions}
+
+        ## Guidelines
+
+        1. **Be proactive**: Use your tools when they would help answer the user's question or complete their task.
+
+        2. **Be thorough**: When researching, gather enough information to give a complete answer.
+
+        3. **Be transparent**: Explain what you're doing and why, especially when using tools.
+
+        4. **Be conversational**: You're a personal assistant, not a formal system. Be helpful and natural.
+
+        5. **Work iteratively**: For complex tasks, break them down and tackle them step by step.
+
+        ## Memory Management
+
+        You have the ability to remember things about the user across conversations using the save_memory tool. Proactively save important information when the user shares:
+        - Personal details (name, job, location, timezone)
+        - Preferences (communication style, likes/dislikes, how they want things done)
+        - Projects they're working on
+        - People, companies, or things they reference frequently
+        - Important context that would be useful in future conversations
+
+        If you notice the user correcting something you remembered wrong, use delete_memory to remove the incorrect information and save the correct version.
+        {context_section}
+        ## Workspace Payloads
+
+        The user has a workspace panel that can display structured content alongside your chat messages. When your response would benefit from structured presentation, include a payload block at the END of your response using this exact format:
+
+        ```payload
+        {{
+        "type": "<payload_type>",
+        "title": "<short title>",
+        "content": "<the structured content>"
+        }}
+        ```
+
+        **Payload types and when to use them:**
+
+        - `draft` - For any written content the user might want to iterate on: emails, letters, documents, messages, blog posts, code, etc. The user can edit these directly in the workspace.
+
+        - `summary` - For summarized information from research, articles, or analysis. Use when presenting key takeaways or condensed information.
+
+        - `data` - For structured data like weather, statistics, comparisons, lists of items with properties, etc. Format the content as a readable summary.
+
+        - `code` - For code snippets, scripts, or technical implementations. The user can copy or save these easily.
+
+        - `plan` - For action plans, step-by-step instructions, or project outlines.
+
+        **Examples:**
+
+        User asks "Write me an email declining a meeting":
+        - Provide a brief conversational response
+        - Include a `draft` payload with the email text
+
+        User asks "What's the weather in NYC?":
+        - Provide a conversational summary
+        - Include a `data` payload with the weather details
+
+        User asks "Summarize the key points from that article":
+        - Provide brief commentary
+        - Include a `summary` payload with the bullet points
+
+        **Important:**
+        - Only include ONE payload per response
+        - The payload must be valid JSON inside the code block
+        - Always provide some conversational text BEFORE the payload
+        - Not every response needs a payload - use them when structured content adds value
+        - The payload appears in the workspace panel where users can edit, save, or act on it
+
+        ## Interface
+
+        The user is interacting with you through the main chat interface. The workspace panel on the right displays payloads and assets from your collaboration.
+
+        Remember: You have real capabilities. Use them to actually help, not just to describe what you could theoretically do.
+        """
+
+    # =========================================================================
+    # Context Building Helpers
+    # =========================================================================
+
+    def _build_context_section(
+        self,
+        user_message: Optional[str] = None,
+        include_profile: bool = True
+    ) -> str:
+        """
+        Build the complete user context section for system prompt.
+
+        Args:
+            user_message: Current message for semantic memory search
+            include_profile: Whether to include profile info
+
+        Returns:
+            Formatted context section string
+        """
+        profile_context = self._get_profile_context(include_profile)
+        memory_context = self._get_memory_context(user_message)
+        asset_context = self._get_asset_context()
+
+        if not any([profile_context, memory_context, asset_context]):
+            return ""
+
+        context_section = "\n## User Context\n"
+        if profile_context:
+            context_section += f"\n{profile_context}\n"
+        if memory_context:
+            context_section += f"\n{memory_context}\n"
+        if asset_context:
+            context_section += f"\n{asset_context}\n"
+
+        return context_section
+
+    def _get_profile_context(self, include_profile: bool = True) -> str:
+        """Get formatted user profile for system prompt."""
+        if not include_profile:
+            return ""
+
+        profile_service = ProfileService(self.db, self.user_id)
+        return profile_service.format_for_prompt()
+
+    def _get_memory_context(self, user_message: Optional[str] = None) -> str:
+        """Get formatted memories for system prompt."""
+        memory_service = MemoryService(self.db, self.user_id)
+        return memory_service.format_for_prompt(include_relevant=user_message)
+
+    def _get_asset_context(self) -> str:
+        """Get formatted assets for system prompt."""
+        asset_service = AssetService(self.db, self.user_id)
+        return asset_service.format_for_prompt()
+
+    # =========================================================================
+    # Tool Configuration
+    # =========================================================================
+
+    def _get_tools_config(
+        self,
+        enabled_tools: Optional[List[str]] = None,
+        conversation_id: Optional[int] = None,
+        request_context: Optional[Dict[str, Any]] = None
+    ) -> Tuple[Dict[str, Any], Optional[List[Dict[str, Any]]], str, Dict[str, Any]]:
+        """
+        Get all tool-related configuration.
+
+        Args:
+            enabled_tools: List of tool IDs to enable (None = all tools)
+            conversation_id: Current conversation ID (for tool executor context)
+            request_context: Additional context from request (for tool executor context)
+
+        Returns:
+            Tuple of (tools_by_name, anthropic_tools, tool_descriptions, tool_executor_context)
+        """
+        tools = self._get_filtered_tools(enabled_tools)
+
+        # Build lookup dict
+        tools_by_name = {tool.name: tool for tool in tools}
+
+        # Build Anthropic API format
+        anthropic_tools = [
+            {
+                "name": tool.name,
+                "description": tool.description,
+                "input_schema": tool.input_schema
+            }
+            for tool in tools
+        ] if tools else None
+
+        # Build descriptions for system prompt
+        tool_descriptions = "\n".join([
+            f"- **{t.name}**: {t.description}"
+            for t in tools
+        ]) if tools else "No tools currently enabled."
+
+        # Build context passed to tool executors
+        tool_executor_context = {
+            **(request_context or {}),
+            "conversation_id": conversation_id
+        }
+
+        return tools_by_name, anthropic_tools, tool_descriptions, tool_executor_context
+
+    def _get_filtered_tools(self, enabled_tools: Optional[List[str]] = None) -> List[Any]:
+        """Get tools filtered by enabled list."""
+        all_tools = get_all_tools()
+        if enabled_tools is not None:
+            enabled_set = set(enabled_tools)
+            return [t for t in all_tools if t.name in enabled_set]
+        return all_tools
+
+    # =========================================================================
+    # Tool Execution
+    # =========================================================================
+
+    async def _execute_tool(
+        self,
+        tool_name: str,
+        tool_input: Dict[str, Any],
+        tools_by_name: Dict[str, Any],
+        context: Dict[str, Any]
+    ) -> Tuple[str, Any]:
+        """Execute a tool and return (result_str, output_data)."""
+        tool_config = tools_by_name.get(tool_name)
+
+        if not tool_config:
+            return f"Unknown tool: {tool_name}", None
+
+        try:
+            tool_result = await asyncio.to_thread(
+                tool_config.executor,
+                tool_input,
+                self.db,
+                self.user_id,
+                context
+            )
+
+            if isinstance(tool_result, ToolResult):
+                return tool_result.text, tool_result.data
+            elif isinstance(tool_result, str):
+                return tool_result, None
+            else:
+                return str(tool_result), None
+
+        except Exception as e:
+            logger.error(f"Tool execution error: {e}", exc_info=True)
+            return f"Error executing tool: {str(e)}", None
+
+    def _format_assistant_content(self, response_content: list) -> list:
+        """Format response content blocks for Anthropic API."""
+        assistant_content = []
+        for block in response_content:
+            if block.type == "text":
+                assistant_content.append({"type": "text", "text": block.text})
+            elif block.type == "tool_use":
+                assistant_content.append({
+                    "type": "tool_use",
+                    "id": block.id,
+                    "name": block.name,
+                    "input": block.input
+                })
+        return assistant_content
