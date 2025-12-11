@@ -8,14 +8,9 @@ import { InteractionType, ActionMetadata, SuggestedValue, SuggestedAction, Custo
 export interface GeneralChatRequest {
     message: string;
     conversation_id?: number;  // If provided, continues existing conversation
-    context: Record<string, any>;
-    interaction_type: InteractionType;
+    context?: Record<string, any>;
+    interaction_type?: InteractionType;
     action_metadata?: ActionMetadata;
-    conversation_history: Array<{
-        role: 'user' | 'assistant';
-        content: string;
-        timestamp: string;
-    }>;
 }
 
 export interface ChatResponsePayload {

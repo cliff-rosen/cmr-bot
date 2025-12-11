@@ -48,17 +48,19 @@ class GeneralChatService:
 
             # Handle conversation persistence
             conv_service = ConversationService(self.db, self.user_id)
+
             if request.conversation_id:
+                # Continue existing conversation
                 conversation = conv_service.get_conversation(request.conversation_id)
                 if not conversation:
-                    # Invalid conversation_id, create new one
-                    conversation = conv_service.create_conversation()
+                    raise ValueError(f"Conversation {request.conversation_id} not found")
+                conversation_id = conversation.conversation_id
             else:
-                conversation = conv_service.get_or_create_active_conversation()
+                # Create new conversation
+                conversation = conv_service.create_conversation()
+                conversation_id = conversation.conversation_id
 
-            conversation_id = conversation.conversation_id
-
-            # Save user message
+            # Save user message first
             conv_service.add_message(
                 conversation_id=conversation_id,
                 role="user",
@@ -68,12 +70,12 @@ class GeneralChatService:
             # Auto-title if this is the first message
             conv_service.auto_title_if_needed(conversation_id)
 
-            # Build message history
+            # Load message history from database (excludes the message we just added since it's already there)
+            db_messages = conv_service.get_messages(conversation_id)
             messages = [
                 {"role": msg.role, "content": msg.content}
-                for msg in request.conversation_history
+                for msg in db_messages
             ]
-            messages.append({"role": "user", "content": user_prompt})
 
             # Get all available tools
             tools = get_all_tools()

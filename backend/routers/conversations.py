@@ -111,27 +111,6 @@ async def create_conversation(
     return conversation
 
 
-@router.get("/current", response_model=ConversationWithMessages)
-async def get_current_conversation(
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
-):
-    """Get the current active conversation, or create one if none exists."""
-    service = ConversationService(db, current_user.user_id)
-    conversation = service.get_or_create_active_conversation()
-    messages = service.get_messages(conversation.conversation_id)
-
-    return {
-        "conversation_id": conversation.conversation_id,
-        "user_id": conversation.user_id,
-        "title": conversation.title,
-        "is_archived": conversation.is_archived,
-        "created_at": conversation.created_at,
-        "updated_at": conversation.updated_at,
-        "messages": messages
-    }
-
-
 @router.get("/{conversation_id}", response_model=ConversationWithMessages)
 async def get_conversation(
     conversation_id: int,

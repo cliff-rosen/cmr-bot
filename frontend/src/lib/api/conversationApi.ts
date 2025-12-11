@@ -84,14 +84,6 @@ export const conversationApi = {
     },
 
     /**
-     * Get the current active conversation (or create one)
-     */
-    async getCurrent(): Promise<ConversationWithMessages> {
-        const response = await fetchWithAuth(`${API_BASE}/api/conversations/current`);
-        return response.json();
-    },
-
-    /**
      * Get a specific conversation with messages
      */
     async get(conversationId: number): Promise<ConversationWithMessages> {

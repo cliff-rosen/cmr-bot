@@ -137,18 +137,6 @@ class ConversationService:
             Message.conversation_id == conversation_id
         ).order_by(Message.created_at).offset(offset).limit(limit).all()
 
-    def get_or_create_active_conversation(self) -> Conversation:
-        """Get the most recent non-archived conversation, or create one."""
-        conversation = self.db.query(Conversation).filter(
-            Conversation.user_id == self.user_id,
-            Conversation.is_archived == False
-        ).order_by(desc(Conversation.updated_at)).first()
-
-        if conversation:
-            return conversation
-
-        return self.create_conversation()
-
     def generate_title(self, conversation_id: int) -> Optional[str]:
         """Generate a title from the first user message."""
         messages = self.get_messages(conversation_id, limit=1)

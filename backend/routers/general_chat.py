@@ -13,7 +13,6 @@ from database import get_db
 from models import User
 from routers.auth import get_current_user
 from schemas.general_chat import (
-    GeneralChatMessage,
     ActionMetadata,
     ChatResponsePayload
 )
@@ -32,10 +31,9 @@ class ChatRequest(BaseModel):
     """Request model for general chat endpoint"""
     message: str
     conversation_id: Optional[int] = None  # If None, creates new conversation
-    context: Dict[str, Any]
-    interaction_type: Literal["text_input", "value_selected", "action_executed"]
+    context: Dict[str, Any] = {}
+    interaction_type: Literal["text_input", "value_selected", "action_executed"] = "text_input"
     action_metadata: Optional[ActionMetadata] = None
-    conversation_history: List[GeneralChatMessage]
 
 
 class ChatStreamChunk(BaseModel):

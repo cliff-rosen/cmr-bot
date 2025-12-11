@@ -17,33 +17,9 @@ export function useGeneralChat(initialContext?: Record<string, any>) {
     const [conversationId, setConversationId] = useState<number | null>(null);
     const [isLoadingConversation, setIsLoadingConversation] = useState(true);
 
-    // Load current conversation on mount
+    // No auto-load on mount - client controls when to load a conversation
     useEffect(() => {
-        const loadConversation = async () => {
-            try {
-                const conversation = await conversationApi.getCurrent();
-                setConversationId(conversation.conversation_id);
-
-                // Load existing messages
-                if (conversation.messages && conversation.messages.length > 0) {
-                    const loadedMessages: GeneralChatMessage[] = conversation.messages.map(msg => ({
-                        role: msg.role,
-                        content: msg.content,
-                        timestamp: msg.created_at,
-                        suggested_values: msg.suggested_values,
-                        suggested_actions: msg.suggested_actions,
-                        custom_payload: msg.custom_payload
-                    }));
-                    setMessages(loadedMessages);
-                }
-            } catch (err) {
-                console.error('Failed to load conversation:', err);
-            } finally {
-                setIsLoadingConversation(false);
-            }
-        };
-
-        loadConversation();
+        setIsLoadingConversation(false);
     }, []);
 
     const sendMessage = useCallback(async (
@@ -78,12 +54,7 @@ export function useGeneralChat(initialContext?: Record<string, any>) {
                 conversation_id: conversationId ?? undefined,
                 context,
                 interaction_type: interactionType,
-                action_metadata: actionMetadata,
-                conversation_history: messages.map(msg => ({
-                    role: msg.role,
-                    content: msg.content,
-                    timestamp: msg.timestamp
-                }))
+                action_metadata: actionMetadata
             })) {
                 if (chunk.error) {
                     setError(chunk.error);
@@ -142,7 +113,7 @@ export function useGeneralChat(initialContext?: Record<string, any>) {
         } finally {
             setIsLoading(false);
         }
-    }, [context, messages, conversationId]);
+    }, [context, conversationId]);
 
     const updateContext = useCallback((updates: Record<string, any>) => {
         setContext(prev => ({ ...prev, ...updates }));
