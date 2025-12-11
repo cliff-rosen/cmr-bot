@@ -4,7 +4,7 @@ import { ChevronLeftIcon, ChevronRightIcon, PlusIcon } from '@heroicons/react/24
 import { useGeneralChat } from '../hooks/useGeneralChat';
 import { useProfile } from '../context/ProfileContext';
 import { InteractionType, ToolCall, GeneralChatMessage, WorkspacePayload } from '../types/chat';
-import { memoryApi, Memory, assetApi, Asset, profileApi } from '../lib/api';
+import { memoryApi, Memory, assetApi, Asset, AssetUpdate, profileApi } from '../lib/api';
 import {
     ConversationSidebar,
     ChatPanel,
@@ -238,11 +238,11 @@ export default function MainPage() {
         }
     };
 
-    const handleUpdateAsset = async (assetId: number, content: string) => {
+    const handleUpdateAsset = async (assetId: number, updates: AssetUpdate) => {
         try {
-            const updated = await assetApi.update(assetId, { content });
+            const updated = await assetApi.update(assetId, updates);
             setAssets(prev => prev.map(a =>
-                a.asset_id === assetId ? { ...a, content: updated.content } : a
+                a.asset_id === assetId ? { ...a, ...updated } : a
             ));
         } catch (err) {
             console.error('Failed to update asset:', err);

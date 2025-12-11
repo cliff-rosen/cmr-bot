@@ -6,7 +6,8 @@ import {
     CheckIcon, ArrowsPointingOutIcon
 } from '@heroicons/react/24/solid';
 import { CheckCircleIcon as CheckCircleOutlineIcon } from '@heroicons/react/24/outline';
-import { Asset, AssetType } from '../../lib/api';
+import { Asset, AssetType, AssetUpdate } from '../../lib/api';
+import { MarkdownRenderer } from '../common/MarkdownRenderer';
 
 interface AssetBrowserModalProps {
     isOpen: boolean;
@@ -14,7 +15,7 @@ interface AssetBrowserModalProps {
     onClose: () => void;
     onToggleContext: (assetId: number) => void;
     onDelete: (assetId: number) => void;
-    onUpdateAsset?: (assetId: number, content: string) => void;
+    onUpdateAsset?: (assetId: number, updates: AssetUpdate) => void;
 }
 
 // Helper to get asset type icon
@@ -51,6 +52,8 @@ export default function AssetBrowserModal({
     const [viewingAsset, setViewingAsset] = useState<Asset | null>(null);
     const [isEditing, setIsEditing] = useState(false);
     const [editContent, setEditContent] = useState('');
+    const [editName, setEditName] = useState('');
+    const [isEditingName, setIsEditingName] = useState(false);
 
     if (!isOpen) return null;
 
@@ -97,22 +100,43 @@ export default function AssetBrowserModal({
     const handleViewAsset = (asset: Asset) => {
         setViewingAsset(asset);
         setEditContent(asset.content || '');
+        setEditName(asset.name);
         setIsEditing(false);
+        setIsEditingName(false);
     };
 
     const handleCloseViewer = () => {
         setViewingAsset(null);
         setIsEditing(false);
+        setIsEditingName(false);
         setEditContent('');
+        setEditName('');
     };
 
     const handleSaveEdit = () => {
         if (viewingAsset && onUpdateAsset && editContent !== viewingAsset.content) {
-            onUpdateAsset(viewingAsset.asset_id, editContent);
-            // Update local state
+            onUpdateAsset(viewingAsset.asset_id, { content: editContent });
             setViewingAsset({ ...viewingAsset, content: editContent });
         }
         setIsEditing(false);
+    };
+
+    const handleSaveName = () => {
+        if (viewingAsset && onUpdateAsset && editName.trim() && editName !== viewingAsset.name) {
+            onUpdateAsset(viewingAsset.asset_id, { name: editName.trim() });
+            setViewingAsset({ ...viewingAsset, name: editName.trim() });
+        }
+        setIsEditingName(false);
+    };
+
+    const handleNameKeyDown = (e: React.KeyboardEvent) => {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            handleSaveName();
+        } else if (e.key === 'Escape') {
+            setEditName(viewingAsset?.name || '');
+            setIsEditingName(false);
+        }
     };
 
     const filterButtons: { key: FilterType; label: string; icon?: React.ComponentType<{ className?: string }>; color?: string }[] = [
@@ -130,31 +154,57 @@ export default function AssetBrowserModal({
         const typeInfo = getAssetTypeInfo(viewingAsset.asset_type);
         const TypeIcon = typeInfo.icon;
         const isEditable = ['document', 'code', 'data'].includes(viewingAsset.asset_type);
+        const isMarkdown = viewingAsset.asset_type === 'document';
 
         return (
             <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
                 <div className="bg-white dark:bg-gray-900 rounded-lg shadow-xl w-[95vw] h-[95vh] max-w-6xl flex flex-col">
                     {/* Header */}
                     <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 dark:border-gray-700">
-                        <div className="flex items-center gap-3">
-                            <TypeIcon className={`h-6 w-6 ${typeInfo.color}`} />
-                            <div>
-                                <h2 className="text-xl font-semibold text-gray-900 dark:text-white">
-                                    {viewingAsset.name}
-                                </h2>
+                        <div className="flex items-center gap-3 flex-1 min-w-0">
+                            <TypeIcon className={`h-6 w-6 flex-shrink-0 ${typeInfo.color}`} />
+                            <div className="flex-1 min-w-0">
+                                {isEditingName ? (
+                                    <div className="flex items-center gap-2">
+                                        <input
+                                            type="text"
+                                            value={editName}
+                                            onChange={(e) => setEditName(e.target.value)}
+                                            onKeyDown={handleNameKeyDown}
+                                            onBlur={handleSaveName}
+                                            autoFocus
+                                            className="flex-1 px-2 py-1 text-xl font-semibold bg-gray-100 dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                        />
+                                    </div>
+                                ) : (
+                                    <div className="flex items-center gap-2 group">
+                                        <h2 className="text-xl font-semibold text-gray-900 dark:text-white truncate">
+                                            {viewingAsset.name}
+                                        </h2>
+                                        {onUpdateAsset && (
+                                            <button
+                                                onClick={() => setIsEditingName(true)}
+                                                className="p-1 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 opacity-0 group-hover:opacity-100 transition-opacity"
+                                                title="Edit name"
+                                            >
+                                                <PencilIcon className="h-4 w-4" />
+                                            </button>
+                                        )}
+                                    </div>
+                                )}
                                 {viewingAsset.description && (
-                                    <p className="text-sm text-gray-500">{viewingAsset.description}</p>
+                                    <p className="text-sm text-gray-500 truncate">{viewingAsset.description}</p>
                                 )}
                             </div>
                         </div>
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2 flex-shrink-0">
                             {isEditable && !isEditing && onUpdateAsset && (
                                 <button
                                     onClick={() => setIsEditing(true)}
                                     className="flex items-center gap-1 px-3 py-2 text-sm text-gray-600 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition-colors"
                                 >
                                     <PencilIcon className="h-4 w-4" />
-                                    Edit
+                                    Edit Content
                                 </button>
                             )}
                             {isEditing && (
@@ -199,6 +249,10 @@ export default function AssetBrowserModal({
                             <pre className="p-4 bg-gray-900 dark:bg-black rounded-lg text-sm text-gray-100 overflow-x-auto whitespace-pre-wrap min-h-[60vh]">
                                 {viewingAsset.content || 'No content'}
                             </pre>
+                        ) : isMarkdown ? (
+                            <div className="p-4 bg-gray-50 dark:bg-gray-950 rounded-lg min-h-[60vh]">
+                                <MarkdownRenderer content={viewingAsset.content || 'No content'} />
+                            </div>
                         ) : (
                             <div className="prose prose-sm dark:prose-invert max-w-none p-4 bg-gray-50 dark:bg-gray-950 rounded-lg min-h-[60vh]">
                                 <pre className="whitespace-pre-wrap font-sans text-gray-700 dark:text-gray-300">
