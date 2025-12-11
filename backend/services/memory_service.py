@@ -352,6 +352,13 @@ class MemoryService:
         context_memories = self.get_context_memories()
         parts = []
 
+        # Header to clearly indicate these are EXISTING memories
+        has_any_memories = any(context_memories.values())
+        if has_any_memories:
+            parts.append("# YOUR EXISTING MEMORIES (Already Saved)")
+            parts.append("The following information has ALREADY been saved to memory. DO NOT save these again.")
+            parts.append("Only use save_memory for NEW information the user shares.\n")
+
         # Pinned memories (highest priority)
         if context_memories["pinned"]:
             parts.append("## Key Information (Pinned)")
@@ -389,7 +396,7 @@ class MemoryService:
 
             new_relevant = [m for m in relevant if m.memory_id not in included_ids]
             if new_relevant:
-                parts.append("\n## Relevant Context")
+                parts.append("\n## Relevant Context (from search)")
                 for m in new_relevant:
                     parts.append(f"- {m.content}")
 

@@ -1,22 +1,32 @@
 import { useState } from 'react';
 import {
     WrenchScrewdriverIcon, XMarkIcon, PlusIcon, DocumentIcon,
-    CpuChipIcon, LightBulbIcon, BookmarkIcon, Cog6ToothIcon,
+    LightBulbIcon, BookmarkIcon, Cog6ToothIcon,
     ArrowsPointingOutIcon, UserIcon, HeartIcon, BuildingOfficeIcon,
-    FolderIcon, ClockIcon, XCircleIcon
+    FolderIcon, ClockIcon, XCircleIcon, CheckIcon, UserCircleIcon
 } from '@heroicons/react/24/solid';
+import { CheckCircleIcon as CheckCircleOutlineIcon } from '@heroicons/react/24/outline';
 import { Memory, MemoryType, Asset } from '../../lib/api';
-import { ToolCall } from '../../types/chat';
+
+// Available tools that can be enabled/disabled
+const AVAILABLE_TOOLS = [
+    { id: 'web_search', name: 'Web Search', description: 'Search the web for information' },
+    { id: 'fetch_webpage', name: 'Fetch Webpage', description: 'Retrieve content from URLs' },
+    { id: 'save_memory', name: 'Save Memory', description: 'Save information to memory' },
+    { id: 'search_memory', name: 'Search Memory', description: 'Search saved memories' },
+];
 
 interface ContextPanelProps {
     memories: Memory[];
     assets: Asset[];
-    lastToolHistory: ToolCall[] | undefined;
+    enabledTools: Set<string>;
+    includeProfile: boolean;
     onAddWorkingMemory: (content: string) => void;
     onToggleMemoryPinned: (memId: number) => void;
     onToggleAssetContext: (assetId: number) => void;
     onClearAllAssetsFromContext: () => void;
-    onToolHistoryClick: (toolHistory: ToolCall[]) => void;
+    onToggleTool: (toolId: string) => void;
+    onToggleProfile: () => void;
     onExpandMemories: () => void;
     onExpandAssets: () => void;
 }
@@ -42,20 +52,27 @@ const getMemoryTypeInfo = (type: MemoryType) => {
 export default function ContextPanel({
     memories,
     assets,
-    lastToolHistory,
+    enabledTools,
+    includeProfile,
     onAddWorkingMemory,
     onToggleMemoryPinned,
     onToggleAssetContext,
     onClearAllAssetsFromContext,
-    onToolHistoryClick,
+    onToggleTool,
+    onToggleProfile,
     onExpandMemories,
     onExpandAssets
 }: ContextPanelProps) {
     const [newMemoryInput, setNewMemoryInput] = useState('');
 
-    // Memories: only show pinned (no recent in narrow view per user feedback)
+    // Memories: pinned + last 3 unpinned
     const pinnedMemories = memories.filter(m => m.is_pinned && m.is_active);
+    const recentUnpinnedMemories = memories
+        .filter(m => !m.is_pinned && m.is_active)
+        .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+        .slice(0, 3);
     const totalMemoryCount = memories.filter(m => m.is_active).length;
+    const hiddenMemoryCount = totalMemoryCount - pinnedMemories.length - recentUnpinnedMemories.length;
 
     // Assets: in context + top 5 recent not in context
     const contextAssets = assets.filter(a => a.is_in_context);
@@ -72,19 +89,41 @@ export default function ContextPanel({
         }
     };
 
+    const enabledToolCount = enabledTools.size;
+
     return (
         <div className="flex flex-col h-full">
-            {/* Context Panel Header */}
+            {/* Panel Header */}
             <div className="flex items-center justify-between px-4 py-4 border-b border-gray-200 dark:border-gray-700 min-w-[280px]">
                 <h2 className="text-sm font-semibold text-gray-900 dark:text-white">
-                    Context
+                    Agent Controls
                 </h2>
                 <Cog6ToothIcon className="h-5 w-5 text-gray-400" />
             </div>
 
-            {/* Context Panel Content */}
+            {/* Panel Content */}
             <div className="flex-1 overflow-y-auto min-w-[280px]">
-                {/* Available Tools Section */}
+                {/* Profile Section */}
+                <div className="border-b border-gray-200 dark:border-gray-700">
+                    <button
+                        onClick={onToggleProfile}
+                        className="w-full px-4 py-3 flex items-center justify-between hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors"
+                    >
+                        <div className="flex items-center gap-2">
+                            <UserCircleIcon className={`h-4 w-4 ${includeProfile ? 'text-green-500' : 'text-gray-400'}`} />
+                            <span className="text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase">
+                                Profile Info
+                            </span>
+                        </div>
+                        {includeProfile ? (
+                            <CheckIcon className="h-4 w-4 text-green-500" />
+                        ) : (
+                            <CheckCircleOutlineIcon className="h-4 w-4 text-gray-400" />
+                        )}
+                    </button>
+                </div>
+
+                {/* Tools Section */}
                 <div className="border-b border-gray-200 dark:border-gray-700">
                     <div className="px-4 py-3 bg-gray-100 dark:bg-gray-800">
                         <div className="flex items-center gap-2">
@@ -92,19 +131,35 @@ export default function ContextPanel({
                             <span className="text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase">
                                 Tools
                             </span>
+                            <span className="text-xs text-gray-500">({enabledToolCount}/{AVAILABLE_TOOLS.length})</span>
                         </div>
                     </div>
-                    <div className="p-3 space-y-1">
-                        {['web_search', 'fetch_webpage', 'save_memory', 'search_memory'].map(tool => (
-                            <div key={tool} className="flex items-center gap-2 px-2 py-1 rounded text-xs text-gray-600 dark:text-gray-400">
-                                <div className="w-1.5 h-1.5 bg-green-500 rounded-full"></div>
-                                {tool}
-                            </div>
-                        ))}
+                    <div className="p-2 space-y-1">
+                        {AVAILABLE_TOOLS.map(tool => {
+                            const isEnabled = enabledTools.has(tool.id);
+                            return (
+                                <button
+                                    key={tool.id}
+                                    onClick={() => onToggleTool(tool.id)}
+                                    className={`w-full flex items-center gap-2 px-2 py-1.5 rounded text-xs transition-colors ${
+                                        isEnabled
+                                            ? 'bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300'
+                                            : 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800'
+                                    }`}
+                                >
+                                    {isEnabled ? (
+                                        <CheckIcon className="h-3.5 w-3.5 text-green-500 flex-shrink-0" />
+                                    ) : (
+                                        <CheckCircleOutlineIcon className="h-3.5 w-3.5 flex-shrink-0" />
+                                    )}
+                                    <span className="flex-1 text-left">{tool.name}</span>
+                                </button>
+                            );
+                        })}
                     </div>
                 </div>
 
-                {/* Memories Section - Pinned Only */}
+                {/* Memories Section */}
                 <div className="border-b border-gray-200 dark:border-gray-700">
                     <div className="px-4 py-3 bg-gray-100 dark:bg-gray-800">
                         <div className="flex items-center justify-between">
@@ -145,44 +200,78 @@ export default function ContextPanel({
                         </div>
                     </div>
 
-                    {/* Pinned memories only */}
+                    {/* Pinned + Recent memories */}
                     <div className="p-2 space-y-1">
-                        {pinnedMemories.length === 0 ? (
+                        {pinnedMemories.length === 0 && recentUnpinnedMemories.length === 0 ? (
                             <div className="text-center text-gray-400 dark:text-gray-500 text-xs py-3">
-                                No pinned memories
+                                No memories yet
                             </div>
                         ) : (
-                            pinnedMemories.map((mem) => {
-                                const typeInfo = getMemoryTypeInfo(mem.memory_type);
-                                return (
-                                    <div
-                                        key={mem.memory_id}
-                                        className={`flex items-start gap-2 px-2 py-1.5 rounded ${typeInfo.bg}`}
-                                    >
-                                        <BookmarkIcon className="h-3 w-3 mt-0.5 flex-shrink-0 text-blue-500" />
-                                        <span className="flex-1 text-gray-700 dark:text-gray-300 text-xs leading-relaxed line-clamp-2">
-                                            {mem.content}
-                                        </span>
-                                        <button
-                                            onClick={() => onToggleMemoryPinned(mem.memory_id)}
-                                            className="text-blue-500 hover:text-blue-600 flex-shrink-0"
-                                            title="Unpin"
+                            <>
+                                {/* Pinned memories */}
+                                {pinnedMemories.map((mem) => {
+                                    const typeInfo = getMemoryTypeInfo(mem.memory_type);
+                                    return (
+                                        <div
+                                            key={mem.memory_id}
+                                            className={`flex items-start gap-2 px-2 py-1.5 rounded ${typeInfo.bg}`}
                                         >
-                                            <XMarkIcon className="h-3 w-3" />
-                                        </button>
-                                    </div>
-                                );
-                            })
-                        )}
+                                            <BookmarkIcon className="h-3 w-3 mt-0.5 flex-shrink-0 text-blue-500" />
+                                            <span className="flex-1 text-gray-700 dark:text-gray-300 text-xs leading-relaxed line-clamp-2">
+                                                {mem.content}
+                                            </span>
+                                            <button
+                                                onClick={() => onToggleMemoryPinned(mem.memory_id)}
+                                                className="text-blue-500 hover:text-blue-600 flex-shrink-0"
+                                                title="Unpin"
+                                            >
+                                                <XMarkIcon className="h-3 w-3" />
+                                            </button>
+                                        </div>
+                                    );
+                                })}
 
-                        {/* Show more indicator */}
-                        {totalMemoryCount > pinnedMemories.length && (
-                            <button
-                                onClick={onExpandMemories}
-                                className="w-full text-xs text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 py-1"
-                            >
-                                +{totalMemoryCount - pinnedMemories.length} unpinned...
-                            </button>
+                                {/* Divider if both pinned and recent exist */}
+                                {pinnedMemories.length > 0 && recentUnpinnedMemories.length > 0 && (
+                                    <div className="text-xs text-gray-400 dark:text-gray-500 px-2 py-1">
+                                        Recent
+                                    </div>
+                                )}
+
+                                {/* Recent unpinned memories */}
+                                {recentUnpinnedMemories.map((mem) => {
+                                    const typeInfo = getMemoryTypeInfo(mem.memory_type);
+                                    const TypeIcon = typeInfo.icon;
+                                    return (
+                                        <div
+                                            key={mem.memory_id}
+                                            className="flex items-start gap-2 px-2 py-1.5 rounded bg-gray-50 dark:bg-gray-800/50"
+                                        >
+                                            <TypeIcon className={`h-3 w-3 mt-0.5 flex-shrink-0 ${typeInfo.color}`} />
+                                            <span className="flex-1 text-gray-700 dark:text-gray-300 text-xs leading-relaxed line-clamp-2">
+                                                {mem.content}
+                                            </span>
+                                            <button
+                                                onClick={() => onToggleMemoryPinned(mem.memory_id)}
+                                                className="text-gray-400 hover:text-blue-500 flex-shrink-0"
+                                                title="Pin"
+                                            >
+                                                <BookmarkIcon className="h-3 w-3" />
+                                            </button>
+                                        </div>
+                                    );
+                                })}
+
+                                {/* Show more indicator */}
+                                {hiddenMemoryCount > 0 && (
+                                    <button
+                                        onClick={onExpandMemories}
+                                        className="w-full text-xs text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 py-1"
+                                    >
+                                        +{hiddenMemoryCount} more...
+                                    </button>
+                                )}
+                            </>
                         )}
                     </div>
                 </div>
@@ -272,31 +361,6 @@ export default function ContextPanel({
                         )}
                     </div>
                 </div>
-
-                {/* Recent Tool Calls Section */}
-                {lastToolHistory && lastToolHistory.length > 0 && (
-                    <div className="border-b border-gray-200 dark:border-gray-700">
-                        <div className="px-4 py-3 bg-gray-100 dark:bg-gray-800">
-                            <div className="flex items-center gap-2">
-                                <CpuChipIcon className="h-4 w-4 text-purple-600 dark:text-purple-400" />
-                                <span className="text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase">
-                                    Recent Tools
-                                </span>
-                            </div>
-                        </div>
-                        <div className="p-2 space-y-1">
-                            {lastToolHistory.slice(0, 3).map((tool, idx) => (
-                                <button
-                                    key={idx}
-                                    onClick={() => onToolHistoryClick(lastToolHistory)}
-                                    className="w-full text-left px-2 py-1 rounded text-xs text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 truncate"
-                                >
-                                    {tool.tool_name}
-                                </button>
-                            ))}
-                        </div>
-                    </div>
-                )}
             </div>
         </div>
     );

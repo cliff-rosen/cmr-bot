@@ -7,7 +7,14 @@ import {
     ActionMetadata
 } from '../types/chat';
 
-export function useGeneralChat(initialContext?: Record<string, any>) {
+interface UseGeneralChatOptions {
+    initialContext?: Record<string, any>;
+    enabledTools?: string[];  // List of tool IDs to enable
+    includeProfile?: boolean;  // Whether to include user profile
+}
+
+export function useGeneralChat(options: UseGeneralChatOptions = {}) {
+    const { initialContext, enabledTools, includeProfile = true } = options;
     const [messages, setMessages] = useState<GeneralChatMessage[]>([]);
     const [context, setContext] = useState(initialContext || {});
     const [isLoading, setIsLoading] = useState(false);
@@ -68,7 +75,9 @@ export function useGeneralChat(initialContext?: Record<string, any>) {
                 conversation_id: conversationId ?? undefined,
                 context,
                 interaction_type: interactionType,
-                action_metadata: actionMetadata
+                action_metadata: actionMetadata,
+                enabled_tools: enabledTools,
+                include_profile: includeProfile
             })) {
                 if (chunk.error) {
                     setError(chunk.error);
@@ -127,7 +136,7 @@ export function useGeneralChat(initialContext?: Record<string, any>) {
         } finally {
             setIsLoading(false);
         }
-    }, [context, conversationId]);
+    }, [context, conversationId, enabledTools, includeProfile]);
 
     const updateContext = useCallback((updates: Record<string, any>) => {
         setContext(prev => ({ ...prev, ...updates }));

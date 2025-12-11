@@ -34,6 +34,8 @@ class ChatRequest(BaseModel):
     context: Dict[str, Any] = {}
     interaction_type: Literal["text_input", "value_selected", "action_executed"] = "text_input"
     action_metadata: Optional[ActionMetadata] = None
+    enabled_tools: Optional[List[str]] = None  # List of tool IDs to enable (None = all tools)
+    include_profile: bool = True  # Whether to include user profile in context
 
 
 class ChatStreamChunk(BaseModel):

@@ -79,7 +79,12 @@ class GeneralChatService:
             ]
 
             # Build system prompt with semantic memory search based on user's message
-            system_prompt = self._build_system_prompt(request.context, user_message=user_prompt)
+            system_prompt = self._build_system_prompt(
+                request.context,
+                user_message=user_prompt,
+                enabled_tools=request.enabled_tools,
+                include_profile=request.include_profile
+            )
 
             # Build tool context (passed to tool executors)
             tool_context = {
@@ -87,10 +92,26 @@ class GeneralChatService:
                 "conversation_id": conversation_id
             }
 
-            # Get all available tools
-            tools = get_all_tools()
+            # Get tools, filtered by enabled_tools if specified
+            all_tools = get_all_tools()
+            if request.enabled_tools is not None:
+                # Filter to only enabled tools
+                enabled_set = set(request.enabled_tools)
+                tools = [t for t in all_tools if t.name in enabled_set]
+            else:
+                tools = all_tools
+
             tools_by_name = {tool.name: tool for tool in tools}
-            anthropic_tools = get_tools_for_anthropic() if tools else None
+
+            # Build anthropic tools list from filtered tools
+            anthropic_tools = [
+                {
+                    "name": tool.name,
+                    "description": tool.description,
+                    "input_schema": tool.input_schema
+                }
+                for tool in tools
+            ] if tools else None
 
             # Send initial status
             status_response = ChatStatusResponse(
@@ -262,20 +283,34 @@ class GeneralChatService:
             )
             yield error_response.model_dump_json()
 
-    def _build_system_prompt(self, context: Dict[str, Any], user_message: Optional[str] = None) -> str:
+    def _build_system_prompt(
+        self,
+        context: Dict[str, Any],
+        user_message: Optional[str] = None,
+        enabled_tools: Optional[List[str]] = None,
+        include_profile: bool = True
+    ) -> str:
         """Build the system prompt for the primary agent.
 
         Args:
             context: Request context
             user_message: The user's current message (for semantic memory search)
+            enabled_tools: List of enabled tool IDs (None = all tools)
+            include_profile: Whether to include user profile information
         """
 
-        # Get list of available tools for the prompt
-        tools = get_all_tools()
+        # Get list of available tools for the prompt, filtered if needed
+        all_tools = get_all_tools()
+        if enabled_tools is not None:
+            enabled_set = set(enabled_tools)
+            tools = [t for t in all_tools if t.name in enabled_set]
+        else:
+            tools = all_tools
+
         tool_descriptions = "\n".join([
             f"- **{t.name}**: {t.description}"
             for t in tools
-        ])
+        ]) if tools else "No tools currently enabled."
 
         # Get user's memories and assets for context
         memory_service = MemoryService(self.db, self.user_id)
@@ -285,10 +320,34 @@ class GeneralChatService:
         memory_context = memory_service.format_for_prompt(include_relevant=user_message)
         asset_context = asset_service.format_for_prompt()
 
+        # Get user profile if requested
+        profile_context = ""
+        if include_profile:
+            from models import User, UserProfile
+            user = self.db.query(User).filter(User.user_id == self.user_id).first()
+            if user:
+                profile_parts = []
+                if user.full_name:
+                    profile_parts.append(f"- Name: {user.full_name}")
+                if user.profile:
+                    if user.profile.display_name:
+                        profile_parts.append(f"- Display name: {user.profile.display_name}")
+                    if user.profile.bio:
+                        profile_parts.append(f"- Bio: {user.profile.bio}")
+                    if user.profile.preferences:
+                        prefs = user.profile.preferences
+                        if isinstance(prefs, dict):
+                            for key, value in prefs.items():
+                                profile_parts.append(f"- {key}: {value}")
+                if profile_parts:
+                    profile_context = "## User Profile\n" + "\n".join(profile_parts) + "\n"
+
         # Build context section
         context_section = ""
-        if memory_context or asset_context:
+        if profile_context or memory_context or asset_context:
             context_section = "\n## User Context\n"
+            if profile_context:
+                context_section += f"\n{profile_context}\n"
             if memory_context:
                 context_section += f"\n{memory_context}\n"
             if asset_context:
@@ -296,87 +355,87 @@ class GeneralChatService:
 
         return f"""You are CMR Bot, a personal AI assistant with full access to tools and capabilities.
 
-You are the primary agent in a personal AI system designed for deep integration and autonomy. You help the user with research, information gathering, analysis, and various tasks.
+        You are the primary agent in a personal AI system designed for deep integration and autonomy. You help the user with research, information gathering, analysis, and various tasks.
 
-## Your Capabilities
+        ## Your Capabilities
 
-You have access to the following tools:
-{tool_descriptions}
+        You have access to the following tools:
+        {tool_descriptions}
 
-## Guidelines
+        ## Guidelines
 
-1. **Be proactive**: Use your tools when they would help answer the user's question or complete their task.
+        1. **Be proactive**: Use your tools when they would help answer the user's question or complete their task.
 
-2. **Be thorough**: When researching, gather enough information to give a complete answer.
+        2. **Be thorough**: When researching, gather enough information to give a complete answer.
 
-3. **Be transparent**: Explain what you're doing and why, especially when using tools.
+        3. **Be transparent**: Explain what you're doing and why, especially when using tools.
 
-4. **Be conversational**: You're a personal assistant, not a formal system. Be helpful and natural.
+        4. **Be conversational**: You're a personal assistant, not a formal system. Be helpful and natural.
 
-5. **Work iteratively**: For complex tasks, break them down and tackle them step by step.
+        5. **Work iteratively**: For complex tasks, break them down and tackle them step by step.
 
-## Memory Management
+        ## Memory Management
 
-You have the ability to remember things about the user across conversations using the save_memory tool. Proactively save important information when the user shares:
-- Personal details (name, job, location, timezone)
-- Preferences (communication style, likes/dislikes, how they want things done)
-- Projects they're working on
-- People, companies, or things they reference frequently
-- Important context that would be useful in future conversations
+        You have the ability to remember things about the user across conversations using the save_memory tool. Proactively save important information when the user shares:
+        - Personal details (name, job, location, timezone)
+        - Preferences (communication style, likes/dislikes, how they want things done)
+        - Projects they're working on
+        - People, companies, or things they reference frequently
+        - Important context that would be useful in future conversations
 
-If you notice the user correcting something you remembered wrong, use delete_memory to remove the incorrect information and save the correct version.
-{context_section}
-## Workspace Payloads
+        If you notice the user correcting something you remembered wrong, use delete_memory to remove the incorrect information and save the correct version.
+        {context_section}
+        ## Workspace Payloads
 
-The user has a workspace panel that can display structured content alongside your chat messages. When your response would benefit from structured presentation, include a payload block at the END of your response using this exact format:
+        The user has a workspace panel that can display structured content alongside your chat messages. When your response would benefit from structured presentation, include a payload block at the END of your response using this exact format:
 
-```payload
-{{
-  "type": "<payload_type>",
-  "title": "<short title>",
-  "content": "<the structured content>"
-}}
-```
+        ```payload
+        {{
+        "type": "<payload_type>",
+        "title": "<short title>",
+        "content": "<the structured content>"
+        }}
+        ```
 
-**Payload types and when to use them:**
+        **Payload types and when to use them:**
 
-- `draft` - For any written content the user might want to iterate on: emails, letters, documents, messages, blog posts, code, etc. The user can edit these directly in the workspace.
+        - `draft` - For any written content the user might want to iterate on: emails, letters, documents, messages, blog posts, code, etc. The user can edit these directly in the workspace.
 
-- `summary` - For summarized information from research, articles, or analysis. Use when presenting key takeaways or condensed information.
+        - `summary` - For summarized information from research, articles, or analysis. Use when presenting key takeaways or condensed information.
 
-- `data` - For structured data like weather, statistics, comparisons, lists of items with properties, etc. Format the content as a readable summary.
+        - `data` - For structured data like weather, statistics, comparisons, lists of items with properties, etc. Format the content as a readable summary.
 
-- `code` - For code snippets, scripts, or technical implementations. The user can copy or save these easily.
+        - `code` - For code snippets, scripts, or technical implementations. The user can copy or save these easily.
 
-- `plan` - For action plans, step-by-step instructions, or project outlines.
+        - `plan` - For action plans, step-by-step instructions, or project outlines.
 
-**Examples:**
+        **Examples:**
 
-User asks "Write me an email declining a meeting":
-- Provide a brief conversational response
-- Include a `draft` payload with the email text
+        User asks "Write me an email declining a meeting":
+        - Provide a brief conversational response
+        - Include a `draft` payload with the email text
 
-User asks "What's the weather in NYC?":
-- Provide a conversational summary
-- Include a `data` payload with the weather details
+        User asks "What's the weather in NYC?":
+        - Provide a conversational summary
+        - Include a `data` payload with the weather details
 
-User asks "Summarize the key points from that article":
-- Provide brief commentary
-- Include a `summary` payload with the bullet points
+        User asks "Summarize the key points from that article":
+        - Provide brief commentary
+        - Include a `summary` payload with the bullet points
 
-**Important:**
-- Only include ONE payload per response
-- The payload must be valid JSON inside the code block
-- Always provide some conversational text BEFORE the payload
-- Not every response needs a payload - use them when structured content adds value
-- The payload appears in the workspace panel where users can edit, save, or act on it
+        **Important:**
+        - Only include ONE payload per response
+        - The payload must be valid JSON inside the code block
+        - Always provide some conversational text BEFORE the payload
+        - Not every response needs a payload - use them when structured content adds value
+        - The payload appears in the workspace panel where users can edit, save, or act on it
 
-## Interface
+        ## Interface
 
-The user is interacting with you through the main chat interface. The workspace panel on the right displays payloads and assets from your collaboration.
+        The user is interacting with you through the main chat interface. The workspace panel on the right displays payloads and assets from your collaboration.
 
-Remember: You have real capabilities. Use them to actually help, not just to describe what you could theoretically do.
-"""
+        Remember: You have real capabilities. Use them to actually help, not just to describe what you could theoretically do.
+        """
 
     async def _execute_tool(
         self,

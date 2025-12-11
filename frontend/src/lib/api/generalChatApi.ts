@@ -11,6 +11,8 @@ export interface GeneralChatRequest {
     context?: Record<string, any>;
     interaction_type?: InteractionType;
     action_metadata?: ActionMetadata;
+    enabled_tools?: string[];  // List of tool IDs to enable (undefined = all tools)
+    include_profile?: boolean;  // Whether to include user profile in context
 }
 
 export interface ChatResponsePayload {

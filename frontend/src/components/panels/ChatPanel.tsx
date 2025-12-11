@@ -33,7 +33,7 @@ export default function ChatPanel({
     const [input, setInput] = useState('');
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const inputRef = useRef<HTMLTextAreaElement>(null);
-    const lastPayloadShownRef = useRef<string | null>(null);
+      const lastPayloadShownRef = useRef<string | null>(null);
 
     const scrollToBottom = () => {
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });

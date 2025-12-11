@@ -1,5 +1,5 @@
-import { useState, useRef, useEffect, useCallback } from 'react';
-import { ChevronLeftIcon, ChevronRightIcon } from '@heroicons/react/24/solid';
+import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
+import { ChevronLeftIcon, ChevronRightIcon, PlusIcon } from '@heroicons/react/24/solid';
 import { useGeneralChat } from '../hooks/useGeneralChat';
 import { InteractionType, ToolCall, GeneralChatMessage, WorkspacePayload } from '../types/chat';
 import { memoryApi, Memory, assetApi, Asset } from '../lib/api';
@@ -25,6 +25,15 @@ const MIN_WORKSPACE_WIDTH = 200;
  * - Right sidebar: Context panel - tools, assets, settings (collapsible)
  */
 export default function MainPage() {
+    // Agent control state (defined first as hook depends on it)
+    const [enabledTools, setEnabledTools] = useState<Set<string>>(
+        new Set(['web_search', 'fetch_webpage', 'save_memory', 'search_memory'])
+    );
+    const [includeProfile, setIncludeProfile] = useState(true);
+
+    // Convert Set to array for the hook (memoized to avoid recreating on every render)
+    const enabledToolsArray = useMemo(() => Array.from(enabledTools), [enabledTools]);
+
     const {
         messages,
         sendMessage,
@@ -37,7 +46,10 @@ export default function MainPage() {
         newConversation,
         loadConversation,
         deleteConversation
-    } = useGeneralChat({});
+    } = useGeneralChat({
+        enabledTools: enabledToolsArray,
+        includeProfile
+    });
 
     // Panel state
     const [isSidebarOpen, setIsSidebarOpen] = useState(true);
@@ -56,11 +68,6 @@ export default function MainPage() {
     const [assets, setAssets] = useState<Asset[]>([]);
 
     const containerRef = useRef<HTMLDivElement>(null);
-
-    // Get the last tool history from messages for the context panel
-    const lastToolHistory = messages
-        .filter(m => m.role === 'assistant' && m.custom_payload?.type === 'tool_history')
-        .slice(-1)[0]?.custom_payload?.data as ToolCall[] | undefined;
 
     // Handle divider drag
     const handleMouseDown = useCallback((e: React.MouseEvent) => {
@@ -245,6 +252,23 @@ export default function MainPage() {
         }
     };
 
+    // Agent control handlers
+    const handleToggleTool = (toolId: string) => {
+        setEnabledTools(prev => {
+            const next = new Set(prev);
+            if (next.has(toolId)) {
+                next.delete(toolId);
+            } else {
+                next.add(toolId);
+            }
+            return next;
+        });
+    };
+
+    const handleToggleProfile = () => {
+        setIncludeProfile(prev => !prev);
+    };
+
     const handleSaveMessageAsAsset = async (message: GeneralChatMessage) => {
         try {
             const newAsset = await assetApi.create({
@@ -332,18 +356,31 @@ export default function MainPage() {
                 />
             </div>
 
-            {/* Sidebar Toggle Button */}
-            <button
-                onClick={() => setIsSidebarOpen(!isSidebarOpen)}
-                className="flex-shrink-0 w-6 flex items-center justify-center bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 border-r border-gray-200 dark:border-gray-700 transition-colors"
-                title={isSidebarOpen ? 'Hide conversations' : 'Show conversations'}
-            >
-                {isSidebarOpen ? (
-                    <ChevronLeftIcon className="h-4 w-4 text-gray-500" />
-                ) : (
-                    <ChevronRightIcon className="h-4 w-4 text-gray-500" />
+            {/* Sidebar Toggle + New Chat Button */}
+            <div className="flex-shrink-0 flex flex-col bg-gray-100 dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700">
+                {/* New Chat Button (visible when sidebar collapsed) */}
+                {!isSidebarOpen && (
+                    <button
+                        onClick={handleNewConversation}
+                        className="w-8 h-8 m-1 flex items-center justify-center bg-blue-600 hover:bg-blue-700 text-white rounded transition-colors"
+                        title="New conversation"
+                    >
+                        <PlusIcon className="h-4 w-4" />
+                    </button>
                 )}
-            </button>
+                {/* Toggle Button */}
+                <button
+                    onClick={() => setIsSidebarOpen(!isSidebarOpen)}
+                    className="flex-1 w-8 flex items-center justify-center hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
+                    title={isSidebarOpen ? 'Hide conversations' : 'Show conversations'}
+                >
+                    {isSidebarOpen ? (
+                        <ChevronLeftIcon className="h-4 w-4 text-gray-500" />
+                    ) : (
+                        <ChevronRightIcon className="h-4 w-4 text-gray-500" />
+                    )}
+                </button>
+            </div>
 
             {/* Center Panel - Chat */}
             <ChatPanel
@@ -409,12 +446,14 @@ export default function MainPage() {
                 <ContextPanel
                     memories={memories}
                     assets={assets}
-                    lastToolHistory={lastToolHistory}
+                    enabledTools={enabledTools}
+                    includeProfile={includeProfile}
                     onAddWorkingMemory={handleAddWorkingMemory}
                     onToggleMemoryPinned={handleToggleMemoryPinned}
                     onToggleAssetContext={handleToggleAssetContext}
                     onClearAllAssetsFromContext={handleClearAllAssetsFromContext}
-                    onToolHistoryClick={setSelectedToolHistory}
+                    onToggleTool={handleToggleTool}
+                    onToggleProfile={handleToggleProfile}
                     onExpandMemories={() => setIsMemoryModalOpen(true)}
                     onExpandAssets={() => setIsAssetModalOpen(true)}
                 />
