@@ -10,6 +10,7 @@ interface ConversationSidebarProps {
     conversations: Conversation[];
     currentConversationId: number | null;
     isLoading: boolean;
+    confirmDeleteId: number | null;
     onNewConversation: () => void;
     onSelectConversation: (id: number) => void;
     onDeleteConversation: (id: number, e: React.MouseEvent) => void;
@@ -19,6 +20,7 @@ export default function ConversationSidebar({
     conversations,
     currentConversationId,
     isLoading,
+    confirmDeleteId,
     onNewConversation,
     onSelectConversation,
     onDeleteConversation
@@ -51,34 +53,41 @@ export default function ConversationSidebar({
                     </div>
                 ) : (
                     <div className="py-2">
-                        {conversations.map((conv) => (
-                            <div
-                                key={conv.conversation_id}
-                                onClick={() => onSelectConversation(conv.conversation_id)}
-                                className={`group flex items-center gap-2 px-4 py-2.5 cursor-pointer hover:bg-gray-200 dark:hover:bg-gray-800 ${
-                                    conv.conversation_id === currentConversationId
-                                        ? 'bg-gray-200 dark:bg-gray-800'
-                                        : ''
-                                }`}
-                            >
-                                <ChatBubbleLeftRightIcon className="h-4 w-4 text-gray-400 flex-shrink-0" />
-                                <div className="flex-1 min-w-0">
-                                    <p className="text-sm text-gray-900 dark:text-white truncate">
-                                        {conv.title || 'New conversation'}
-                                    </p>
-                                    <p className="text-xs text-gray-500 dark:text-gray-400">
-                                        {new Date(conv.updated_at).toLocaleDateString()}
-                                    </p>
-                                </div>
-                                <button
-                                    onClick={(e) => onDeleteConversation(conv.conversation_id, e)}
-                                    className="p-1 text-gray-400 hover:text-red-600 dark:hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity"
-                                    title="Delete conversation"
+                        {conversations.map((conv) => {
+                            const isConfirmingDelete = confirmDeleteId === conv.conversation_id;
+                            return (
+                                <div
+                                    key={conv.conversation_id}
+                                    onClick={() => onSelectConversation(conv.conversation_id)}
+                                    className={`group flex items-center gap-2 px-4 py-2.5 cursor-pointer hover:bg-gray-200 dark:hover:bg-gray-800 ${
+                                        conv.conversation_id === currentConversationId
+                                            ? 'bg-gray-200 dark:bg-gray-800'
+                                            : ''
+                                    }`}
                                 >
-                                    <TrashIcon className="h-4 w-4" />
-                                </button>
-                            </div>
-                        ))}
+                                    <ChatBubbleLeftRightIcon className="h-4 w-4 text-gray-400 flex-shrink-0" />
+                                    <div className="flex-1 min-w-0">
+                                        <p className="text-sm text-gray-900 dark:text-white truncate">
+                                            {conv.title || 'New conversation'}
+                                        </p>
+                                        <p className="text-xs text-gray-500 dark:text-gray-400">
+                                            {new Date(conv.updated_at).toLocaleDateString()}
+                                        </p>
+                                    </div>
+                                    <button
+                                        onClick={(e) => onDeleteConversation(conv.conversation_id, e)}
+                                        className={`p-1 rounded transition-all ${
+                                            isConfirmingDelete
+                                                ? 'bg-red-500 text-white opacity-100'
+                                                : 'text-gray-400 hover:text-red-600 dark:hover:text-red-400 opacity-0 group-hover:opacity-100'
+                                        }`}
+                                        title={isConfirmingDelete ? 'Click again to confirm' : 'Delete conversation'}
+                                    >
+                                        <TrashIcon className="h-4 w-4" />
+                                    </button>
+                                </div>
+                            );
+                        })}
                     </div>
                 )}
             </div>

@@ -154,7 +154,6 @@ export default function AssetBrowserModal({
         const typeInfo = getAssetTypeInfo(viewingAsset.asset_type);
         const TypeIcon = typeInfo.icon;
         const isEditable = ['document', 'code', 'data'].includes(viewingAsset.asset_type);
-        const isMarkdown = viewingAsset.asset_type === 'document';
 
         return (
             <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
@@ -249,15 +248,9 @@ export default function AssetBrowserModal({
                             <pre className="p-4 bg-gray-900 dark:bg-black rounded-lg text-sm text-gray-100 overflow-x-auto whitespace-pre-wrap min-h-[60vh]">
                                 {viewingAsset.content || 'No content'}
                             </pre>
-                        ) : isMarkdown ? (
+                        ) : (
                             <div className="p-4 bg-gray-50 dark:bg-gray-950 rounded-lg min-h-[60vh]">
                                 <MarkdownRenderer content={viewingAsset.content || 'No content'} />
-                            </div>
-                        ) : (
-                            <div className="prose prose-sm dark:prose-invert max-w-none p-4 bg-gray-50 dark:bg-gray-950 rounded-lg min-h-[60vh]">
-                                <pre className="whitespace-pre-wrap font-sans text-gray-700 dark:text-gray-300">
-                                    {viewingAsset.content || 'No content'}
-                                </pre>
                             </div>
                         )}
                     </div>

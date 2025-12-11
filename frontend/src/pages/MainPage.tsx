@@ -39,6 +39,25 @@ export default function MainPage() {
     // Convert Set to array for the hook (memoized to avoid recreating on every render)
     const enabledToolsArray = useMemo(() => Array.from(enabledTools), [enabledTools]);
 
+    // Memories and assets state (defined before useGeneralChat so callback can use setters)
+    const [memories, setMemories] = useState<Memory[]>([]);
+    const [assets, setAssets] = useState<Asset[]>([]);
+
+    // Callback to refresh data when tools modify memories
+    const handleToolCallsComplete = useCallback(async (toolNames: string[]) => {
+        const memoryTools = ['save_memory', 'delete_memory', 'update_memory'];
+        const shouldRefreshMemories = toolNames.some(t => memoryTools.includes(t));
+
+        if (shouldRefreshMemories) {
+            try {
+                const mems = await memoryApi.list();
+                setMemories(mems);
+            } catch (err) {
+                console.error('Failed to refresh memories:', err);
+            }
+        }
+    }, []);
+
     const {
         messages,
         sendMessage,
@@ -53,7 +72,8 @@ export default function MainPage() {
         deleteConversation
     } = useGeneralChat({
         enabledTools: enabledToolsArray,
-        includeProfile
+        includeProfile,
+        onToolCallsComplete: handleToolCallsComplete
     });
 
     // Panel state
@@ -69,8 +89,6 @@ export default function MainPage() {
     // Content state
     const [selectedToolHistory, setSelectedToolHistory] = useState<ToolCall[] | null>(null);
     const [activePayload, setActivePayload] = useState<WorkspacePayload | null>(null);
-    const [memories, setMemories] = useState<Memory[]>([]);
-    const [assets, setAssets] = useState<Asset[]>([]);
 
     const containerRef = useRef<HTMLDivElement>(null);
 
@@ -149,13 +167,23 @@ export default function MainPage() {
         }
     };
 
+    const [confirmDeleteConvId, setConfirmDeleteConvId] = useState<number | null>(null);
+
     const handleDeleteConversation = async (convId: number, e: React.MouseEvent) => {
         e.stopPropagation();
-        if (!confirm('Delete this conversation?')) return;
-        try {
-            await deleteConversation(convId);
-        } catch (err) {
-            console.error('Failed to delete conversation:', err);
+        if (confirmDeleteConvId === convId) {
+            // Second click - actually delete
+            try {
+                await deleteConversation(convId);
+            } catch (err) {
+                console.error('Failed to delete conversation:', err);
+            }
+            setConfirmDeleteConvId(null);
+        } else {
+            // First click - set confirm state
+            setConfirmDeleteConvId(convId);
+            // Auto-reset after 3 seconds
+            setTimeout(() => setConfirmDeleteConvId(null), 3000);
         }
     };
 

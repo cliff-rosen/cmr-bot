@@ -11,10 +11,11 @@ interface UseGeneralChatOptions {
     initialContext?: Record<string, any>;
     enabledTools?: string[];  // List of tool IDs to enable
     includeProfile?: boolean;  // Whether to include user profile
+    onToolCallsComplete?: (toolNames: string[]) => void;  // Called when tool calls complete
 }
 
 export function useGeneralChat(options: UseGeneralChatOptions = {}) {
-    const { initialContext, enabledTools, includeProfile = true } = options;
+    const { initialContext, enabledTools, includeProfile = true, onToolCallsComplete } = options;
     const [messages, setMessages] = useState<GeneralChatMessage[]>([]);
     const [context, setContext] = useState(initialContext || {});
     const [isLoading, setIsLoading] = useState(false);
@@ -118,6 +119,13 @@ export function useGeneralChat(options: UseGeneralChatOptions = {}) {
                     });
                     setStreamingText('');
                     setStatusText(null);
+
+                    // Notify about tool calls if any
+                    if (onToolCallsComplete && chunk.payload.custom_payload?.type === 'tool_history') {
+                        const toolCalls = chunk.payload.custom_payload.data as Array<{ tool_name: string }>;
+                        const toolNames = toolCalls.map(tc => tc.tool_name);
+                        onToolCallsComplete(toolNames);
+                    }
                 }
             }
 
