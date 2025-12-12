@@ -68,29 +68,32 @@ class StepExecutionService:
 
             tool_list = ", ".join(assignment.available_tools) if assignment.available_tools else "None"
 
-            system_prompt = f"""You are a task execution agent. Your only job is to complete the assigned task.
+            system_prompt = f"""You are a task execution agent. Execute the task and return ONLY the output.
 
-            ## Your Task
-            {assignment.description}
+## Task
+{assignment.description}
 
-            ## Input
-            {assignment.input_data}
+## Input Data
+{assignment.input_data}
 
-            ## Expected Output Format
-            {assignment.output_format}
+## Required Output
+{assignment.output_format}
 
-            ## Available Tools
-            {tool_list}
+## Available Tools
+{tool_list}
 
-            ## Guidelines
-            - Focus ONLY on completing this specific task
-            - Use tools as needed to gather information or perform actions
-            - Return your final output clearly - this will be shown to the user
-            - Do not ask questions or engage in conversation
-            - If you cannot complete the task, explain why clearly
-            """
+## CRITICAL RULES
+1. DO NOT describe what you will do - just DO IT
+2. DO NOT say "I'll research..." or "Let me..." - USE THE TOOLS NOW
+3. Your response must BE the deliverable, not a description of it
+4. If tools are available and needed, call them IMMEDIATELY
+5. Return the actual content/data requested, not commentary about it
 
-            messages = [{"role": "user", "content": "Please execute the task described in your instructions."}]
+WRONG: "I'll search for Beatles albums and compile a list..."
+RIGHT: [Actually call web_search, then return the compiled list]
+"""
+
+            messages = [{"role": "user", "content": "Execute now. Return only the deliverable."}]
 
             api_kwargs = {
                 "model": STEP_MODEL,
