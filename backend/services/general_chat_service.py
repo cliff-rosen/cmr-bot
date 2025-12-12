@@ -10,7 +10,6 @@ import anthropic
 import asyncio
 import os
 import logging
-import types
 
 from schemas.general_chat import ChatResponsePayload
 from services.chat_payloads import (
@@ -22,6 +21,7 @@ from services.conversation_service import ConversationService
 from services.memory_service import MemoryService
 from services.asset_service import AssetService
 from services.profile_service import ProfileService
+from services.tool_execution_utils import execute_streaming_tool, execute_tool
 
 logger = logging.getLogger(__name__)
 
@@ -147,7 +147,7 @@ class GeneralChatService:
 
                 if tool_config and tool_config.streaming:
                     # Streaming tool - yield progress updates
-                    async for progress_or_result in self._execute_streaming_tool(
+                    async for progress_or_result in self._execute_streaming_tool_call(
                         tool_config, tool_input, tool_executor_context
                     ):
                         if isinstance(progress_or_result, ToolProgress):
@@ -169,7 +169,7 @@ class GeneralChatService:
                             tool_result_str, tool_output_data = progress_or_result
                 else:
                     # Non-streaming tool
-                    tool_result_str, tool_output_data = await self._execute_tool(
+                    tool_result_str, tool_output_data = await self._execute_tool_call(
                         tool_name, tool_input, tools_by_name, tool_executor_context
                     )
 
@@ -615,112 +615,30 @@ class GeneralChatService:
     # Tool Execution
     # =========================================================================
 
-    async def _execute_tool(
+    async def _execute_tool_call(
         self,
         tool_name: str,
         tool_input: Dict[str, Any],
         tools_by_name: Dict[str, Any],
         context: Dict[str, Any]
     ) -> Tuple[str, Any]:
-        """Execute a tool and return (result_str, output_data)."""
+        """Execute a non-streaming tool and return (result_str, output_data)."""
         tool_config = tools_by_name.get(tool_name)
 
         if not tool_config:
             return f"Unknown tool: {tool_name}", None
 
-        try:
-            # Check if this is a streaming tool
-            if tool_config.streaming:
-                return await self._execute_streaming_tool(tool_config, tool_input, context)
+        return await execute_tool(tool_config, tool_input, self.db, self.user_id, context)
 
-            # Regular non-streaming tool
-            tool_result = await asyncio.to_thread(
-                tool_config.executor,
-                tool_input,
-                self.db,
-                self.user_id,
-                context
-            )
-
-            if isinstance(tool_result, ToolResult):
-                return tool_result.text, tool_result.data
-            elif isinstance(tool_result, str):
-                return tool_result, None
-            else:
-                return str(tool_result), None
-
-        except Exception as e:
-            logger.error(f"Tool execution error: {e}", exc_info=True)
-            return f"Error executing tool: {str(e)}", None
-
-    async def _execute_streaming_tool(
+    async def _execute_streaming_tool_call(
         self,
         tool_config: Any,
         tool_input: Dict[str, Any],
         context: Dict[str, Any]
     ) -> AsyncGenerator[ToolProgress | Tuple[str, Any], None]:
         """Execute a streaming tool, yielding progress updates and finally the result tuple."""
-        try:
-            # Get the generator from the tool
-            def run_generator():
-                return tool_config.executor(
-                    tool_input,
-                    self.db,
-                    self.user_id,
-                    context
-                )
-
-            generator = await asyncio.to_thread(run_generator)
-
-            # If it's a generator, iterate and yield progress
-            if isinstance(generator, types.GeneratorType):
-                final_result = None
-
-                # Sentinel to indicate StopIteration
-                _STOP = object()
-
-                def get_next_safe():
-                    """Get next item, returning sentinel tuple on StopIteration."""
-                    try:
-                        return (next(generator), None)
-                    except StopIteration as e:
-                        return (_STOP, e.value)
-
-                while True:
-                    item, return_value = await asyncio.to_thread(get_next_safe)
-
-                    if item is _STOP:
-                        # Generator finished - return_value is the final result
-                        if return_value is not None:
-                            if isinstance(return_value, ToolResult):
-                                yield (return_value.text, return_value.data)
-                            elif isinstance(return_value, str):
-                                yield (return_value, None)
-                            else:
-                                yield (str(return_value), None)
-                        elif final_result:
-                            yield (final_result.text, final_result.data)
-                        else:
-                            yield ("", None)
-                        return
-
-                    # Yield progress updates
-                    if isinstance(item, ToolProgress):
-                        yield item
-                    elif isinstance(item, ToolResult):
-                        final_result = item
-            else:
-                # Not a generator - treat as regular result
-                if isinstance(generator, ToolResult):
-                    yield (generator.text, generator.data)
-                elif isinstance(generator, str):
-                    yield (generator, None)
-                else:
-                    yield (str(generator), None)
-
-        except Exception as e:
-            logger.error(f"Streaming tool execution error: {e}", exc_info=True)
-            yield (f"Error executing tool: {str(e)}", None)
+        async for item in execute_streaming_tool(tool_config, tool_input, self.db, self.user_id, context):
+            yield item
 
     def _format_assistant_content(self, response_content: list) -> list:
         """Format response content blocks for Anthropic API."""

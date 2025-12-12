@@ -2,7 +2,7 @@
 Search Service for Web Search functionality
 
 This service handles web search operations using various search APIs.
-Currently supports Google Custom Search API.
+Currently supports Google Custom Search API with DuckDuckGo fallback.
 """
 
 from typing import List, Optional, Dict, Any, TypedDict
@@ -16,6 +16,19 @@ from config.settings import settings
 from schemas.base import CanonicalSearchResult
 
 logger = logging.getLogger(__name__)
+
+
+class SearchQuotaExceededError(Exception):
+    """Raised when search API quota is exceeded."""
+    pass
+
+
+class SearchAPIError(Exception):
+    """Raised when search API returns an error."""
+    def __init__(self, message: str, status_code: int = None, is_retryable: bool = False):
+        super().__init__(message)
+        self.status_code = status_code
+        self.is_retryable = is_retryable
 
 
 class SearchServiceResult(TypedDict):
@@ -130,21 +143,25 @@ class SearchService:
                 async with session.get(url, params=params) as response:
                     end_time = datetime.utcnow()
                     search_time_ms = int((end_time - start_time).total_seconds() * 1000)
-                    
+
                     if response.status == 200:
                         data = await response.json()
                         return self._format_google_results(data, search_term, search_time_ms)
                     else:
-                        error_text = await response.text()
-                        logger.error(f"Google search API error {response.status}: {error_text}")
-                        raise Exception(f"Search API error: {response.status} - {error_text}")
-                        
+                        # Parse Google API error response
+                        error_data = await response.json()
+                        error_info = self._parse_google_error(error_data, response.status)
+                        raise error_info
+
+        except (SearchQuotaExceededError, SearchAPIError):
+            # Re-raise our custom exceptions
+            raise
         except aiohttp.ClientError as e:
             logger.error(f"HTTP error during search: {str(e)}")
-            raise Exception(f"Network error during search: {str(e)}")
+            raise SearchAPIError(f"Network error during search: {str(e)}", is_retryable=True)
         except Exception as e:
             logger.error(f"Error performing Google search: {str(e)}")
-            raise
+            raise SearchAPIError(f"Search error: {str(e)}")
 
     def _format_google_results(self, data: Dict[str, Any], search_term: str, search_time_ms: int) -> SearchServiceResult:
         """
@@ -189,6 +206,52 @@ class SearchService:
             search_engine=self.search_engine,
             metadata=None
         )
+
+    def _parse_google_error(self, error_data: Dict[str, Any], status_code: int) -> Exception:
+        """
+        Parse Google API error response and return appropriate exception.
+
+        Google API error format:
+        {
+            "error": {
+                "code": 429,
+                "message": "Quota exceeded...",
+                "errors": [{"reason": "rateLimitExceeded", ...}],
+                "status": "RESOURCE_EXHAUSTED"
+            }
+        }
+        """
+        error = error_data.get("error", {})
+        message = error.get("message", "Unknown error")
+        errors = error.get("errors", [])
+        status = error.get("status", "")
+
+        # Check for quota/rate limit errors
+        quota_reasons = {"rateLimitExceeded", "dailyLimitExceeded", "userRateLimitExceeded", "quotaExceeded"}
+        for err in errors:
+            reason = err.get("reason", "")
+            if reason in quota_reasons:
+                logger.warning(f"Google Search API quota exceeded: {reason} - {message}")
+                return SearchQuotaExceededError(f"Search quota exceeded: {message}")
+
+        # Check status for quota errors
+        if status == "RESOURCE_EXHAUSTED" or status_code == 429:
+            logger.warning(f"Google Search API quota exceeded: {message}")
+            return SearchQuotaExceededError(f"Search quota exceeded: {message}")
+
+        # Check for billing/auth errors (not retryable)
+        if status_code in (401, 403):
+            logger.error(f"Google Search API auth error: {message}")
+            return SearchAPIError(f"Search API authentication error: {message}", status_code, is_retryable=False)
+
+        # Server errors are retryable
+        if status_code >= 500:
+            logger.error(f"Google Search API server error: {message}")
+            return SearchAPIError(f"Search API server error: {message}", status_code, is_retryable=True)
+
+        # Default error
+        logger.error(f"Google Search API error {status_code}: {message}")
+        return SearchAPIError(f"Search API error: {message}", status_code, is_retryable=False)
 
     def _extract_domain(self, url: str) -> str:
         """Extract domain name from URL"""
@@ -347,14 +410,33 @@ class SearchService:
         
         try:
             if self.search_engine == "google" and self.api_key and self.custom_search_id:
-                return await self.search_google(search_term, num_results, date_range, region, language)
+                try:
+                    return await self.search_google(search_term, num_results, date_range, region, language)
+                except SearchQuotaExceededError as e:
+                    # Fallback to DuckDuckGo on quota exceeded
+                    logger.warning(f"Google quota exceeded, falling back to DuckDuckGo: {e}")
+                    result = await self.search_duckduckgo(search_term, num_results, region)
+                    # Mark in metadata that we fell back
+                    result["metadata"] = {"fallback_reason": "google_quota_exceeded"}
+                    return result
+                except SearchAPIError as e:
+                    if e.is_retryable:
+                        # For retryable errors, try DuckDuckGo as fallback
+                        logger.warning(f"Google search failed (retryable), falling back to DuckDuckGo: {e}")
+                        result = await self.search_duckduckgo(search_term, num_results, region)
+                        result["metadata"] = {"fallback_reason": "google_error"}
+                        return result
+                    raise  # Non-retryable errors should propagate
             elif self.search_engine == "duckduckgo":
                 return await self.search_duckduckgo(search_term, num_results, region)
             else:
                 # Fallback to DuckDuckGo if Google not properly configured
                 logger.warning(f"Search engine '{self.search_engine}' not properly configured, falling back to DuckDuckGo")
                 return await self.search_duckduckgo(search_term, num_results, region)
-                
+
+        except (SearchQuotaExceededError, SearchAPIError):
+            # Re-raise our custom exceptions if they make it here
+            raise
         except Exception as e:
             logger.error(f"Error performing search: {str(e)}")
-            raise 
+            raise SearchAPIError(f"Search failed: {str(e)}")

@@ -19,10 +19,11 @@ The workflow is hardcoded but uses LLMs at decision points:
 3. Synthesize into final output
 """
 
+import json
 import logging
 import asyncio
 import os
-from typing import Dict, Any, List, Optional, Generator
+from typing import Dict, Any, List, Optional, Generator, Union
 from dataclasses import dataclass, field, asdict
 from sqlalchemy.orm import Session
 import anthropic
@@ -77,6 +78,40 @@ class DeepResearchEngine:
 
     def __init__(self):
         self.client = anthropic.Anthropic(api_key=os.getenv('ANTHROPIC_API_KEY'))
+
+    def _parse_llm_json(self, text: str) -> Optional[Any]:
+        """
+        Parse JSON from LLM response, handling markdown code blocks.
+
+        Args:
+            text: Raw LLM response text
+
+        Returns:
+            Parsed JSON object or None if parsing fails
+        """
+        # Strip whitespace
+        text = text.strip()
+
+        # Handle markdown code blocks
+        if text.startswith("```"):
+            lines = text.split("\n")
+            # Find the content between ``` markers
+            start_idx = 1  # Skip the opening ```
+            end_idx = len(lines)
+            for i, line in enumerate(lines[1:], 1):
+                if line.strip() == "```":
+                    end_idx = i
+                    break
+            text = "\n".join(lines[start_idx:end_idx]).strip()
+            # Remove json language marker if present
+            if text.startswith("json"):
+                text = text[4:].strip()
+
+        try:
+            return json.loads(text)
+        except json.JSONDecodeError as e:
+            logger.warning(f"JSON parse error: {e}")
+            return None
 
     def run_streaming(
         self, topic: str, goal: str, db: Session, user_id: int
@@ -278,29 +313,23 @@ class DeepResearchEngine:
                 "role": "user",
                 "content": f"""Break this research goal into 3-6 specific questions/information needs.
 
-Topic: {topic}
-Goal: {state.goal}
+                Topic: {topic}
+                Goal: {state.goal}
 
-Return ONLY a JSON array of strings, each a specific question to answer.
-Example: ["What is X?", "When did Y happen?", "Who are the key people in Z?"]
+                Return ONLY a JSON array of strings, each a specific question to answer.
+                Example: ["What is X?", "When did Y happen?", "Who are the key people in Z?"]
 
-JSON array:"""
+                JSON array:"""
             }]
         )
 
-        import json
         text = response.content[0].text.strip()
-        # Handle markdown code blocks
-        if text.startswith("```"):
-            text = text.split("```")[1]
-            if text.startswith("json"):
-                text = text[4:]
+        parsed = self._parse_llm_json(text)
 
-        try:
-            questions = json.loads(text)
-            state.checklist = [ChecklistItem(question=q) for q in questions]
+        if parsed is not None and isinstance(parsed, list):
+            state.checklist = [ChecklistItem(question=q) for q in parsed]
             logger.info(f"Created checklist with {len(state.checklist)} items")
-        except json.JSONDecodeError:
+        else:
             logger.error(f"Failed to parse checklist: {text}")
             # Fallback: single item
             state.checklist = [ChecklistItem(question=state.goal)]
@@ -318,43 +347,42 @@ JSON array:"""
                 "role": "user",
                 "content": f"""Generate 2-3 search queries to find information for these questions:
 
-{unfilled_text}
+                {unfilled_text}
 
-Previously used queries (avoid repeating):
-{used_queries}
+                Previously used queries (avoid repeating):
+                {used_queries}
 
-Return ONLY a JSON array of search query strings. Be specific and varied.
-JSON array:"""
+                Return ONLY a JSON array of search query strings. Be specific and varied.
+                JSON array:"""
             }]
         )
 
-        import json
         text = response.content[0].text.strip()
-        if text.startswith("```"):
-            text = text.split("```")[1]
-            if text.startswith("json"):
-                text = text[4:]
+        parsed = self._parse_llm_json(text)
 
-        try:
-            queries = json.loads(text)
+        if parsed is not None and isinstance(parsed, list):
             # Filter out already-used queries
-            new_queries = [q for q in queries if q not in state.search_queries_used]
+            new_queries = [q for q in parsed if q not in state.search_queries_used]
             state.search_queries_used.extend(new_queries)
             return new_queries[:3]
-        except json.JSONDecodeError:
+        else:
             logger.error(f"Failed to parse queries: {text}")
             return []
 
     def _execute_searches(self, queries: List[str]) -> List[Dict[str, Any]]:
         """Execute search queries and collect results."""
-        from services.search_service import SearchService
+        from services.search_service import SearchService, SearchQuotaExceededError, SearchAPIError
 
         all_results = []
         search_service = SearchService()
         if not search_service.initialized:
             search_service.initialize()
 
+        quota_exceeded = False
         for query in queries:
+            if quota_exceeded:
+                # Skip remaining queries if quota exceeded
+                break
             try:
                 loop = asyncio.new_event_loop()
                 asyncio.set_event_loop(loop)
@@ -365,6 +393,11 @@ JSON array:"""
                 finally:
                     loop.close()
 
+                # Check if fallback was used (indicates quota issues)
+                metadata = result.get("metadata")
+                if metadata and metadata.get("fallback_reason") == "google_quota_exceeded":
+                    logger.info(f"Search fell back to DuckDuckGo for query: {query}")
+
                 for item in result.get("search_results", []):
                     all_results.append({
                         "title": item.title,
@@ -372,6 +405,11 @@ JSON array:"""
                         "snippet": item.snippet,
                         "query": query
                     })
+            except SearchQuotaExceededError as e:
+                logger.warning(f"Search quota exceeded for '{query}': {e}")
+                quota_exceeded = True
+            except SearchAPIError as e:
+                logger.error(f"Search API error for '{query}': {e}")
             except Exception as e:
                 logger.error(f"Search error for '{query}': {e}")
 
@@ -411,38 +449,36 @@ JSON array:"""
                 "role": "user",
                 "content": f"""Which search results are most likely to contain useful information?
 
-Information needed:
-{unfilled_text}
+            Information needed:
+            {unfilled_text}
 
-Already fetched (skip these):
-{already_fetched}
+            Already fetched (skip these):
+            {already_fetched}
 
-Search results:
-{results_text}
+            Search results:
+            {results_text}
 
-Return ONLY a JSON array of result numbers (1-indexed) to fetch. Pick up to {MAX_URLS_PER_ITERATION} most promising.
-Example: [1, 3, 5]
-JSON array:"""
+            Return ONLY a JSON array of result numbers (1-indexed) to fetch. Pick up to {MAX_URLS_PER_ITERATION} most promising.
+            Example: [1, 3, 5]
+            JSON array:"""
             }]
         )
 
-        import json
         text = response.content[0].text.strip()
-        if text.startswith("```"):
-            text = text.split("```")[1]
-            if text.startswith("json"):
-                text = text[4:]
+        parsed = self._parse_llm_json(text)
 
-        try:
-            indices = json.loads(text)
+        if parsed is not None and isinstance(parsed, list):
             urls = []
-            for idx in indices[:MAX_URLS_PER_ITERATION]:
-                if 1 <= idx <= len(search_results):
-                    url = search_results[idx - 1]["url"]
-                    if url not in state.all_sources:
-                        urls.append(url)
+            for idx in parsed[:MAX_URLS_PER_ITERATION]:
+                try:
+                    if 1 <= idx <= len(search_results):
+                        url = search_results[idx - 1]["url"]
+                        if url not in state.all_sources:
+                            urls.append(url)
+                except (TypeError, ValueError):
+                    continue
             return urls
-        except (json.JSONDecodeError, TypeError):
+        else:
             logger.error(f"Failed to parse URL indices: {text}")
             return []
 
@@ -502,35 +538,30 @@ JSON array:"""
                 "role": "user",
                 "content": f"""Extract information from these pages that answers our questions.
 
-Questions we need to answer:
-{questions_text}
+                Questions we need to answer:
+                {questions_text}
 
-Page contents:
-{pages_text}
+                Page contents:
+                {pages_text}
 
-For each question, extract relevant facts found. Return JSON:
-{{
-  "extractions": [
-    {{"question_index": 1, "findings": ["fact 1", "fact 2"], "complete": true/false}},
-    ...
-  ]
-}}
+                For each question, extract relevant facts found. Return JSON:
+                {{
+                "extractions": [
+                    {{"question_index": 1, "findings": ["fact 1", "fact 2"], "complete": true/false}},
+                    ...
+                ]
+                }}
 
-Only include questions where you found relevant information.
-JSON:"""
+                Only include questions where you found relevant information.
+                JSON:"""
             }]
         )
 
-        import json
         text = response.content[0].text.strip()
-        if text.startswith("```"):
-            text = text.split("```")[1]
-            if text.startswith("json"):
-                text = text[4:]
+        parsed = self._parse_llm_json(text)
 
-        try:
-            data = json.loads(text)
-            for ext in data.get("extractions", []):
+        if parsed is not None and isinstance(parsed, dict):
+            for ext in parsed.get("extractions", []):
                 idx = ext.get("question_index", 0) - 1
                 if 0 <= idx < len(unfilled):
                     item = unfilled[idx]
@@ -540,7 +571,7 @@ JSON:"""
                         item.status = "complete"
                     elif item.findings:
                         item.status = "partial"
-        except json.JSONDecodeError:
+        else:
             logger.error(f"Failed to parse extractions: {text}")
 
     def _synthesize(self, state: ResearchState, topic: str) -> ToolResult:
@@ -564,14 +595,14 @@ JSON:"""
                 "role": "user",
                 "content": f"""Synthesize these research findings into a comprehensive summary.
 
-Topic: {topic}
-Goal: {state.goal}
+                Topic: {topic}
+                Goal: {state.goal}
 
-Findings by question:
-{findings_text}
+                Findings by question:
+                {findings_text}
 
-Write a well-organized summary that addresses the research goal. Include key facts and insights.
-Be thorough but concise. Note any gaps where information couldn't be found."""
+                Write a well-organized summary that addresses the research goal. Include key facts and insights.
+                Be thorough but concise. Note any gaps where information couldn't be found."""
             }]
         )
 
@@ -620,13 +651,13 @@ def execute_deep_research_streaming(
 DEEP_RESEARCH_TOOL = ToolConfig(
     name="deep_research",
     description="""Conduct comprehensive research on a topic. This tool automatically:
-1. Breaks your goal into specific questions
-2. Generates varied search queries
-3. Evaluates and fetches promising sources
-4. Extracts relevant information
-5. Synthesizes findings into a summary
+    1. Breaks your goal into specific questions
+    2. Generates varied search queries
+    3. Evaluates and fetches promising sources
+    4. Extracts relevant information
+    5. Synthesizes findings into a summary
 
-Use this instead of manual web_search + fetch_webpage loops when you need thorough research.""",
+    Use this instead of manual web_search + fetch_webpage loops when you need thorough research.""",
     input_schema={
         "type": "object",
         "properties": {

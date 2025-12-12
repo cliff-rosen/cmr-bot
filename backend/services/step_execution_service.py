@@ -5,7 +5,7 @@ A lightweight agent that executes individual workflow steps with fresh context.
 Streams status updates via SSE for real-time feedback.
 """
 
-from typing import Dict, Any, List, Optional, AsyncGenerator, Generator
+from typing import Dict, Any, List, Optional, AsyncGenerator
 from dataclasses import dataclass, field
 from sqlalchemy.orm import Session
 import anthropic
@@ -13,9 +13,9 @@ import asyncio
 import os
 import logging
 import json
-import types
 
 from services.chat_payloads import get_all_tools, ToolResult, ToolProgress
+from services.tool_execution_utils import execute_streaming_tool, execute_tool
 
 logger = logging.getLogger(__name__)
 
@@ -223,7 +223,7 @@ class StepExecutionService:
 
                 if tool_config and tool_config.streaming:
                     # Streaming tool - yields progress updates
-                    async for progress_or_result in self._execute_streaming_tool(
+                    async for progress_or_result in self._execute_streaming_tool_call(
                         tool_name, tool_input, tools_by_name
                     ):
                         if isinstance(progress_or_result, ToolProgress):
@@ -244,7 +244,7 @@ class StepExecutionService:
                             tool_result_str = progress_or_result
                 else:
                     # Non-streaming tool
-                    tool_result_str = await self._execute_tool(
+                    tool_result_str = await self._execute_tool_call(
                         tool_name, tool_input, tools_by_name
                     )
 
@@ -342,7 +342,7 @@ class StepExecutionService:
                 result=result
             )
 
-    async def _execute_tool(
+    async def _execute_tool_call(
         self,
         tool_name: str,
         tool_input: Dict[str, Any],
@@ -354,28 +354,11 @@ class StepExecutionService:
         if not tool_config:
             return f"Unknown tool: {tool_name}"
 
-        try:
-            context = {}  # Fresh context for step execution
-            tool_result = await asyncio.to_thread(
-                tool_config.executor,
-                tool_input,
-                self.db,
-                self.user_id,
-                context
-            )
+        context = {}  # Fresh context for step execution
+        result_text, _ = await execute_tool(tool_config, tool_input, self.db, self.user_id, context)
+        return result_text
 
-            if isinstance(tool_result, ToolResult):
-                return tool_result.text
-            elif isinstance(tool_result, str):
-                return tool_result
-            else:
-                return str(tool_result)
-
-        except Exception as e:
-            logger.error(f"Tool execution error: {e}", exc_info=True)
-            return f"Error executing tool: {str(e)}"
-
-    async def _execute_streaming_tool(
+    async def _execute_streaming_tool_call(
         self,
         tool_name: str,
         tool_input: Dict[str, Any],
@@ -388,71 +371,13 @@ class StepExecutionService:
             yield f"Unknown tool: {tool_name}"
             return
 
-        try:
-            context = {}  # Fresh context for step execution
-
-            # Get the generator from the tool
-            def run_generator():
-                return tool_config.executor(
-                    tool_input,
-                    self.db,
-                    self.user_id,
-                    context
-                )
-
-            generator = await asyncio.to_thread(run_generator)
-
-            # If it's a generator, iterate through it
-            if isinstance(generator, types.GeneratorType):
-                final_result = None
-
-                # Sentinel to indicate StopIteration (can't propagate through asyncio.to_thread)
-                _STOP = object()
-
-                def get_next_safe():
-                    """Get next item, returning sentinel tuple on StopIteration."""
-                    try:
-                        return (next(generator), None)
-                    except StopIteration as e:
-                        return (_STOP, e.value)
-
-                try:
-                    while True:
-                        item, return_value = await asyncio.to_thread(get_next_safe)
-
-                        if item is _STOP:
-                            # Generator finished
-                            if return_value is not None:
-                                if isinstance(return_value, ToolResult):
-                                    final_result = return_value.text
-                                elif isinstance(return_value, str):
-                                    final_result = return_value
-                                else:
-                                    final_result = str(return_value)
-                            break
-
-                        if isinstance(item, ToolProgress):
-                            yield item
-                        elif isinstance(item, ToolResult):
-                            final_result = item.text
-                except Exception as e:
-                    logger.error(f"Streaming tool iteration error: {e}", exc_info=True)
-                    yield f"Error during tool execution: {str(e)}"
-                    return
-
-                yield final_result or ""
-            else:
-                # Not a generator - treat as regular result
-                if isinstance(generator, ToolResult):
-                    yield generator.text
-                elif isinstance(generator, str):
-                    yield generator
-                else:
-                    yield str(generator)
-
-        except Exception as e:
-            logger.error(f"Streaming tool execution error: {e}", exc_info=True)
-            yield f"Error executing tool: {str(e)}"
+        context = {}  # Fresh context for step execution
+        async for item in execute_streaming_tool(tool_config, tool_input, self.db, self.user_id, context):
+            if isinstance(item, ToolProgress):
+                yield item
+            elif isinstance(item, tuple):
+                # Final result (text, data) - we only need text for step execution
+                yield item[0]
 
     def _infer_content_type(self, output: str, output_format: str) -> str:
         """Infer content type from output and format hint."""

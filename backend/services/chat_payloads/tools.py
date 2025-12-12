@@ -24,7 +24,7 @@ def execute_web_search(
     context: Dict[str, Any]
 ) -> ToolResult:
     """Execute a web search using the search service."""
-    from services.search_service import SearchService
+    from services.search_service import SearchService, SearchQuotaExceededError, SearchAPIError
     import asyncio
 
     query = params.get("query", "")
@@ -53,7 +53,13 @@ def execute_web_search(
         if not search_results:
             return ToolResult(text=f"No results found for: {query}")
 
-        formatted = f"Search results for '{query}':\n\n"
+        # Check if we fell back to a different engine
+        fallback_note = ""
+        metadata = result.get("metadata")
+        if metadata and metadata.get("fallback_reason"):
+            fallback_note = f"\n(Note: Used fallback search due to {metadata['fallback_reason']})\n\n"
+
+        formatted = f"Search results for '{query}':{fallback_note}\n"
         for i, item in enumerate(search_results, 1):
             formatted += f"{i}. **{item.title}**\n"
             formatted += f"   URL: {item.url}\n"
@@ -69,10 +75,17 @@ def execute_web_search(
                 "results": [
                     {"title": r.title, "url": r.url, "snippet": r.snippet}
                     for r in search_results
-                ]
+                ],
+                "fallback_used": metadata.get("fallback_reason") if metadata else None
             }
         )
 
+    except SearchQuotaExceededError as e:
+        logger.warning(f"Search quota exceeded: {e}")
+        return ToolResult(text=f"Search quota exceeded. The search API limit has been reached. Please try again later or use fewer searches.")
+    except SearchAPIError as e:
+        logger.error(f"Search API error: {e}")
+        return ToolResult(text=f"Search failed: {str(e)}")
     except Exception as e:
         logger.error(f"Web search error: {e}", exc_info=True)
         return ToolResult(text=f"Search failed: {str(e)}")
