@@ -398,7 +398,9 @@ export default function MainPage() {
         step: WorkflowStep
     ): Record<string, string> => {
         const inputData: Record<string, string> = {};
-        for (const source of step.input_sources) {
+        // Handle both old (input_source) and new (input_sources) formats
+        const sources = step.input_sources || [(step as any).input_source || 'user'];
+        for (const source of sources) {
             if (source === 'user') {
                 inputData['user_input'] = workflow.initial_input;
             } else {
@@ -499,11 +501,12 @@ export default function MainPage() {
         if (payload.type !== 'plan' || !payload.steps) return;
 
         // Convert payload steps to workflow steps with status
+        // Handle both old (input_source) and new (input_sources) formats from LLM
         const workflowSteps: WorkflowStep[] = payload.steps.map((step: WorkflowStepDefinition, idx: number) => ({
             step_number: idx + 1,
             description: step.description,
             input_description: step.input_description,
-            input_sources: step.input_sources,
+            input_sources: step.input_sources || [(step as any).input_source || 'user'],
             output_description: step.output_description,
             method: step.method,
             status: idx === 0 ? 'in_progress' : 'pending'

@@ -365,7 +365,7 @@ export default function WorkspacePanel({
                                                             {step.description}
                                                         </p>
                                                         <div className="mt-2 space-y-1 text-xs text-gray-500 dark:text-gray-400">
-                                                            <p><span className="font-medium">Input:</span> {step.input_description} (from {step.input_sources.map(s => s === 'user' ? 'user' : `step ${s}`).join(', ')})</p>
+                                                            <p><span className="font-medium">Input:</span> {step.input_description} (from {(step.input_sources || [(step as any).input_source || 'user']).map(s => s === 'user' ? 'user' : `step ${s}`).join(', ')})</p>
                                                             <p><span className="font-medium">Output:</span> {step.output_description}</p>
                                                             <p><span className="font-medium">Method:</span> {step.method.approach}</p>
                                                             {step.method.tools.length > 0 && (
