@@ -5,10 +5,15 @@
 import { api } from './index';
 import { makeStreamRequest } from './streamUtils';
 
+export interface StepInputSource {
+    content: string;
+    data?: any;  // Structured data when source produced 'data' content_type
+}
+
 export interface StepExecutionRequest {
     step_number: number;
     description: string;
-    input_data: Record<string, string>;  // JSON object with named inputs
+    input_data: Record<string, StepInputSource>;  // Named inputs with content and optional structured data
     output_format: string;
     available_tools: string[];
 }
@@ -23,6 +28,7 @@ export interface StepExecutionResult {
     success: boolean;
     output: string;
     content_type: 'document' | 'data' | 'code';
+    data?: any;  // Structured data when content_type is 'data'
     tool_calls: ToolCallRecord[];
     error: string | null;
 }

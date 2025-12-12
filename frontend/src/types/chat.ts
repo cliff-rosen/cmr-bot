@@ -54,6 +54,7 @@ export interface WorkspacePayload {
     // Extended fields for wip payloads
     step_number?: number;
     content_type?: 'document' | 'data' | 'code';
+    data?: any;  // Structured data when content_type is 'data'
     // Extended fields for final workflow output
     workflow_title?: string;
     steps_completed?: number;
@@ -102,6 +103,7 @@ export interface WipOutput {
     title: string;
     content: string;
     content_type: 'document' | 'data' | 'code';
+    data?: any;  // Structured data when content_type is 'data'
 }
 
 const VALID_PAYLOAD_TYPES = ['draft', 'summary', 'data', 'code', 'plan', 'wip'];

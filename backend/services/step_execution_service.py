@@ -5,7 +5,7 @@ A lightweight agent that executes individual workflow steps with fresh context.
 Streams status updates via SSE for real-time feedback.
 """
 
-from typing import Any, Dict, List, Optional, AsyncGenerator
+from typing import Any, Dict, List, Optional, AsyncGenerator, Tuple
 from dataclasses import dataclass, field
 from sqlalchemy.orm import Session
 import anthropic
@@ -24,11 +24,18 @@ MAX_TOOL_ITERATIONS = 10  # Allow more iterations for complex tasks
 
 
 @dataclass
+class StepInputSource:
+    """Input from a single source."""
+    content: str
+    data: Optional[Any] = None  # Structured data when source produced 'data' content_type
+
+
+@dataclass
 class StepAssignment:
     """What the main agent sends to the step executor."""
     step_number: int
     description: str
-    input_data: Dict[str, str]  # Named inputs from multiple sources
+    input_data: Dict[str, StepInputSource]  # Named inputs with content and optional structured data
     output_format: str
     available_tools: List[str]  # Tool names to enable
 
@@ -47,6 +54,7 @@ class StepResult:
     success: bool
     output: str
     content_type: str  # 'document', 'data', 'code'
+    data: Optional[Any] = None  # Structured data when content_type is 'data'
     tool_calls: List[ToolCallRecord] = field(default_factory=list)
     error: Optional[str] = None
 
@@ -96,6 +104,7 @@ class StepStatusUpdate:
                 "success": self.result.success,
                 "output": self.result.output,
                 "content_type": self.result.content_type,
+                "data": self.result.data,
                 "tool_calls": [
                     {"tool_name": tc.tool_name, "input": tc.input, "output": tc.output[:500] if tc.output else ""}
                     for tc in self.result.tool_calls
@@ -136,7 +145,14 @@ class StepExecutionService:
             tool_list = ", ".join(assignment.available_tools) if assignment.available_tools else "None"
 
             # Format input data as JSON for multi-source inputs
-            input_section = json.dumps(assignment.input_data, indent=2)
+            # Convert StepInputSource objects to dicts for JSON serialization
+            input_dict = {}
+            for key, source in assignment.input_data.items():
+                input_dict[key] = {
+                    "content": source.content,
+                    **({"data": source.data} if source.data is not None else {})
+                }
+            input_section = json.dumps(input_dict, indent=2)
 
             system_prompt = f"""You are a task execution agent. Execute the task and return ONLY the output.
 
@@ -184,6 +200,7 @@ class StepExecutionService:
             # Execution loop
             iteration = 0
             collected_text = ""
+            last_tool_data = None  # Track structured data from last tool call
 
             while iteration < MAX_TOOL_ITERATIONS:
                 iteration += 1
@@ -222,6 +239,7 @@ class StepExecutionService:
                 # Execute the tool (may be streaming)
                 tool_config = tools_by_name.get(tool_name)
                 tool_result_str = ""
+                tool_result_data = None
 
                 if tool_config and tool_config.streaming:
                     # Streaming tool - yields progress updates
@@ -241,14 +259,18 @@ class StepExecutionService:
                                     progress=progress_or_result.progress
                                 )
                             )
-                        else:
-                            # Final result
-                            tool_result_str = progress_or_result
+                        elif isinstance(progress_or_result, tuple):
+                            # Final result (text, data)
+                            tool_result_str, tool_result_data = progress_or_result
                 else:
                     # Non-streaming tool
-                    tool_result_str = await self._execute_tool_call(
+                    tool_result_str, tool_result_data = await self._execute_tool_call(
                         tool_name, tool_input, tools_by_name
                     )
+
+                # Track structured data from tool
+                if tool_result_data is not None:
+                    last_tool_data = tool_result_data
 
                 # Record the tool call
                 tool_calls.append(ToolCallRecord(
@@ -316,11 +338,15 @@ class StepExecutionService:
             # Determine content type from output
             content_type = self._infer_content_type(collected_text, assignment.output_format)
 
+            # Include structured data if content_type is 'data' and we have tool data
+            result_data = last_tool_data if content_type == 'data' else None
+
             # Yield final result
             result = StepResult(
                 success=True,
                 output=collected_text,
                 content_type=content_type,
+                data=result_data,
                 tool_calls=tool_calls
             )
             yield StepStatusUpdate(
@@ -349,28 +375,28 @@ class StepExecutionService:
         tool_name: str,
         tool_input: Dict[str, Any],
         tools_by_name: Dict[str, Any]
-    ) -> str:
-        """Execute a non-streaming tool and return result string."""
+    ) -> Tuple[str, Any]:
+        """Execute a non-streaming tool and return (result_text, result_data)."""
         tool_config = tools_by_name.get(tool_name)
 
         if not tool_config:
-            return f"Unknown tool: {tool_name}"
+            return f"Unknown tool: {tool_name}", None
 
         context = {}  # Fresh context for step execution
-        result_text, _ = await execute_tool(tool_config, tool_input, self.db, self.user_id, context)
-        return result_text
+        result_text, result_data = await execute_tool(tool_config, tool_input, self.db, self.user_id, context)
+        return result_text, result_data
 
     async def _execute_streaming_tool_call(
         self,
         tool_name: str,
         tool_input: Dict[str, Any],
         tools_by_name: Dict[str, Any]
-    ) -> AsyncGenerator[ToolProgress | str, None]:
-        """Execute a streaming tool, yielding progress updates and final result."""
+    ) -> AsyncGenerator[ToolProgress | Tuple[str, Any], None]:
+        """Execute a streaming tool, yielding progress updates and final (text, data) result."""
         tool_config = tools_by_name.get(tool_name)
 
         if not tool_config:
-            yield f"Unknown tool: {tool_name}"
+            yield f"Unknown tool: {tool_name}", None
             return
 
         context = {}  # Fresh context for step execution
@@ -378,8 +404,8 @@ class StepExecutionService:
             if isinstance(item, ToolProgress):
                 yield item
             elif isinstance(item, tuple):
-                # Final result (text, data) - we only need text for step execution
-                yield item[0]
+                # Final result (text, data)
+                yield item
 
     def _infer_content_type(self, output: str, output_format: str) -> str:
         """Infer content type from output and format hint."""

@@ -393,19 +393,23 @@ export default function MainPage() {
     const [currentToolName, setCurrentToolName] = useState<string | null>(null);
 
     // Helper to build input data object from multiple sources
+    // Returns structured input with content and optional data for each source
     const buildInputData = useCallback((
         workflow: WorkflowPlan,
         step: WorkflowStep
-    ): Record<string, string> => {
-        const inputData: Record<string, string> = {};
+    ): Record<string, { content: string; data?: any }> => {
+        const inputData: Record<string, { content: string; data?: any }> = {};
         // Handle both old (input_source) and new (input_sources) formats
         const sources = step.input_sources || [(step as any).input_source || 'user'];
         for (const source of sources) {
             if (source === 'user') {
-                inputData['user_input'] = workflow.initial_input;
+                inputData['user_input'] = { content: workflow.initial_input };
             } else {
                 const sourceStep = workflow.steps.find(s => s.step_number === source);
-                inputData[`step_${source}`] = sourceStep?.wip_output?.content || '';
+                inputData[`step_${source}`] = {
+                    content: sourceStep?.wip_output?.content || '',
+                    data: sourceStep?.wip_output?.data  // Include structured data if available
+                };
             }
         }
         return inputData;
@@ -477,7 +481,8 @@ export default function MainPage() {
                     title: `Step ${step.step_number}: ${step.description}`,
                     content: finalResult.output,
                     step_number: step.step_number,
-                    content_type: finalResult.content_type
+                    content_type: finalResult.content_type,
+                    data: finalResult.data  // Include structured data if available
                 });
             } else {
                 sendMessage(
@@ -551,7 +556,8 @@ export default function MainPage() {
                     wip_output: {
                         title: payload.title,
                         content: payload.content,
-                        content_type: payload.content_type || 'document'
+                        content_type: payload.content_type || 'document',
+                        data: payload.data  // Include structured data if available
                     }
                 };
             } else if (step.step_number === stepNumber + 1) {
