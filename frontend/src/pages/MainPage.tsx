@@ -4,7 +4,7 @@ import { ChevronLeftIcon, ChevronRightIcon, PlusIcon } from '@heroicons/react/24
 import { useGeneralChat } from '../hooks/useGeneralChat';
 import { useProfile } from '../context/ProfileContext';
 import { InteractionType, ToolCall, GeneralChatMessage, WorkspacePayload, WorkflowPlan, WorkflowStep, WorkflowStepDefinition } from '../types/chat';
-import { memoryApi, Memory, assetApi, Asset, AssetUpdate } from '../lib/api';
+import { memoryApi, Memory, assetApi, Asset, AssetUpdate, workflowApi } from '../lib/api';
 import {
     ConversationSidebar,
     ChatPanel,
@@ -378,6 +378,55 @@ export default function MainPage() {
         setActivePayload(null);
     };
 
+    // Step execution state
+    const [executingStep, setExecutingStep] = useState<WorkflowStep | null>(null);
+
+    // Helper to execute a step via dedicated step agent
+    const executeStep = useCallback(async (
+        _workflow: WorkflowPlan,
+        step: WorkflowStep,
+        inputData: string
+    ) => {
+        setExecutingStep(step);
+        setActivePayload(null);  // Clear any previous payload
+
+        try {
+            const result = await workflowApi.executeStep({
+                step_number: step.step_number,
+                description: step.description,
+                input_data: inputData,
+                output_format: step.output_description,
+                available_tools: step.method.tools
+            });
+
+            setExecutingStep(null);
+
+            if (result.success) {
+                // Show the output as a WIP payload for user review
+                setActivePayload({
+                    type: 'wip',
+                    title: `Step ${step.step_number}: ${step.description}`,
+                    content: result.output,
+                    step_number: step.step_number,
+                    content_type: result.content_type
+                });
+            } else {
+                // Show error to user
+                sendMessage(
+                    `Step ${step.step_number} failed: ${result.error}. Would you like me to retry?`,
+                    InteractionType.TEXT_INPUT
+                );
+            }
+        } catch (err) {
+            console.error('Step execution error:', err);
+            setExecutingStep(null);
+            sendMessage(
+                `Error executing step ${step.step_number}. Please try again.`,
+                InteractionType.TEXT_INPUT
+            );
+        }
+    }, [sendMessage]);
+
     // Workflow handlers
     const handleAcceptPlan = useCallback((payload: WorkspacePayload) => {
         if (payload.type !== 'plan' || !payload.steps) return;
@@ -407,20 +456,13 @@ export default function MainPage() {
         setActiveWorkflow(workflow);
         setActivePayload(null);
 
-        // Send message to start executing the first step
-        sendMessage(
-            `Plan accepted. Please execute step 1: ${workflowSteps[0].description}`,
-            InteractionType.ACTION_EXECUTED,
-            {
-                action_identifier: 'workflow_step_start',
-                action_data: {
-                    workflow_id: workflow.id,
-                    step_number: 1,
-                    step: workflowSteps[0]
-                }
-            }
-        );
-    }, [sendMessage]);
+        // Execute the first step via dedicated step agent
+        const firstStep = workflowSteps[0];
+        const inputData = firstStep.input_source === 'user'
+            ? payload.initial_input || 'User request'
+            : '';
+        executeStep(workflow, firstStep, inputData);
+    }, [executeStep]);
 
     const handleRejectPlan = useCallback(() => {
         setActivePayload(null);
@@ -453,11 +495,12 @@ export default function MainPage() {
 
         const allCompleted = updatedSteps.every(s => s.status === 'completed');
 
-        setActiveWorkflow({
+        const updatedWorkflow = {
             ...activeWorkflow,
             steps: updatedSteps,
-            status: allCompleted ? 'completed' : 'active'
-        });
+            status: allCompleted ? 'completed' as const : 'active' as const
+        };
+        setActiveWorkflow(updatedWorkflow);
         setActivePayload(null);
 
         if (allCompleted) {
@@ -470,76 +513,49 @@ export default function MainPage() {
                     content: lastStep.wip_output.content
                 }, true);
             }
-            sendMessage(
-                'Workflow completed successfully! The final output has been saved as an asset.',
-                InteractionType.TEXT_INPUT
-            );
+            setActiveWorkflow(null);
         } else {
-            // Move to next step
+            // Execute next step via dedicated step agent
             const nextStep = updatedSteps.find(s => s.status === 'in_progress');
             if (nextStep) {
-                sendMessage(
-                    `Step ${stepNumber} accepted. Please execute step ${nextStep.step_number}: ${nextStep.description}`,
-                    InteractionType.ACTION_EXECUTED,
-                    {
-                        action_identifier: 'workflow_step_start',
-                        action_data: {
-                            workflow_id: activeWorkflow.id,
-                            step_number: nextStep.step_number,
-                            step: nextStep,
-                            previous_output: payload.content
-                        }
-                    }
-                );
+                // Get input for next step - either from previous step output or initial input
+                const inputData = nextStep.input_source === 'user'
+                    ? activeWorkflow.initial_input
+                    : payload.content;  // Output from current step is input to next
+                executeStep(updatedWorkflow, nextStep, inputData);
             }
         }
-    }, [activeWorkflow, sendMessage, handleSavePayloadAsAsset]);
+    }, [activeWorkflow, executeStep, handleSavePayloadAsAsset]);
 
     const handleEditWip = useCallback((payload: WorkspacePayload) => {
-        // Request changes to the current WIP output
+        // For now, just ask the main agent for feedback - TODO: could have step agent revise
         sendMessage(
-            `Please revise this output. Here are my suggestions: [User can edit the content in the workspace and provide feedback]`,
-            InteractionType.ACTION_EXECUTED,
-            {
-                action_identifier: 'workflow_step_revise',
-                action_data: {
-                    workflow_id: activeWorkflow?.id,
-                    step_number: payload.step_number,
-                    current_content: payload.content
-                }
-            }
+            `I'd like to request changes to step ${payload.step_number} output. Here's my feedback:`,
+            InteractionType.TEXT_INPUT
         );
-    }, [activeWorkflow, sendMessage]);
+    }, [sendMessage]);
 
     const handleRejectWip = useCallback(() => {
         if (!activeWorkflow) return;
 
         const currentStep = activeWorkflow.steps.find(s => s.status === 'in_progress');
         if (currentStep) {
-            sendMessage(
-                `Please redo step ${currentStep.step_number}: ${currentStep.description}. The previous output wasn't satisfactory.`,
-                InteractionType.ACTION_EXECUTED,
-                {
-                    action_identifier: 'workflow_step_redo',
-                    action_data: {
-                        workflow_id: activeWorkflow.id,
-                        step_number: currentStep.step_number,
-                        step: currentStep
-                    }
-                }
-            );
+            // Get input for this step again
+            let inputData = activeWorkflow.initial_input;
+            if (typeof currentStep.input_source === 'number') {
+                const sourceStep = activeWorkflow.steps.find(s => s.step_number === currentStep.input_source);
+                inputData = sourceStep?.wip_output?.content || activeWorkflow.initial_input;
+            }
+            // Re-execute the step
+            executeStep(activeWorkflow, currentStep, inputData);
         }
         setActivePayload(null);
-    }, [activeWorkflow, sendMessage]);
+    }, [activeWorkflow, executeStep]);
 
     const handleAbandonWorkflow = useCallback(() => {
-        setActiveWorkflow(prev => prev ? { ...prev, status: 'abandoned' } : null);
         setActiveWorkflow(null);
-        sendMessage(
-            'Workflow abandoned. What would you like to do next?',
-            InteractionType.TEXT_INPUT
-        );
-    }, [sendMessage]);
+        setActivePayload(null);
+    }, []);
 
     const handleViewStepOutput = useCallback((stepNumber: number) => {
         if (!activeWorkflow) return;
@@ -633,6 +649,7 @@ export default function MainPage() {
                 <WorkspacePanel
                     selectedToolHistory={selectedToolHistory}
                     activePayload={activePayload}
+                    executingStep={executingStep}
                     onClose={handleWorkspaceClose}
                     onSaveAsAsset={handleSaveToolOutputAsAsset}
                     onSavePayloadAsAsset={handleSavePayloadAsAsset}

@@ -6,11 +6,12 @@ import {
     PlayIcon, ArrowPathIcon
 } from '@heroicons/react/24/solid';
 import { JsonRenderer, MarkdownRenderer } from '../common';
-import { ToolCall, WorkspacePayload, WorkflowStepDefinition } from '../../types/chat';
+import { ToolCall, WorkspacePayload, WorkflowStepDefinition, WorkflowStep } from '../../types/chat';
 
 interface WorkspacePanelProps {
     selectedToolHistory: ToolCall[] | null;
     activePayload: WorkspacePayload | null;
+    executingStep: WorkflowStep | null;
     onClose: () => void;
     onSaveAsAsset: (toolCall: ToolCall) => void;
     onSavePayloadAsAsset: (payload: WorkspacePayload, andClose?: boolean) => void;
@@ -77,6 +78,7 @@ const payloadTypeConfig = {
 export default function WorkspacePanel({
     selectedToolHistory,
     activePayload,
+    executingStep,
     onClose,
     onSaveAsAsset,
     onSavePayloadAsAsset,
@@ -117,9 +119,10 @@ export default function WorkspacePanel({
     const PayloadIcon = config?.icon || DocumentTextIcon;
 
     // Determine what to show
-    const showPayload = activePayload && !selectedToolHistory;
-    const showToolHistory = selectedToolHistory && selectedToolHistory.length > 0;
-    const showEmpty = !showPayload && !showToolHistory;
+    const showExecuting = executingStep !== null;
+    const showPayload = activePayload && !selectedToolHistory && !showExecuting;
+    const showToolHistory = selectedToolHistory && selectedToolHistory.length > 0 && !showExecuting;
+    const showEmpty = !showPayload && !showToolHistory && !showExecuting;
 
     return (
         <div className="flex flex-col h-full bg-gray-50 dark:bg-gray-950">
@@ -127,14 +130,22 @@ export default function WorkspacePanel({
             <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 dark:border-gray-700">
                 <div>
                     <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
-                        {showToolHistory ? 'Tool History' : showPayload ? activePayload.title : 'Workspace'}
+                        {showExecuting
+                            ? `Executing Step ${executingStep.step_number}`
+                            : showToolHistory
+                                ? 'Tool History'
+                                : showPayload
+                                    ? activePayload.title
+                                    : 'Workspace'}
                     </h2>
                     <p className="text-sm text-gray-500 dark:text-gray-400">
-                        {showToolHistory
-                            ? `${selectedToolHistory.length} tool call(s)`
-                            : showPayload
-                                ? config?.label
-                                : 'Collaborative space'}
+                        {showExecuting
+                            ? 'Please wait...'
+                            : showToolHistory
+                                ? `${selectedToolHistory.length} tool call(s)`
+                                : showPayload
+                                    ? config?.label
+                                    : 'Collaborative space'}
                     </p>
                 </div>
                 {(showToolHistory || showPayload) && (
@@ -149,6 +160,28 @@ export default function WorkspacePanel({
 
             {/* Workspace Content */}
             <div className="flex-1 overflow-y-auto p-4">
+                {/* Step Executing View */}
+                {showExecuting && (
+                    <div className="flex flex-col items-center justify-center h-full text-center">
+                        <div className="mb-6">
+                            <div className="w-16 h-16 rounded-full border-4 border-indigo-200 dark:border-indigo-800 border-t-indigo-500 animate-spin" />
+                        </div>
+                        <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-2">
+                            Executing Step {executingStep.step_number}
+                        </h3>
+                        <p className="text-gray-600 dark:text-gray-400 mb-4 max-w-md">
+                            {executingStep.description}
+                        </p>
+                        <div className="text-sm text-gray-500 dark:text-gray-500">
+                            {executingStep.method.tools.length > 0 ? (
+                                <span>Using: {executingStep.method.tools.join(', ')}</span>
+                            ) : (
+                                <span>Processing...</span>
+                            )}
+                        </div>
+                    </div>
+                )}
+
                 {/* Plan Payload View */}
                 {showPayload && activePayload.type === 'plan' && config && (
                     <div className={`rounded-lg border ${config.border} ${config.bg} overflow-hidden`}>

@@ -105,3 +105,6 @@ export type { Asset, AssetCreate, AssetUpdate, AssetType } from './assetApi';
 
 export { profileApi } from './profileApi';
 export type { Profile, ProfileUpdate } from './profileApi';
+
+export { workflowApi } from './workflowApi';
+export type { StepExecutionRequest, StepExecutionResponse } from './workflowApi';
