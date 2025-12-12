@@ -8,9 +8,12 @@ for executing tools (both streaming and non-streaming).
 import asyncio
 import types
 import logging
-from typing import Any, Coroutine, Dict, AsyncGenerator, Tuple, TypeVar, Union
+from typing import Any, Coroutine, Dict, AsyncGenerator, Optional, Tuple, TypeVar, Union, TYPE_CHECKING
 
 from tools.registry import ToolResult, ToolProgress, ToolConfig
+
+if TYPE_CHECKING:
+    from services.general_chat_service import CancellationToken
 
 logger = logging.getLogger(__name__)
 
@@ -41,7 +44,8 @@ async def execute_streaming_tool(
     tool_input: Dict[str, Any],
     db: Any,
     user_id: int,
-    context: Dict[str, Any]
+    context: Dict[str, Any],
+    cancellation_token: Optional["CancellationToken"] = None
 ) -> AsyncGenerator[Union[ToolProgress, Tuple[str, Any]], None]:
     """
     Execute a streaming tool, yielding progress updates and finally the result.
@@ -55,18 +59,25 @@ async def execute_streaming_tool(
         db: Database session
         user_id: Current user ID
         context: Additional execution context
+        cancellation_token: Optional token to check for cancellation
 
     Yields:
         ToolProgress instances for progress updates, then a final (text, data) tuple
     """
     try:
+        # Add cancellation token to context so tools can check it
+        execution_context = {
+            **context,
+            "cancellation_token": cancellation_token
+        }
+
         # Get the generator from the tool executor
         def run_generator():
             return tool_config.executor(
                 tool_input,
                 db,
                 user_id,
-                context
+                execution_context
             )
 
         generator = await asyncio.to_thread(run_generator)
@@ -86,6 +97,12 @@ async def execute_streaming_tool(
                     return (_STOP, e.value)
 
             while True:
+                # Check for cancellation between iterations
+                if cancellation_token and cancellation_token.is_cancelled:
+                    logger.info("Tool execution cancelled")
+                    yield ("Operation cancelled", None)
+                    return
+
                 item, return_value = await asyncio.to_thread(get_next_safe)
 
                 if item is _STOP:

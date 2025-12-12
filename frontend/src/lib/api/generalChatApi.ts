@@ -44,13 +44,15 @@ export const generalChatApi = {
     /**
      * Stream chat messages from the backend
      * @param request - Chat request with message, context, and interaction type
+     * @param signal - Optional AbortSignal for cancellation
      * @returns AsyncGenerator that yields stream chunks
      */
     async* streamMessage(
-        request: GeneralChatRequest
+        request: GeneralChatRequest,
+        signal?: AbortSignal
     ): AsyncGenerator<ChatStreamChunk> {
         try {
-            const rawStream = makeStreamRequest('/api/chat/stream', request, 'POST');
+            const rawStream = makeStreamRequest('/api/chat/stream', request, 'POST', signal);
 
             for await (const update of rawStream) {
                 const lines = update.data.split('\n');
@@ -73,6 +75,10 @@ export const generalChatApi = {
                 }
             }
         } catch (error) {
+            // Re-throw AbortError so callers can detect cancellation
+            if (error instanceof Error && error.name === 'AbortError') {
+                throw error;
+            }
             yield {
                 error: `Stream error: ${error instanceof Error ? error.message : String(error)}`,
                 status: null

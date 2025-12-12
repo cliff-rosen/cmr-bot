@@ -62,6 +62,7 @@ export default function MainPage() {
     const {
         messages,
         sendMessage,
+        cancelRequest,
         isLoading,
         streamingText,
         statusText,
@@ -691,6 +692,7 @@ export default function MainPage() {
                 statusText={statusText}
                 activeToolProgress={activeToolProgress}
                 onSendMessage={handleSendMessage}
+                onCancel={cancelRequest}
                 onValueSelect={handleValueSelect}
                 onActionClick={handleActionClick}
                 onToolHistoryClick={(history) => {

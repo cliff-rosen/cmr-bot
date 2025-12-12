@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import { PaperAirplaneIcon, WrenchScrewdriverIcon, DocumentPlusIcon, ArrowTopRightOnSquareIcon } from '@heroicons/react/24/solid';
+import { PaperAirplaneIcon, WrenchScrewdriverIcon, DocumentPlusIcon, ArrowTopRightOnSquareIcon, StopIcon } from '@heroicons/react/24/solid';
 import { MarkdownRenderer } from '../common';
 import { GeneralChatMessage, ToolCall, SuggestedValue, SuggestedAction, WorkspacePayload, parseWorkspacePayload } from '../../types/chat';
 import { ActiveToolProgress } from '../../hooks/useGeneralChat';
@@ -12,6 +12,7 @@ interface ChatPanelProps {
     statusText: string | null;
     activeToolProgress: ActiveToolProgress | null;
     onSendMessage: (message: string) => void;
+    onCancel: () => void;
     onValueSelect: (value: string) => void;
     onActionClick: (action: any) => void;
     onToolHistoryClick: (toolHistory: ToolCall[]) => void;
@@ -27,6 +28,7 @@ export default function ChatPanel({
     statusText,
     activeToolProgress,
     onSendMessage,
+    onCancel,
     onValueSelect,
     onActionClick,
     onToolHistoryClick,
@@ -340,13 +342,24 @@ export default function ChatPanel({
                         rows={1}
                         className="flex-1 px-4 py-3 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none disabled:opacity-50"
                     />
-                    <button
-                        type="submit"
-                        disabled={!input.trim() || isLoading}
-                        className="px-4 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                    >
-                        <PaperAirplaneIcon className="h-5 w-5" />
-                    </button>
+                    {isLoading ? (
+                        <button
+                            type="button"
+                            onClick={onCancel}
+                            className="px-4 py-3 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
+                            title="Cancel request"
+                        >
+                            <StopIcon className="h-5 w-5" />
+                        </button>
+                    ) : (
+                        <button
+                            type="submit"
+                            disabled={!input.trim()}
+                            className="px-4 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                        >
+                            <PaperAirplaneIcon className="h-5 w-5" />
+                        </button>
+                    )}
                 </form>
             </div>
         </div>

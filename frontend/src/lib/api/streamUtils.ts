@@ -60,10 +60,7 @@ export async function* makeStreamRequest(
             }
         );
     } catch (err: any) {
-        if (err?.name === 'AbortError') {
-            // Gracefully end generator on abort
-            return;
-        }
+        // Re-throw AbortError so it can be caught and handled by callers
         throw err;
     }
 
@@ -93,10 +90,7 @@ export async function* makeStreamRequest(
             try {
                 ({ done, value } = await reader.read());
             } catch (err: any) {
-                if (err?.name === 'AbortError') {
-                    // Abort during read; stop quietly
-                    break;
-                }
+                // Re-throw errors (including AbortError) so they can be handled by callers
                 throw err;
             }
             if (done) {

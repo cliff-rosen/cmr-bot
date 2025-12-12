@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { generalChatApi, ToolProgressPayload } from '../lib/api/generalChatApi';
 import { conversationApi, Conversation } from '../lib/api/conversationApi';
 import {
@@ -32,6 +32,9 @@ export function useGeneralChat(options: UseGeneralChatOptions = {}) {
 
     // Tool progress tracking
     const [activeToolProgress, setActiveToolProgress] = useState<ActiveToolProgress | null>(null);
+
+    // Cancellation support
+    const abortControllerRef = useRef<AbortController | null>(null);
 
     // Conversation list management
     const [conversations, setConversations] = useState<Conversation[]>([]);
@@ -76,10 +79,14 @@ export function useGeneralChat(options: UseGeneralChatOptions = {}) {
         setStatusText(null);
         setActiveToolProgress(null);
 
-        try {
-            // Stream the response
-            let collectedText = '';
+        // Create new AbortController for this request
+        const abortController = new AbortController();
+        abortControllerRef.current = abortController;
 
+        // Track collected text outside try block so it's accessible in catch for cancellation
+        let collectedText = '';
+
+        try {
             for await (const chunk of generalChatApi.streamMessage({
                 message: content,
                 conversation_id: conversationId ?? undefined,
@@ -88,7 +95,7 @@ export function useGeneralChat(options: UseGeneralChatOptions = {}) {
                 action_metadata: actionMetadata,
                 enabled_tools: enabledTools,
                 include_profile: includeProfile
-            })) {
+            }, abortController.signal)) {
                 if (chunk.error) {
                     setError(chunk.error);
                     break;
@@ -167,6 +174,23 @@ export function useGeneralChat(options: UseGeneralChatOptions = {}) {
             }
 
         } catch (err) {
+            // Don't show error for intentional cancellation
+            if (err instanceof Error && err.name === 'AbortError') {
+                // Request was cancelled - add a note if there was streaming text
+                if (collectedText) {
+                    const cancelledMessage: GeneralChatMessage = {
+                        role: 'assistant',
+                        content: collectedText + '\n\n*[Response cancelled]*',
+                        timestamp: new Date().toISOString()
+                    };
+                    setMessages(prev => [...prev, cancelledMessage]);
+                }
+                setStreamingText('');
+                setStatusText(null);
+                setActiveToolProgress(null);
+                return;
+            }
+
             const errorMessage = err instanceof Error ? err.message : 'An error occurred';
             setError(errorMessage);
 
@@ -180,8 +204,16 @@ export function useGeneralChat(options: UseGeneralChatOptions = {}) {
             setStreamingText('');
         } finally {
             setIsLoading(false);
+            abortControllerRef.current = null;
         }
     }, [context, conversationId, enabledTools, includeProfile]);
+
+    const cancelRequest = useCallback(() => {
+        if (abortControllerRef.current) {
+            abortControllerRef.current.abort();
+            abortControllerRef.current = null;
+        }
+    }, []);
 
     const updateContext = useCallback((updates: Record<string, any>) => {
         setContext(prev => ({ ...prev, ...updates }));
@@ -278,6 +310,7 @@ export function useGeneralChat(options: UseGeneralChatOptions = {}) {
         isLoadingConversations,
         // Chat actions
         sendMessage,
+        cancelRequest,
         updateContext,
         reset,
         // Conversation actions

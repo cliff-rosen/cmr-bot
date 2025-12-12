@@ -31,6 +31,25 @@ CHAT_MAX_TOKENS = 4096
 MAX_TOOL_ITERATIONS = 10
 
 
+class CancellationToken:
+    """Token for cancelling long-running operations."""
+
+    def __init__(self):
+        self._cancelled = False
+
+    @property
+    def is_cancelled(self) -> bool:
+        return self._cancelled
+
+    def cancel(self):
+        self._cancelled = True
+
+    def check(self) -> None:
+        """Raise CancelledError if cancelled."""
+        if self._cancelled:
+            raise asyncio.CancelledError("Operation was cancelled")
+
+
 class GeneralChatService:
     """Service for primary agent chat interactions."""
 
@@ -44,11 +63,23 @@ class GeneralChatService:
     # Public API
     # =========================================================================
 
-    async def stream_chat_message(self, request) -> AsyncGenerator[str, None]:
+    async def stream_chat_message(
+        self,
+        request,
+        cancellation_token: Optional[CancellationToken] = None
+    ) -> AsyncGenerator[str, None]:
         """
         Stream a chat message response with tool support via SSE.
+
+        Args:
+            request: The chat request
+            cancellation_token: Optional token to check for cancellation
         """
         from routers.general_chat import ChatStreamChunk, ChatStatusResponse
+
+        # Create a no-op token if none provided
+        if cancellation_token is None:
+            cancellation_token = CancellationToken()
 
         try:
             user_prompt = request.message
@@ -97,11 +128,21 @@ class GeneralChatService:
                 api_kwargs["tools"] = anthropic_tools
 
             while iteration < MAX_TOOL_ITERATIONS:
+                # Check for cancellation at start of each iteration
+                if cancellation_token.is_cancelled:
+                    logger.info("Request cancelled, exiting chat loop")
+                    break
+
                 iteration += 1
                 logger.info(f"Loop iteration {iteration}")
 
                 async with self.async_client.messages.stream(**api_kwargs) as stream:
                     async for event in stream:
+                        # Check for cancellation during streaming
+                        if cancellation_token.is_cancelled:
+                            logger.info("Request cancelled during streaming")
+                            break
+
                         if hasattr(event, 'type'):
                             if event.type == 'content_block_delta' and hasattr(event, 'delta'):
                                 if hasattr(event.delta, 'text'):
@@ -116,8 +157,16 @@ class GeneralChatService:
                                         debug=None
                                     ).model_dump_json()
 
+                    # Exit early if cancelled
+                    if cancellation_token.is_cancelled:
+                        break
+
                     final_response = await stream.get_final_message()
                     response_content = final_response.content
+
+                # Exit if cancelled
+                if cancellation_token.is_cancelled:
+                    break
 
                 # Check for tool use
                 tool_use_blocks = [b for b in response_content if b.type == "tool_use"]
@@ -134,9 +183,10 @@ class GeneralChatService:
 
                 logger.info(f"Tool call: {tool_name}")
 
+                # Emit started phase for frontend tool progress tracking
                 yield ChatStatusResponse(
                     status=f"Running {tool_name}...",
-                    payload={"tool": tool_name, "phase": "running"},
+                    payload={"tool": tool_name, "phase": "started"},
                     error=None,
                     debug=None
                 ).model_dump_json()
@@ -149,8 +199,13 @@ class GeneralChatService:
                 if tool_config and tool_config.streaming:
                     # Streaming tool - yield progress updates
                     async for progress_or_result in self._execute_streaming_tool_call(
-                        tool_config, tool_input, tool_executor_context
+                        tool_config, tool_input, tool_executor_context, cancellation_token
                     ):
+                        # Check cancellation between progress updates
+                        if cancellation_token.is_cancelled:
+                            logger.info(f"Tool {tool_name} cancelled")
+                            break
+
                         if isinstance(progress_or_result, ToolProgress):
                             # Yield progress update to frontend
                             yield ChatStatusResponse(
@@ -173,6 +228,10 @@ class GeneralChatService:
                     tool_result_str, tool_output_data = await self._execute_tool_call(
                         tool_name, tool_input, tools_by_name, tool_executor_context
                     )
+
+                # If cancelled during tool execution, exit
+                if cancellation_token.is_cancelled:
+                    break
 
                 tool_call_history.append({
                     "tool_name": tool_name,
@@ -635,10 +694,13 @@ class GeneralChatService:
         self,
         tool_config: Any,
         tool_input: Dict[str, Any],
-        context: Dict[str, Any]
+        context: Dict[str, Any],
+        cancellation_token: Optional[CancellationToken] = None
     ) -> AsyncGenerator[ToolProgress | Tuple[str, Any], None]:
         """Execute a streaming tool, yielding progress updates and finally the result tuple."""
-        async for item in execute_streaming_tool(tool_config, tool_input, self.db, self.user_id, context):
+        async for item in execute_streaming_tool(
+            tool_config, tool_input, self.db, self.user_id, context, cancellation_token
+        ):
             yield item
 
     def _format_assistant_content(self, response_content: list) -> list:

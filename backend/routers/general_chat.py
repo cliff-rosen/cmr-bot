@@ -2,7 +2,8 @@
 General-purpose chat endpoint
 """
 
-from fastapi import APIRouter, Depends
+import asyncio
+from fastapi import APIRouter, Depends, Request
 from sqlalchemy.orm import Session
 from sse_starlette.sse import EventSourceResponse
 from pydantic import BaseModel
@@ -16,7 +17,7 @@ from schemas.general_chat import (
     ActionMetadata,
     ChatResponsePayload
 )
-from services.general_chat_service import GeneralChatService
+from services.general_chat_service import GeneralChatService, CancellationToken
 
 logger = logging.getLogger(__name__)
 
@@ -77,7 +78,8 @@ class ChatStatusResponse(BaseModel):
     description="Streams chat responses in real-time using Server-Sent Events"
 )
 async def chat_stream(
-    request: ChatRequest,
+    chat_request: ChatRequest,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ) -> EventSourceResponse:
@@ -88,20 +90,39 @@ async def chat_stream(
     - Token-by-token response
     - Final structured response with suggested values/actions
     """
+    # Create cancellation token that monitors client disconnection
+    cancellation_token = CancellationToken()
+
+    async def monitor_disconnect():
+        """Monitor for client disconnection and cancel the token"""
+        while not cancellation_token.is_cancelled:
+            if await request.is_disconnected():
+                logger.info("Client disconnected, cancelling request")
+                cancellation_token.cancel()
+                break
+            await asyncio.sleep(0.5)  # Check every 500ms
 
     async def event_generator():
         """Generate SSE events"""
+        # Start disconnect monitor as background task
+        monitor_task = asyncio.create_task(monitor_disconnect())
+
         try:
             service = GeneralChatService(db, current_user.user_id)
 
-            # Stream the response from the service
-            async for chunk in service.stream_chat_message(request):
+            # Stream the response from the service with cancellation support
+            async for chunk in service.stream_chat_message(chat_request, cancellation_token):
+                if cancellation_token.is_cancelled:
+                    logger.info("Request cancelled, stopping stream")
+                    break
                 # Yield as SSE event
                 yield {
                     "event": "message",
                     "data": chunk
                 }
 
+        except asyncio.CancelledError:
+            logger.info("Chat stream cancelled")
         except Exception as e:
             logger.error(f"Error in chat stream: {str(e)}")
             error_response = ChatStreamChunk(
@@ -116,6 +137,14 @@ async def chat_stream(
                 "event": "message",
                 "data": error_response.model_dump_json()
             }
+        finally:
+            # Clean up: cancel the monitor and mark token as cancelled
+            cancellation_token.cancel()
+            monitor_task.cancel()
+            try:
+                await monitor_task
+            except asyncio.CancelledError:
+                pass
 
     return EventSourceResponse(
         event_generator(),

@@ -76,8 +76,13 @@ class ResearchState:
 class DeepResearchEngine:
     """Orchestrates the research workflow with streaming progress."""
 
-    def __init__(self):
+    def __init__(self, cancellation_token=None):
         self.client = anthropic.Anthropic(api_key=os.getenv('ANTHROPIC_API_KEY'))
+        self.cancellation_token = cancellation_token
+
+    def _is_cancelled(self) -> bool:
+        """Check if the operation has been cancelled."""
+        return self.cancellation_token is not None and self.cancellation_token.is_cancelled
 
     def _parse_llm_json(self, text: str) -> Optional[Any]:
         """
@@ -120,6 +125,10 @@ class DeepResearchEngine:
         state = ResearchState(goal=goal)
 
         try:
+            # Check for cancellation at start
+            if self._is_cancelled():
+                return ToolResult(text="Research cancelled before starting")
+
             # Step 1: Break goal into checklist
             yield ToolProgress(
                 stage="creating_checklist",
@@ -132,6 +141,10 @@ class DeepResearchEngine:
             if not state.checklist:
                 return ToolResult(text="Failed to create research checklist")
 
+            # Check for cancellation after checklist creation
+            if self._is_cancelled():
+                return ToolResult(text="Research cancelled after checklist creation")
+
             yield ToolProgress(
                 stage="checklist_created",
                 message=f"Created checklist with {len(state.checklist)} questions",
@@ -142,6 +155,22 @@ class DeepResearchEngine:
 
             # Step 2: Research loop
             while state.iteration < MAX_RESEARCH_ITERATIONS:
+                # Check for cancellation at start of each iteration
+                if self._is_cancelled():
+                    logger.info("Research cancelled during iteration loop")
+                    yield ToolProgress(
+                        stage="cancelled",
+                        message="Research cancelled by user",
+                        data={"iterations_completed": state.iteration}
+                    )
+                    return ToolResult(
+                        text=f"Research cancelled after {state.iteration} iterations",
+                        data={
+                            "partial": True,
+                            "checklist": [item.to_dict() for item in state.checklist],
+                            "sources": state.all_sources
+                        }
+                    )
                 state.iteration += 1
 
                 # Check if we're done
@@ -633,7 +662,10 @@ def execute_deep_research_streaming(
     if not goal:
         goal = f"Comprehensive research on {topic}"
 
-    engine = DeepResearchEngine()
+    # Get cancellation token from context (passed by executor)
+    cancellation_token = context.get("cancellation_token")
+
+    engine = DeepResearchEngine(cancellation_token=cancellation_token)
     # Return the generator directly - services will iterate through it
     return engine.run_streaming(topic, goal, db, user_id)
 
