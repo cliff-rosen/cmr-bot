@@ -11,7 +11,7 @@ import logging
 import os
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
-from typing import Any, Dict, Generator, List, Optional
+from typing import Any, Dict, Generator, List, Optional, Tuple
 
 import anthropic
 from sqlalchemy.orm import Session
@@ -185,29 +185,40 @@ def execute_iterate(
 
     total = len(items)
     completed = 0
-    results: List[ItemResult] = []
+    # Pre-allocate results list to maintain order
+    results: List[Optional[ItemResult]] = [None] * total
 
+    # Send starting event with full items list for UI rendering
     yield ToolProgress(
         stage="starting",
-        message=f"Processing {total} items with max concurrency {max_concurrency}",
-        data={"total": total, "max_concurrency": max_concurrency},
+        message=f"Processing {total} items",
+        data={
+            "total": total,
+            "max_concurrency": max_concurrency,
+            "items": items  # Full list for UI to render
+        },
         progress=0.0
     )
 
-    # Process items in parallel batches
-    def process_item(item: str) -> ItemResult:
+    # Process items in parallel
+    def process_item_with_index(index: int, item: str) -> Tuple[int, ItemResult]:
         if op_type == "llm":
-            return _process_item_llm(item, op_prompt)
+            return index, _process_item_llm(item, op_prompt)
         else:
-            return _process_item_tool(item, op_tool_name, op_tool_params, db, user_id)
+            return index, _process_item_tool(item, op_tool_name, op_tool_params, db, user_id)
 
     # Use ThreadPoolExecutor for parallel processing
-    with ThreadPoolExecutor(max_workers=max_concurrency) as executor:
-        # Submit all tasks
-        futures = {executor.submit(process_item, item): item for item in items}
+    from concurrent.futures import as_completed
 
-        # Process completed tasks as they finish
-        for future in futures:
+    with ThreadPoolExecutor(max_workers=max_concurrency) as executor:
+        # Submit all tasks with their indices
+        futures = {
+            executor.submit(process_item_with_index, idx, item): idx
+            for idx, item in enumerate(items)
+        }
+
+        # Process completed tasks as they finish (in completion order)
+        for future in as_completed(futures):
             # Check for cancellation
             if cancellation_token and cancellation_token.is_cancelled:
                 logger.info("Iterator cancelled")
@@ -217,43 +228,66 @@ def execute_iterate(
                     message=f"Cancelled after processing {completed}/{total} items",
                     data={"completed": completed, "total": total}
                 )
+                # Collect completed results
+                final_results = [r for r in results if r is not None]
                 return ToolResult(
                     text=f"Iterator cancelled after processing {completed}/{total} items",
                     data={
                         "partial": True,
-                        "results": [{"item": r.item, "result": r.result, "success": r.success, "error": r.error} for r in results]
+                        "results": [{"item": r.item, "result": r.result, "success": r.success, "error": r.error} for r in final_results]
                     }
                 )
 
             try:
-                result = future.result(timeout=60)  # 60 second timeout per item
-                results.append(result)
+                index, result = future.result(timeout=60)  # 60 second timeout per item
+                results[index] = result
                 completed += 1
 
+                # Send per-item completion event for live UI update
                 yield ToolProgress(
-                    stage="processing",
-                    message=f"Processed {completed}/{total}: {result.item[:50]}..." if len(result.item) > 50 else f"Processed {completed}/{total}: {result.item}",
+                    stage="item_complete",
+                    message=f"Completed: {result.item[:50]}..." if len(result.item) > 50 else f"Completed: {result.item}",
                     data={
+                        "index": index,
+                        "item": result.item,
+                        "result": result.result[:500] if result.result else "",  # Truncate for progress
+                        "success": result.success,
+                        "error": result.error,
                         "completed": completed,
-                        "total": total,
-                        "latest_item": result.item,
-                        "latest_success": result.success
+                        "total": total
                     },
                     progress=completed / total
                 )
             except Exception as e:
                 logger.error(f"Error processing item: {e}")
-                item = futures[future]
-                results.append(ItemResult(item=item, result="", success=False, error=str(e)))
+                idx = futures[future]
+                error_result = ItemResult(item=items[idx], result="", success=False, error=str(e))
+                results[idx] = error_result
                 completed += 1
 
-    # Format final results
-    successful = sum(1 for r in results if r.success)
-    failed = total - successful
+                yield ToolProgress(
+                    stage="item_complete",
+                    message=f"Failed: {items[idx][:50]}..." if len(items[idx]) > 50 else f"Failed: {items[idx]}",
+                    data={
+                        "index": idx,
+                        "item": items[idx],
+                        "result": "",
+                        "success": False,
+                        "error": str(e),
+                        "completed": completed,
+                        "total": total
+                    },
+                    progress=completed / total
+                )
+
+    # Format final results (filter out any None values, though there shouldn't be any)
+    final_results = [r for r in results if r is not None]
+    successful = sum(1 for r in final_results if r.success)
+    failed = len(final_results) - successful
 
     # Build output text
     output_lines = [f"Processed {total} items ({successful} successful, {failed} failed):\n"]
-    for r in results:
+    for r in final_results:
         if r.success:
             output_lines.append(f"- **{r.item}**: {r.result}")
         else:
@@ -272,7 +306,7 @@ def execute_iterate(
                     "success": r.success,
                     "error": r.error
                 }
-                for r in results
+                for r in final_results
             ]
         }
     )
