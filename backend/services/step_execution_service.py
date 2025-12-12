@@ -138,28 +138,28 @@ class StepExecutionService:
 
             system_prompt = f"""You are a task execution agent. Execute the task and return ONLY the output.
 
-## Task
-{assignment.description}
+            ## Task
+            {assignment.description}
 
-## Input Data
-{assignment.input_data}
+            ## Input Data
+            {assignment.input_data}
 
-## Required Output
-{assignment.output_format}
+            ## Required Output
+            {assignment.output_format}
 
-## Available Tools
-{tool_list}
+            ## Available Tools
+            {tool_list}
 
-## CRITICAL RULES
-1. DO NOT describe what you will do - just DO IT
-2. DO NOT say "I'll research..." or "Let me..." - USE THE TOOLS NOW
-3. Your response must BE the deliverable, not a description of it
-4. If tools are available and needed, call them IMMEDIATELY
-5. Return the actual content/data requested, not commentary about it
+            ## CRITICAL RULES
+            1. DO NOT describe what you will do - just DO IT
+            2. DO NOT say "I'll research..." or "Let me..." - USE THE TOOLS NOW
+            3. Your response must BE the deliverable, not a description of it
+            4. If tools are available and needed, call them IMMEDIATELY
+            5. Return the actual content/data requested, not commentary about it
 
-WRONG: "I'll search for Beatles albums and compile a list..."
-RIGHT: [Actually call web_search, then return the compiled list]
-"""
+            WRONG: "I'll search for Beatles albums and compile a list..."
+            RIGHT: [Actually call web_search, then return the compiled list]
+            """
 
             messages = [{"role": "user", "content": "Execute now. Return only the deliverable."}]
 
