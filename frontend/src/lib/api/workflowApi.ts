@@ -1,8 +1,8 @@
 /**
- * Workflow API - Step execution via dedicated agent
+ * Workflow API - Step execution via dedicated agent with SSE streaming
  */
 
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+import { makeStreamRequest } from './streamUtils';
 
 export interface StepExecutionRequest {
     step_number: number;
@@ -12,31 +12,59 @@ export interface StepExecutionRequest {
     available_tools: string[];
 }
 
-export interface StepExecutionResponse {
+export interface ToolCallRecord {
+    tool_name: string;
+    input: Record<string, any>;
+    output: string;
+}
+
+export interface StepExecutionResult {
     success: boolean;
     output: string;
     content_type: 'document' | 'data' | 'code';
+    tool_calls: ToolCallRecord[];
     error: string | null;
+}
+
+export interface StepStatusUpdate {
+    status: 'thinking' | 'tool_start' | 'tool_complete' | 'complete' | 'error';
+    message: string;
+    tool_name?: string;
+    tool_input?: Record<string, any>;
+    tool_output?: string;
+    result?: StepExecutionResult;
 }
 
 export const workflowApi = {
     /**
-     * Execute a single workflow step using the dedicated step agent.
+     * Execute a workflow step with SSE streaming for status updates.
+     * Yields status updates as they arrive, final update contains result.
      */
-    async executeStep(request: StepExecutionRequest): Promise<StepExecutionResponse> {
-        const response = await fetch(`${API_BASE}/workflow/execute-step`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify(request),
-        });
+    async *executeStepStreaming(request: StepExecutionRequest): AsyncGenerator<StepStatusUpdate> {
+        try {
+            const rawStream = makeStreamRequest('/workflow/execute-step', request, 'POST');
 
-        if (!response.ok) {
-            const error = await response.text();
-            throw new Error(`Failed to execute step: ${error}`);
+            for await (const update of rawStream) {
+                const lines = update.data.split('\n');
+                for (const line of lines) {
+                    if (!line.trim()) continue;
+
+                    if (line.startsWith('data: ')) {
+                        const jsonStr = line.slice(6);
+                        try {
+                            const data: StepStatusUpdate = JSON.parse(jsonStr);
+                            yield data;
+                        } catch (e) {
+                            console.error('Failed to parse stream data:', jsonStr, e);
+                        }
+                    }
+                }
+            }
+        } catch (error) {
+            yield {
+                status: 'error',
+                message: `Stream error: ${error instanceof Error ? error.message : String(error)}`
+            };
         }
-
-        return response.json();
     }
 };

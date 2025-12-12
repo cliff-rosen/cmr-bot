@@ -7,11 +7,14 @@ import {
 } from '@heroicons/react/24/solid';
 import { JsonRenderer, MarkdownRenderer } from '../common';
 import { ToolCall, WorkspacePayload, WorkflowStepDefinition, WorkflowStep } from '../../types/chat';
+import { ToolCallRecord } from '../../lib/api';
 
 interface WorkspacePanelProps {
     selectedToolHistory: ToolCall[] | null;
     activePayload: WorkspacePayload | null;
     executingStep: WorkflowStep | null;
+    stepStatus: string;
+    stepToolCalls: ToolCallRecord[];
     onClose: () => void;
     onSaveAsAsset: (toolCall: ToolCall) => void;
     onSavePayloadAsAsset: (payload: WorkspacePayload, andClose?: boolean) => void;
@@ -79,6 +82,8 @@ export default function WorkspacePanel({
     selectedToolHistory,
     activePayload,
     executingStep,
+    stepStatus,
+    stepToolCalls,
     onClose,
     onSaveAsAsset,
     onSavePayloadAsAsset,
@@ -162,23 +167,59 @@ export default function WorkspacePanel({
             <div className="flex-1 overflow-y-auto p-4">
                 {/* Step Executing View */}
                 {showExecuting && (
-                    <div className="flex flex-col items-center justify-center h-full text-center">
-                        <div className="mb-6">
-                            <div className="w-16 h-16 rounded-full border-4 border-indigo-200 dark:border-indigo-800 border-t-indigo-500 animate-spin" />
+                    <div className="flex flex-col h-full">
+                        {/* Header area with spinner and status */}
+                        <div className="flex items-center gap-4 mb-6">
+                            <div className="flex-shrink-0">
+                                <div className="w-12 h-12 rounded-full border-4 border-indigo-200 dark:border-indigo-800 border-t-indigo-500 animate-spin" />
+                            </div>
+                            <div>
+                                <h3 className="text-lg font-medium text-gray-900 dark:text-white">
+                                    Step {executingStep.step_number}: {executingStep.description}
+                                </h3>
+                                <p className="text-sm text-indigo-600 dark:text-indigo-400">
+                                    {stepStatus || 'Starting...'}
+                                </p>
+                            </div>
                         </div>
-                        <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-2">
-                            Executing Step {executingStep.step_number}
-                        </h3>
-                        <p className="text-gray-600 dark:text-gray-400 mb-4 max-w-md">
-                            {executingStep.description}
-                        </p>
-                        <div className="text-sm text-gray-500 dark:text-gray-500">
-                            {executingStep.method.tools.length > 0 ? (
-                                <span>Using: {executingStep.method.tools.join(', ')}</span>
-                            ) : (
-                                <span>Processing...</span>
-                            )}
-                        </div>
+
+                        {/* Tool calls log */}
+                        {stepToolCalls.length > 0 && (
+                            <div className="flex-1 overflow-y-auto">
+                                <h4 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase mb-2">
+                                    Tool Activity
+                                </h4>
+                                <div className="space-y-2">
+                                    {stepToolCalls.map((tc, idx) => (
+                                        <div
+                                            key={idx}
+                                            className="bg-white dark:bg-gray-800 rounded-lg p-3 border border-gray-200 dark:border-gray-700"
+                                        >
+                                            <div className="flex items-center gap-2 mb-1">
+                                                <CheckIcon className="h-4 w-4 text-green-500" />
+                                                <span className="font-medium text-sm text-gray-900 dark:text-white">
+                                                    {tc.tool_name}
+                                                </span>
+                                            </div>
+                                            {tc.output && (
+                                                <p className="text-xs text-gray-500 dark:text-gray-400 truncate">
+                                                    {tc.output.slice(0, 150)}...
+                                                </p>
+                                            )}
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Empty state when no tool calls yet */}
+                        {stepToolCalls.length === 0 && (
+                            <div className="flex-1 flex items-center justify-center">
+                                <p className="text-gray-400 dark:text-gray-500 text-sm">
+                                    Waiting for tool activity...
+                                </p>
+                            </div>
+                        )}
                     </div>
                 )}
 

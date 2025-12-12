@@ -4,7 +4,7 @@ import { ChevronLeftIcon, ChevronRightIcon, PlusIcon } from '@heroicons/react/24
 import { useGeneralChat } from '../hooks/useGeneralChat';
 import { useProfile } from '../context/ProfileContext';
 import { InteractionType, ToolCall, GeneralChatMessage, WorkspacePayload, WorkflowPlan, WorkflowStep, WorkflowStepDefinition } from '../types/chat';
-import { memoryApi, Memory, assetApi, Asset, AssetUpdate, workflowApi } from '../lib/api';
+import { memoryApi, Memory, assetApi, Asset, AssetUpdate, workflowApi, StepStatusUpdate, ToolCallRecord } from '../lib/api';
 import {
     ConversationSidebar,
     ChatPanel,
@@ -380,46 +380,70 @@ export default function MainPage() {
 
     // Step execution state
     const [executingStep, setExecutingStep] = useState<WorkflowStep | null>(null);
+    const [stepStatus, setStepStatus] = useState<string>('');
+    const [stepToolCalls, setStepToolCalls] = useState<ToolCallRecord[]>([]);
 
-    // Helper to execute a step via dedicated step agent
+    // Helper to execute a step via dedicated step agent with streaming
     const executeStep = useCallback(async (
         _workflow: WorkflowPlan,
         step: WorkflowStep,
         inputData: string
     ) => {
         setExecutingStep(step);
-        setActivePayload(null);  // Clear any previous payload
+        setStepStatus('Starting...');
+        setStepToolCalls([]);
+        setActivePayload(null);
 
         try {
-            const result = await workflowApi.executeStep({
+            let finalResult: StepStatusUpdate['result'] | null = null;
+
+            for await (const update of workflowApi.executeStepStreaming({
                 step_number: step.step_number,
                 description: step.description,
                 input_data: inputData,
                 output_format: step.output_description,
                 available_tools: step.method.tools
-            });
+            })) {
+                // Update status message
+                setStepStatus(update.message);
+
+                // Track tool calls
+                if (update.status === 'tool_complete' && update.tool_name) {
+                    setStepToolCalls(prev => [...prev, {
+                        tool_name: update.tool_name!,
+                        input: update.tool_input || {},
+                        output: update.tool_output || ''
+                    }]);
+                }
+
+                // Capture final result
+                if (update.status === 'complete' || update.status === 'error') {
+                    finalResult = update.result || null;
+                }
+            }
 
             setExecutingStep(null);
+            setStepStatus('');
 
-            if (result.success) {
+            if (finalResult?.success) {
                 // Show the output as a WIP payload for user review
                 setActivePayload({
                     type: 'wip',
                     title: `Step ${step.step_number}: ${step.description}`,
-                    content: result.output,
+                    content: finalResult.output,
                     step_number: step.step_number,
-                    content_type: result.content_type
+                    content_type: finalResult.content_type
                 });
             } else {
-                // Show error to user
                 sendMessage(
-                    `Step ${step.step_number} failed: ${result.error}. Would you like me to retry?`,
+                    `Step ${step.step_number} failed: ${finalResult?.error || 'Unknown error'}. Would you like me to retry?`,
                     InteractionType.TEXT_INPUT
                 );
             }
         } catch (err) {
             console.error('Step execution error:', err);
             setExecutingStep(null);
+            setStepStatus('');
             sendMessage(
                 `Error executing step ${step.step_number}. Please try again.`,
                 InteractionType.TEXT_INPUT
@@ -650,6 +674,8 @@ export default function MainPage() {
                     selectedToolHistory={selectedToolHistory}
                     activePayload={activePayload}
                     executingStep={executingStep}
+                    stepStatus={stepStatus}
+                    stepToolCalls={stepToolCalls}
                     onClose={handleWorkspaceClose}
                     onSaveAsAsset={handleSaveToolOutputAsAsset}
                     onSavePayloadAsAsset={handleSavePayloadAsAsset}

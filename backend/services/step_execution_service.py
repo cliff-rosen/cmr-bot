@@ -2,15 +2,17 @@
 Step Execution Service
 
 A lightweight agent that executes individual workflow steps with fresh context.
+Streams status updates via SSE for real-time feedback.
 """
 
-from typing import Dict, Any, List, Optional
-from dataclasses import dataclass
+from typing import Dict, Any, List, Optional, AsyncGenerator
+from dataclasses import dataclass, field
 from sqlalchemy.orm import Session
 import anthropic
 import asyncio
 import os
 import logging
+import json
 
 from services.chat_payloads import get_all_tools, ToolResult
 
@@ -18,7 +20,7 @@ logger = logging.getLogger(__name__)
 
 STEP_MODEL = "claude-sonnet-4-20250514"
 STEP_MAX_TOKENS = 4096
-MAX_TOOL_ITERATIONS = 5
+MAX_TOOL_ITERATIONS = 10  # Allow more iterations for complex tasks
 
 
 @dataclass
@@ -32,12 +34,57 @@ class StepAssignment:
 
 
 @dataclass
+class ToolCallRecord:
+    """Record of a tool call made during execution."""
+    tool_name: str
+    input: Dict[str, Any]
+    output: str
+
+
+@dataclass
 class StepResult:
     """What the step executor returns."""
     success: bool
     output: str
     content_type: str  # 'document', 'data', 'code'
+    tool_calls: List[ToolCallRecord] = field(default_factory=list)
     error: Optional[str] = None
+
+
+@dataclass
+class StepStatusUpdate:
+    """A status update during step execution."""
+    status: str  # 'thinking', 'tool_start', 'tool_complete', 'complete', 'error'
+    message: str
+    tool_name: Optional[str] = None
+    tool_input: Optional[Dict[str, Any]] = None
+    tool_output: Optional[str] = None
+    # Final result (only on 'complete')
+    result: Optional[StepResult] = None
+
+    def to_json(self) -> str:
+        data = {
+            "status": self.status,
+            "message": self.message
+        }
+        if self.tool_name:
+            data["tool_name"] = self.tool_name
+        if self.tool_input:
+            data["tool_input"] = self.tool_input
+        if self.tool_output:
+            data["tool_output"] = self.tool_output[:500] if self.tool_output else None  # Truncate for status
+        if self.result:
+            data["result"] = {
+                "success": self.result.success,
+                "output": self.result.output,
+                "content_type": self.result.content_type,
+                "tool_calls": [
+                    {"tool_name": tc.tool_name, "input": tc.input, "output": tc.output[:500] if tc.output else ""}
+                    for tc in self.result.tool_calls
+                ],
+                "error": self.result.error
+            }
+        return json.dumps(data)
 
 
 class StepExecutionService:
@@ -48,8 +95,10 @@ class StepExecutionService:
         self.user_id = user_id
         self.async_client = anthropic.AsyncAnthropic(api_key=os.getenv('ANTHROPIC_API_KEY'))
 
-    async def execute(self, assignment: StepAssignment) -> StepResult:
-        """Execute a step assignment and return the result."""
+    async def execute_streaming(self, assignment: StepAssignment) -> AsyncGenerator[StepStatusUpdate, None]:
+        """Execute a step assignment, yielding status updates along the way."""
+        tool_calls: List[ToolCallRecord] = []
+
         try:
             # Get tools
             all_tools = get_all_tools()
@@ -105,6 +154,12 @@ RIGHT: [Actually call web_search, then return the compiled list]
             if anthropic_tools:
                 api_kwargs["tools"] = anthropic_tools
 
+            # Initial status
+            yield StepStatusUpdate(
+                status="thinking",
+                message="Starting step execution..."
+            )
+
             # Execution loop
             iteration = 0
             collected_text = ""
@@ -115,7 +170,7 @@ RIGHT: [Actually call web_search, then return the compiled list]
 
                 response = await self.async_client.messages.create(**api_kwargs)
 
-                # Collect text
+                # Collect text from this response
                 for block in response.content:
                     if block.type == "text":
                         collected_text += block.text
@@ -124,6 +179,7 @@ RIGHT: [Actually call web_search, then return the compiled list]
                 tool_use_blocks = [b for b in response.content if b.type == "tool_use"]
 
                 if not tool_use_blocks:
+                    # No more tool calls - we're done
                     break
 
                 # Handle tool call
@@ -134,8 +190,32 @@ RIGHT: [Actually call web_search, then return the compiled list]
 
                 logger.info(f"Step agent tool call: {tool_name}")
 
+                # Yield tool start status
+                yield StepStatusUpdate(
+                    status="tool_start",
+                    message=f"Running {tool_name}...",
+                    tool_name=tool_name,
+                    tool_input=tool_input
+                )
+
+                # Execute the tool
                 tool_result_str = await self._execute_tool(
                     tool_name, tool_input, tools_by_name
+                )
+
+                # Record the tool call
+                tool_calls.append(ToolCallRecord(
+                    tool_name=tool_name,
+                    input=tool_input,
+                    output=tool_result_str
+                ))
+
+                # Yield tool complete status
+                yield StepStatusUpdate(
+                    status="tool_complete",
+                    message=f"Completed {tool_name}",
+                    tool_name=tool_name,
+                    tool_output=tool_result_str
                 )
 
                 # Add to messages for next iteration
@@ -162,22 +242,59 @@ RIGHT: [Actually call web_search, then return the compiled list]
                 })
                 api_kwargs["messages"] = messages
 
+            # If we exited because of iteration limit but haven't got text output,
+            # make one more call asking for synthesis
+            if not collected_text.strip() and tool_calls:
+                yield StepStatusUpdate(
+                    status="thinking",
+                    message="Synthesizing results..."
+                )
+
+                # Add a message asking for synthesis
+                messages.append({
+                    "role": "user",
+                    "content": "Now compile and return the final output based on all the information gathered. Return ONLY the deliverable content."
+                })
+                api_kwargs["messages"] = messages
+
+                # Remove tools to force text response
+                if "tools" in api_kwargs:
+                    del api_kwargs["tools"]
+
+                response = await self.async_client.messages.create(**api_kwargs)
+                for block in response.content:
+                    if block.type == "text":
+                        collected_text += block.text
+
             # Determine content type from output
             content_type = self._infer_content_type(collected_text, assignment.output_format)
 
-            return StepResult(
+            # Yield final result
+            result = StepResult(
                 success=True,
                 output=collected_text,
-                content_type=content_type
+                content_type=content_type,
+                tool_calls=tool_calls
+            )
+            yield StepStatusUpdate(
+                status="complete",
+                message="Step completed",
+                result=result
             )
 
         except Exception as e:
             logger.error(f"Step execution error: {e}", exc_info=True)
-            return StepResult(
+            result = StepResult(
                 success=False,
                 output="",
                 content_type="document",
+                tool_calls=tool_calls,
                 error=str(e)
+            )
+            yield StepStatusUpdate(
+                status="error",
+                message=str(e),
+                result=result
             )
 
     async def _execute_tool(

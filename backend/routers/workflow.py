@@ -1,20 +1,21 @@
 """
 Workflow API Router
 
-Handles workflow step execution via dedicated step agent.
+Handles workflow step execution via dedicated step agent with SSE streaming.
 """
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
-from typing import List, Optional
-import json
+from typing import List
+import asyncio
 
 from database import get_db
 from services.step_execution_service import StepExecutionService, StepAssignment
 
 router = APIRouter(prefix="/workflow", tags=["workflow"])
+
 
 # For now, hardcode user_id = 1 (same as other routers)
 def get_current_user_id() -> int:
@@ -29,20 +30,13 @@ class StepExecutionRequest(BaseModel):
     available_tools: List[str] = []
 
 
-class StepExecutionResponse(BaseModel):
-    success: bool
-    output: str
-    content_type: str
-    error: Optional[str] = None
-
-
-@router.post("/execute-step", response_model=StepExecutionResponse)
+@router.post("/execute-step")
 async def execute_step(
     request: StepExecutionRequest,
     db: Session = Depends(get_db),
     user_id: int = Depends(get_current_user_id)
 ):
-    """Execute a single workflow step using the dedicated step agent."""
+    """Execute a workflow step with SSE streaming for status updates."""
 
     service = StepExecutionService(db, user_id)
 
@@ -54,11 +48,17 @@ async def execute_step(
         available_tools=request.available_tools
     )
 
-    result = await service.execute(assignment)
+    async def event_generator():
+        async for update in service.execute_streaming(assignment):
+            yield f"data: {update.to_json()}\n\n"
+            await asyncio.sleep(0)  # Allow other tasks to run
 
-    return StepExecutionResponse(
-        success=result.success,
-        output=result.output,
-        content_type=result.content_type,
-        error=result.error
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no"
+        }
     )

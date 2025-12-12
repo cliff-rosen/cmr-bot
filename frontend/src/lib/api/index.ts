@@ -107,4 +107,4 @@ export { profileApi } from './profileApi';
 export type { Profile, ProfileUpdate } from './profileApi';
 
 export { workflowApi } from './workflowApi';
-export type { StepExecutionRequest, StepExecutionResponse } from './workflowApi';
+export type { StepExecutionRequest, StepExecutionResult, StepStatusUpdate, ToolCallRecord } from './workflowApi';
