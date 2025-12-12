@@ -10,11 +10,13 @@ import anthropic
 import asyncio
 import os
 import logging
+import types
 
 from schemas.general_chat import ChatResponsePayload
 from services.chat_payloads import (
     get_all_tools,
-    ToolResult
+    ToolResult,
+    ToolProgress
 )
 from services.conversation_service import ConversationService
 from services.memory_service import MemoryService
@@ -138,9 +140,38 @@ class GeneralChatService:
                     debug=None
                 ).model_dump_json()
 
-                tool_result_str, tool_output_data = await self._execute_tool(
-                    tool_name, tool_input, tools_by_name, tool_executor_context
-                )
+                # Execute tool - may yield progress updates for streaming tools
+                tool_result_str = ""
+                tool_output_data = None
+                tool_config = tools_by_name.get(tool_name)
+
+                if tool_config and tool_config.streaming:
+                    # Streaming tool - yield progress updates
+                    async for progress_or_result in self._execute_streaming_tool(
+                        tool_config, tool_input, tool_executor_context
+                    ):
+                        if isinstance(progress_or_result, ToolProgress):
+                            # Yield progress update to frontend
+                            yield ChatStatusResponse(
+                                status=progress_or_result.message,
+                                payload={
+                                    "tool": tool_name,
+                                    "phase": "progress",
+                                    "stage": progress_or_result.stage,
+                                    "data": progress_or_result.data,
+                                    "progress": progress_or_result.progress
+                                },
+                                error=None,
+                                debug=None
+                            ).model_dump_json()
+                        elif isinstance(progress_or_result, tuple):
+                            # Final result (text, data)
+                            tool_result_str, tool_output_data = progress_or_result
+                else:
+                    # Non-streaming tool
+                    tool_result_str, tool_output_data = await self._execute_tool(
+                        tool_name, tool_input, tools_by_name, tool_executor_context
+                    )
 
                 tool_call_history.append({
                     "tool_name": tool_name,
@@ -598,6 +629,11 @@ class GeneralChatService:
             return f"Unknown tool: {tool_name}", None
 
         try:
+            # Check if this is a streaming tool
+            if tool_config.streaming:
+                return await self._execute_streaming_tool(tool_config, tool_input, context)
+
+            # Regular non-streaming tool
             tool_result = await asyncio.to_thread(
                 tool_config.executor,
                 tool_input,
@@ -616,6 +652,75 @@ class GeneralChatService:
         except Exception as e:
             logger.error(f"Tool execution error: {e}", exc_info=True)
             return f"Error executing tool: {str(e)}", None
+
+    async def _execute_streaming_tool(
+        self,
+        tool_config: Any,
+        tool_input: Dict[str, Any],
+        context: Dict[str, Any]
+    ) -> AsyncGenerator[ToolProgress | Tuple[str, Any], None]:
+        """Execute a streaming tool, yielding progress updates and finally the result tuple."""
+        try:
+            # Get the generator from the tool
+            def run_generator():
+                return tool_config.executor(
+                    tool_input,
+                    self.db,
+                    self.user_id,
+                    context
+                )
+
+            generator = await asyncio.to_thread(run_generator)
+
+            # If it's a generator, iterate and yield progress
+            if isinstance(generator, types.GeneratorType):
+                final_result = None
+
+                # Sentinel to indicate StopIteration
+                _STOP = object()
+
+                def get_next_safe():
+                    """Get next item, returning sentinel tuple on StopIteration."""
+                    try:
+                        return (next(generator), None)
+                    except StopIteration as e:
+                        return (_STOP, e.value)
+
+                while True:
+                    item, return_value = await asyncio.to_thread(get_next_safe)
+
+                    if item is _STOP:
+                        # Generator finished - return_value is the final result
+                        if return_value is not None:
+                            if isinstance(return_value, ToolResult):
+                                yield (return_value.text, return_value.data)
+                            elif isinstance(return_value, str):
+                                yield (return_value, None)
+                            else:
+                                yield (str(return_value), None)
+                        elif final_result:
+                            yield (final_result.text, final_result.data)
+                        else:
+                            yield ("", None)
+                        return
+
+                    # Yield progress updates
+                    if isinstance(item, ToolProgress):
+                        yield item
+                    elif isinstance(item, ToolResult):
+                        final_result = item
+            else:
+                # Not a generator - treat as regular result
+                if isinstance(generator, ToolResult):
+                    yield (generator.text, generator.data)
+                elif isinstance(generator, str):
+                    yield (generator, None)
+                else:
+                    yield (str(generator), None)
+
+        except Exception as e:
+            logger.error(f"Streaming tool execution error: {e}", exc_info=True)
+            yield (f"Error executing tool: {str(e)}", None)
 
     def _format_assistant_content(self, response_content: list) -> list:
         """Format response content blocks for Anthropic API."""

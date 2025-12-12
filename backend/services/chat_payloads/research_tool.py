@@ -613,6 +613,7 @@ def execute_deep_research_streaming(
         goal = f"Comprehensive research on {topic}"
 
     engine = DeepResearchEngine()
+    # Return the generator directly - services will iterate through it
     return engine.run_streaming(topic, goal, db, user_id)
 
 
