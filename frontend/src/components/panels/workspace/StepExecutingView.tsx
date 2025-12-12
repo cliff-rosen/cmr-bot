@@ -7,6 +7,7 @@ import { CheckIcon } from '@heroicons/react/24/solid';
 import { WorkflowStep } from '../../../types/chat';
 import { ToolCallRecord, ToolProgressUpdate } from '../../../lib/api';
 import IteratorProgress from './IteratorProgress';
+import MapReduceProgress from './MapReduceProgress';
 import ToolProgress from './ToolProgress';
 
 interface StepExecutingViewProps {
@@ -82,6 +83,8 @@ export default function StepExecutingView({
                                     {/* Tool-specific progress visualization */}
                                     {currentToolName === 'iterate' && currentToolProgress.length > 0 ? (
                                         <IteratorProgress progressUpdates={currentToolProgress} />
+                                    ) : currentToolName === 'map_reduce' && currentToolProgress.length > 0 ? (
+                                        <MapReduceProgress progressUpdates={currentToolProgress} />
                                     ) : currentToolProgress.length > 0 ? (
                                         <ToolProgress progressUpdates={currentToolProgress} />
                                     ) : null}
