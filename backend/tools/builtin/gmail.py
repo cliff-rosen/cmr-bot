@@ -230,7 +230,7 @@ Uses Gmail search syntax (same as Gmail search box).""",
         "required": ["query"]
     },
     executor=execute_gmail_search,
-    category="communication"
+    category="integrations"
 )
 
 
@@ -253,7 +253,7 @@ Requires the user to have connected their Google account.""",
         "required": ["message_id"]
     },
     executor=execute_gmail_read,
-    category="communication"
+    category="integrations"
 )
 
 
@@ -287,7 +287,7 @@ Requires the user to have connected their Google account.""",
         "required": ["to", "subject", "body"]
     },
     executor=execute_gmail_send,
-    category="communication"
+    category="integrations"
 )
 
 
