@@ -53,11 +53,13 @@ export default function TablePayloadView({ payload, onSaveAsAsset }: TablePayloa
     const [showAddColumn, setShowAddColumn] = useState(false);
     const [isComputing, setIsComputing] = useState(false);
     const [computeProgress, setComputeProgress] = useState<ComputeProgress | null>(null);
+    const [computingColumnKey, setComputingColumnKey] = useState<string | null>(null);
 
     // Handle adding a computed column
     const handleAddColumn = useCallback(async (config: ColumnConfig) => {
         setShowAddColumn(false);
         setIsComputing(true);
+        setComputingColumnKey(config.key);
         setComputeProgress({ completed: 0, total: rows.length, status: 'Starting...' });
 
         // Add the column immediately so it appears right away
@@ -139,6 +141,7 @@ export default function TablePayloadView({ payload, onSaveAsAsset }: TablePayloa
         } finally {
             setIsComputing(false);
             setComputeProgress(null);
+            setComputingColumnKey(null);
         }
     }, [rows]);
 
@@ -225,6 +228,14 @@ export default function TablePayloadView({ payload, onSaveAsAsset }: TablePayloa
     // Render cell content based on column type
     const renderCell = (column: TableColumn, value: any) => {
         if (value === null || value === undefined) {
+            // Show loading indicator if this column is currently being computed
+            if (computingColumnKey === column.key) {
+                return (
+                    <span className="inline-flex items-center gap-1 text-teal-500">
+                        <span className="animate-pulse">●</span>
+                    </span>
+                );
+            }
             return <span className="text-gray-400">-</span>;
         }
 
@@ -301,6 +312,24 @@ export default function TablePayloadView({ payload, onSaveAsAsset }: TablePayloa
                     )}
                 </div>
             </div>
+
+            {/* Computing banner */}
+            {isComputing && computeProgress && (
+                <div className="px-4 py-2 bg-teal-50 dark:bg-teal-900/30 border-b border-teal-200 dark:border-teal-800 flex items-center gap-3">
+                    <SparklesIcon className="h-4 w-4 text-teal-500 animate-pulse" />
+                    <span className="text-sm text-teal-700 dark:text-teal-300">
+                        Computing column values... {computeProgress.completed} of {computeProgress.total} complete
+                    </span>
+                    <div className="flex-1 max-w-xs">
+                        <div className="w-full bg-teal-200 dark:bg-teal-800 rounded-full h-1.5">
+                            <div
+                                className="bg-teal-500 h-1.5 rounded-full transition-all duration-150"
+                                style={{ width: `${(computeProgress.completed / computeProgress.total) * 100}%` }}
+                            />
+                        </div>
+                    </div>
+                </div>
+            )}
 
             {/* Filter bar */}
             {showFilters && (
@@ -410,27 +439,6 @@ export default function TablePayloadView({ payload, onSaveAsAsset }: TablePayloa
             {payload.content && (
                 <div className="px-4 py-2 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900">
                     <p className="text-sm text-gray-600 dark:text-gray-400">{payload.content}</p>
-                </div>
-            )}
-
-            {/* Computing progress bar - non-blocking, shows at bottom */}
-            {isComputing && computeProgress && (
-                <div className="absolute bottom-0 left-0 right-0 bg-white dark:bg-gray-800 border-t border-gray-200 dark:border-gray-700 px-4 py-2">
-                    <div className="flex items-center gap-3">
-                        <SparklesIcon className="h-4 w-4 text-teal-500 animate-pulse flex-shrink-0" />
-                        <div className="flex-1">
-                            <div className="flex justify-between text-xs text-gray-600 dark:text-gray-400 mb-1">
-                                <span>Computing column...</span>
-                                <span>{computeProgress.completed} / {computeProgress.total}</span>
-                            </div>
-                            <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-1.5">
-                                <div
-                                    className="bg-teal-500 h-1.5 rounded-full transition-all duration-150"
-                                    style={{ width: `${(computeProgress.completed / computeProgress.total) * 100}%` }}
-                                />
-                            </div>
-                        </div>
-                    </div>
                 </div>
             )}
 
