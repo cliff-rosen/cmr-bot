@@ -68,44 +68,15 @@ export default function ChatPanel({
         const lastMessage = messages[messages.length - 1];
         if (lastMessage.role !== 'assistant') return;
 
-        // First check message content for payload
+        // First check message content for payload (e.g., drafts, summaries)
         let payload: WorkspacePayload | null = parseWorkspacePayload(lastMessage.content).payload;
 
-        // If no payload in content, check tool outputs
+        // If no payload in content, check tool calls for workspace_payload
         if (!payload && lastMessage.custom_payload?.type === 'tool_history') {
             const toolCalls = lastMessage.custom_payload.data as ToolCall[];
             for (const toolCall of toolCalls) {
-                // Check if output is structured agent data
-                if (typeof toolCall.output === 'object' && toolCall.output !== null) {
-                    const outputObj = toolCall.output as Record<string, unknown>;
-                    if (outputObj.payload_type === 'agent_create' && outputObj.agent_data) {
-                        const agentData = outputObj.agent_data as Record<string, unknown>;
-                        payload = {
-                            type: 'agent_create',
-                            title: `Create Agent: ${agentData.name}`,
-                            content: (agentData.description as string) || `New ${agentData.lifecycle} agent`,
-                            agent_data: agentData as unknown as WorkspacePayload['agent_data']
-                        };
-                        break;
-                    }
-                    if (outputObj.payload_type === 'agent_update' && outputObj.agent_data) {
-                        const agentData = outputObj.agent_data as Record<string, unknown>;
-                        payload = {
-                            type: 'agent_update',
-                            title: `Update Agent: ${agentData.name}`,
-                            content: `Updating agent ${agentData.agent_id}`,
-                            agent_data: agentData as unknown as WorkspacePayload['agent_data']
-                        };
-                        break;
-                    }
-                }
-                // Fall back to parsing text output
-                const output = typeof toolCall.output === 'string'
-                    ? toolCall.output
-                    : JSON.stringify(toolCall.output);
-                const parsed = parseWorkspacePayload(output);
-                if (parsed.payload) {
-                    payload = parsed.payload;
+                if (toolCall.workspace_payload) {
+                    payload = toolCall.workspace_payload;
                     break;
                 }
             }
@@ -206,41 +177,12 @@ export default function ChatPanel({
                         displayText = parsed.text;
                         payload = parsed.payload;
 
-                        // If no payload in content, check tool outputs
+                        // If no payload in content, check tool calls for workspace_payload
                         if (!payload && message.custom_payload?.type === 'tool_history') {
                             const toolCalls = message.custom_payload.data as ToolCall[];
                             for (const toolCall of toolCalls) {
-                                // Check if output is structured agent data
-                                if (typeof toolCall.output === 'object' && toolCall.output !== null) {
-                                    const outputObj = toolCall.output as Record<string, unknown>;
-                                    if (outputObj.payload_type === 'agent_create' && outputObj.agent_data) {
-                                        const agentData = outputObj.agent_data as Record<string, unknown>;
-                                        payload = {
-                                            type: 'agent_create',
-                                            title: `Create Agent: ${agentData.name}`,
-                                            content: (agentData.description as string) || `New ${agentData.lifecycle} agent`,
-                                            agent_data: agentData as unknown as WorkspacePayload['agent_data']
-                                        };
-                                        break;
-                                    }
-                                    if (outputObj.payload_type === 'agent_update' && outputObj.agent_data) {
-                                        const agentData = outputObj.agent_data as Record<string, unknown>;
-                                        payload = {
-                                            type: 'agent_update',
-                                            title: `Update Agent: ${agentData.name}`,
-                                            content: `Updating agent ${agentData.agent_id}`,
-                                            agent_data: agentData as unknown as WorkspacePayload['agent_data']
-                                        };
-                                        break;
-                                    }
-                                }
-                                // Fall back to parsing text output
-                                const output = typeof toolCall.output === 'string'
-                                    ? toolCall.output
-                                    : JSON.stringify(toolCall.output);
-                                const toolParsed = parseWorkspacePayload(output);
-                                if (toolParsed.payload) {
-                                    payload = toolParsed.payload;
+                                if (toolCall.workspace_payload) {
+                                    payload = toolCall.workspace_payload;
                                     break;
                                 }
                             }

@@ -136,7 +136,7 @@ async def execute_streaming_tool(
     user_id: int,
     context: Dict[str, Any],
     cancellation_token: Optional["CancellationToken"] = None
-) -> AsyncGenerator[Union[ToolProgress, Tuple[str, Any]], None]:
+) -> AsyncGenerator[Union[ToolProgress, Tuple[str, Any, Any]], None]:
     """
     Execute a streaming tool, yielding progress updates and finally the result.
 
@@ -152,7 +152,7 @@ async def execute_streaming_tool(
         cancellation_token: Optional token to check for cancellation
 
     Yields:
-        ToolProgress instances for progress updates, then a final (text, data) tuple
+        ToolProgress instances for progress updates, then a final (text, data, workspace_payload) tuple
     """
     try:
         # Add cancellation token to context so tools can check it
@@ -190,7 +190,7 @@ async def execute_streaming_tool(
                 # Check for cancellation between iterations
                 if cancellation_token and cancellation_token.is_cancelled:
                     logger.info("Tool execution cancelled")
-                    yield ("Operation cancelled", None)
+                    yield ("Operation cancelled", None, None)
                     return
 
                 item, return_value = await asyncio.to_thread(get_next_safe)
@@ -200,19 +200,19 @@ async def execute_streaming_tool(
                     if return_value is not None:
                         if isinstance(return_value, ToolResult):
                             logger.debug(f"Streaming tool completed with ToolResult: {return_value.text[:100] if return_value.text else '(empty)'}...")
-                            yield (return_value.text, return_value.data)
+                            yield (return_value.text, return_value.data, return_value.workspace_payload)
                         elif isinstance(return_value, str):
                             logger.debug(f"Streaming tool completed with string: {return_value[:100]}...")
-                            yield (return_value, None)
+                            yield (return_value, None, None)
                         else:
                             logger.warning(f"Streaming tool returned unexpected type: {type(return_value)}")
-                            yield (str(return_value), None)
+                            yield (str(return_value), None, None)
                     elif final_result:
                         logger.debug(f"Streaming tool completed with collected result: {final_result.text[:100] if final_result.text else '(empty)'}...")
-                        yield (final_result.text, final_result.data)
+                        yield (final_result.text, final_result.data, final_result.workspace_payload)
                     else:
                         logger.warning("Streaming tool completed with no result")
-                        yield ("", None)
+                        yield ("", None, None)
                     return
 
                 # Yield progress updates
@@ -224,15 +224,15 @@ async def execute_streaming_tool(
         else:
             # Not a generator - treat as regular result
             if isinstance(generator, ToolResult):
-                yield (generator.text, generator.data)
+                yield (generator.text, generator.data, generator.workspace_payload)
             elif isinstance(generator, str):
-                yield (generator, None)
+                yield (generator, None, None)
             else:
-                yield (str(generator), None)
+                yield (str(generator), None, None)
 
     except Exception as e:
         logger.error(f"Streaming tool execution error: {e}", exc_info=True)
-        yield (f"Error executing tool: {str(e)}", None)
+        yield (f"Error executing tool: {str(e)}", None, None)
 
 
 async def execute_tool(
@@ -241,7 +241,7 @@ async def execute_tool(
     db: Any,
     user_id: int,
     context: Dict[str, Any]
-) -> Tuple[str, Any]:
+) -> Tuple[str, Any, Any]:
     """
     Execute a non-streaming tool and return the result.
 
@@ -253,7 +253,7 @@ async def execute_tool(
         context: Additional execution context
 
     Returns:
-        Tuple of (result_text, result_data)
+        Tuple of (result_text, result_data, workspace_payload)
     """
     try:
         tool_result = await asyncio.to_thread(
@@ -265,15 +265,15 @@ async def execute_tool(
         )
 
         if isinstance(tool_result, ToolResult):
-            return tool_result.text, tool_result.data
+            return tool_result.text, tool_result.data, tool_result.workspace_payload
         elif isinstance(tool_result, str):
-            return tool_result, None
+            return tool_result, None, None
         else:
-            return str(tool_result), None
+            return str(tool_result), None, None
 
     except Exception as e:
         logger.error(f"Tool execution error: {e}", exc_info=True)
-        return f"Error executing tool: {str(e)}", None
+        return f"Error executing tool: {str(e)}", None, None
 
 
 def run_async(coro: Coroutine[Any, Any, T]) -> T:

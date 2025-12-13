@@ -281,6 +281,7 @@ async def run_agent_loop(
             tool_config = tools.get(tool_name)
             tool_result_str = ""
             tool_result_data = None
+            tool_workspace_payload = None
 
             if not tool_config:
                 tool_result_str = f"Unknown tool: {tool_name}"
@@ -302,10 +303,10 @@ async def run_agent_loop(
                             progress=progress_or_result
                         )
                     elif isinstance(progress_or_result, tuple):
-                        tool_result_str, tool_result_data = progress_or_result
+                        tool_result_str, tool_result_data, tool_workspace_payload = progress_or_result
             else:
                 # Non-streaming tool
-                tool_result_str, tool_result_data = await execute_tool(
+                tool_result_str, tool_result_data, tool_workspace_payload = await execute_tool(
                     tool_config, tool_input, db, user_id, context
                 )
 
@@ -315,11 +316,14 @@ async def run_agent_loop(
                 return
 
             # Record tool call
-            tool_call_history.append({
+            tool_call_record = {
                 "tool_name": tool_name,
                 "input": tool_input,
                 "output": tool_result_data if tool_result_data else tool_result_str
-            })
+            }
+            if tool_workspace_payload:
+                tool_call_record["workspace_payload"] = tool_workspace_payload
+            tool_call_history.append(tool_call_record)
 
             yield AgentToolComplete(
                 tool_name=tool_name,

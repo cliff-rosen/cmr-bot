@@ -39,6 +39,7 @@ export interface ToolCall {
     tool_name: string;
     input: Record<string, any>;
     output: string | Record<string, any>;
+    workspace_payload?: WorkspacePayload;  // Payload to display in workspace panel
 }
 
 export type WorkspacePayloadType = 'draft' | 'summary' | 'data' | 'code' | 'plan' | 'wip' | 'final' | 'agent_create' | 'agent_update';

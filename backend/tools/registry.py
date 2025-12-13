@@ -24,6 +24,7 @@ class ToolResult:
     """Result from a tool execution."""
     text: str  # Text result to send back to LLM
     data: Optional[Dict[str, Any]] = None  # Structured data for frontend/workspace
+    workspace_payload: Optional[Dict[str, Any]] = None  # Payload to display in workspace panel
 
 
 @dataclass

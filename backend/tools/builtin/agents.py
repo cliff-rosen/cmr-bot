@@ -162,8 +162,6 @@ def execute_create_agent(
     context: Dict[str, Any]
 ) -> ToolResult:
     """Propose creating a new autonomous agent (returns a payload for user approval)."""
-    import json
-
     name = params.get("name")
     instructions = params.get("instructions")
     lifecycle = params.get("lifecycle", "one_shot")
@@ -181,8 +179,8 @@ def execute_create_agent(
     except ValueError:
         return ToolResult(text=f"Error: Invalid lifecycle '{lifecycle}'. Must be one of: one_shot, scheduled, monitor")
 
-    # Build the payload for frontend approval
-    payload = {
+    # Build the workspace payload for frontend approval
+    workspace_payload = {
         "type": "agent_create",
         "title": f"Create Agent: {name}",
         "content": description or f"New {lifecycle} agent",
@@ -206,16 +204,9 @@ def execute_create_agent(
         formatted += f"**Tools:** {', '.join(tools)}\n"
     formatted += f"\nPlease review the details in the workspace panel and click **Create Agent** to confirm."
 
-    # Include the payload block for the frontend to parse
-    formatted += f"\n\n```payload\n{json.dumps(payload, indent=2)}\n```"
-
     return ToolResult(
         text=formatted,
-        data={
-            "proposal": True,
-            "payload_type": "agent_create",
-            "agent_data": payload["agent_data"]
-        }
+        workspace_payload=workspace_payload
     )
 
 
@@ -314,7 +305,6 @@ def execute_update_agent(
     context: Dict[str, Any]
 ) -> ToolResult:
     """Propose updating an agent's configuration (returns a payload for user approval)."""
-    import json
     from services.autonomous_agent_service import AutonomousAgentService
 
     agent_id = params.get("agent_id")
@@ -355,8 +345,8 @@ def execute_update_agent(
     if not changes:
         return ToolResult(text="No changes detected - the provided values match the current agent configuration.")
 
-    # Build the payload for frontend approval
-    payload = {
+    # Build the workspace payload for frontend approval
+    workspace_payload = {
         "type": "agent_update",
         "title": f"Update Agent: {agent_data['name']}",
         "content": f"Updating: {', '.join(changes)}",
@@ -368,18 +358,9 @@ def execute_update_agent(
     formatted += f"**Changes:** {', '.join(changes)}\n"
     formatted += f"\nPlease review the details in the workspace panel and click **Update Agent** to confirm."
 
-    # Include the payload block for the frontend to parse
-    formatted += f"\n\n```payload\n{json.dumps(payload, indent=2)}\n```"
-
     return ToolResult(
         text=formatted,
-        data={
-            "proposal": True,
-            "payload_type": "agent_update",
-            "agent_id": agent_id,
-            "changes": changes,
-            "agent_data": agent_data
-        }
+        workspace_payload=workspace_payload
     )
 
 
@@ -512,12 +493,12 @@ CREATE_AGENT_TOOL = ToolConfig(
     name="create_agent",
     description="""Propose creating a new autonomous background agent. This will show a preview for the user to review and approve before the agent is actually created.
 
-Lifecycle types:
-- one_shot: Runs once when triggered manually
-- scheduled: Runs on a schedule (not yet implemented)
-- monitor: Runs periodically at a set interval
+    Lifecycle types:
+    - one_shot: Runs once when triggered manually
+    - scheduled: Runs on a schedule (not yet implemented)
+    - monitor: Runs periodically at a set interval
 
-The agent will have access to the specified tools and follow the given instructions.""",
+    The agent will have access to the specified tools and follow the given instructions.""",
     input_schema={
         "type": "object",
         "properties": {
