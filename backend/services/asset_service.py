@@ -33,7 +33,9 @@ class AssetService:
         description: Optional[str] = None,
         tags: Optional[List[str]] = None,
         source_conversation_id: Optional[int] = None,
-        context_summary: Optional[str] = None
+        context_summary: Optional[str] = None,
+        created_by_agent_id: Optional[int] = None,
+        agent_run_id: Optional[int] = None
     ) -> Asset:
         """Create a new asset."""
         asset = Asset(
@@ -48,7 +50,9 @@ class AssetService:
             tags=tags or [],
             source_conversation_id=source_conversation_id,
             context_summary=context_summary,
-            is_in_context=False
+            is_in_context=False,
+            created_by_agent_id=created_by_agent_id,
+            agent_run_id=agent_run_id
         )
         self.db.add(asset)
         self.db.commit()

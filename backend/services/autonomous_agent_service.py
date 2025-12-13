@@ -361,19 +361,19 @@ class AutonomousAgentService:
             # Build system prompt
             system_prompt = f"""You are an autonomous agent executing a specific task.
 
-## Your Task
-{agent.instructions}
+            ## Your Task
+            {agent.instructions}
 
-## Rules
-1. Complete the task thoroughly
-2. Use the available tools as needed
-3. Create assets for any significant outputs (reports, data, summaries)
-4. Be concise in your final response - summarize what you accomplished
+            ## Rules
+            1. Complete the task thoroughly
+            2. Use the available tools as needed
+            3. Create assets for any significant outputs (reports, data, summaries)
+            4. Be concise in your final response - summarize what you accomplished
 
-## Creating Assets
-When you produce something valuable (a report, research summary, data), save it as an asset
-so the user can access it later. Use descriptive names.
-"""
+            ## Creating Assets
+            When you produce something valuable (a report, research summary, data), save it as an asset
+            so the user can access it later. Use descriptive names.
+            """
 
             messages = [{"role": "user", "content": "Execute your task now."}]
 

@@ -23,6 +23,7 @@ from database import SessionLocal, init_db
 from models import AutonomousAgent, AgentRun, AgentRunStatus, AgentStatus
 from services.autonomous_agent_service import AutonomousAgentService
 from services.agent_loop import CancellationToken
+from tools import register_all_builtin_tools
 
 # Setup logging
 logger, _ = setup_logging()
@@ -206,6 +207,10 @@ def main():
     # Initialize database
     init_db()
     logger.info("Database initialized")
+
+    # Register tools
+    register_all_builtin_tools()
+    logger.info("Tools registered")
 
     # Choose polling method
     if USE_SQS:

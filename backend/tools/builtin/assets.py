@@ -290,6 +290,99 @@ def execute_search_asset(
     )
 
 
+def execute_save_asset(
+    params: Dict[str, Any],
+    db: Session,
+    user_id: int,
+    context: Dict[str, Any]
+) -> ToolResult:
+    """Save content as a new asset."""
+    from services.asset_service import AssetService
+    from models import AssetType
+
+    name = params.get("name")
+    content = params.get("content")
+    asset_type = params.get("asset_type", "document")
+    description = params.get("description")
+
+    if not name:
+        return ToolResult(text="Error: Must provide asset name")
+    if not content:
+        return ToolResult(text="Error: Must provide content to save")
+
+    # Validate asset type
+    try:
+        asset_type_enum = AssetType(asset_type)
+    except ValueError:
+        return ToolResult(text=f"Error: Invalid asset type '{asset_type}'. Valid types: file, document, data, code, link, list")
+
+    service = AssetService(db, user_id)
+
+    # Get agent context if running in agent
+    agent_id = context.get("agent_id")
+    run_id = context.get("run_id")
+
+    asset = service.create_asset(
+        name=name,
+        asset_type=asset_type_enum,
+        content=content,
+        description=description,
+        created_by_agent_id=agent_id,
+        agent_run_id=run_id
+    )
+
+    return ToolResult(
+        text=f"Asset saved successfully!\n- Name: {asset.name}\n- ID: {asset.asset_id}\n- Type: {asset.asset_type.value}\n- Size: {len(content):,} characters",
+        data={
+            "success": True,
+            "asset_id": asset.asset_id,
+            "name": asset.name,
+            "type": asset.asset_type.value,
+            "content_size": len(content)
+        }
+    )
+
+
+SAVE_ASSET_TOOL = ToolConfig(
+    name="save_asset",
+    description="""Save content as a user asset.
+
+Use this to save important outputs like:
+- Research reports or summaries
+- Collected data
+- Generated code
+- Lists of items
+
+The asset will be available to the user in their asset library.""",
+    input_schema={
+        "type": "object",
+        "properties": {
+            "name": {
+                "type": "string",
+                "description": "Name for the asset (descriptive, e.g., 'AI News Summary - Dec 2024')"
+            },
+            "content": {
+                "type": "string",
+                "description": "The content to save"
+            },
+            "asset_type": {
+                "type": "string",
+                "enum": ["document", "data", "code", "list"],
+                "default": "document",
+                "description": "Type of asset"
+            },
+            "description": {
+                "type": "string",
+                "description": "Optional description of the asset"
+            }
+        },
+        "required": ["name", "content"]
+    },
+    executor=execute_save_asset,
+    category="assets"
+)
+
+
 # Tool configurations
 LIST_ASSETS_TOOL = ToolConfig(
     name="list_assets",
@@ -394,7 +487,8 @@ when you need to find specific information without reading the entire content.""
 
 def register_asset_tools():
     """Register all asset tools."""
+    register_tool(SAVE_ASSET_TOOL)
     register_tool(LIST_ASSETS_TOOL)
     register_tool(GET_ASSET_TOOL)
     register_tool(SEARCH_ASSET_TOOL)
-    logger.info("Registered 3 asset tools")
+    logger.info("Registered 4 asset tools")
