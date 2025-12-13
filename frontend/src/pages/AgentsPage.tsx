@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { PlusIcon, PlayIcon, PauseIcon, TrashIcon, ArrowPathIcon, ChevronDownIcon, ChevronUpIcon, DocumentTextIcon } from '@heroicons/react/24/outline';
-import { agentApi, Agent, AgentDetail, AgentRun, AgentRunEvent, AgentAsset, AgentLifecycle, AgentStatus, AgentRunEventType, CreateAgentRequest, workflowApi, ToolInfo } from '../lib/api';
+import { PlusIcon, PlayIcon, PauseIcon, TrashIcon, ArrowPathIcon, ChevronDownIcon, ChevronUpIcon, DocumentTextIcon, PencilIcon } from '@heroicons/react/24/outline';
+import { agentApi, Agent, AgentDetail, AgentRun, AgentRunEvent, AgentAsset, AgentLifecycle, AgentStatus, AgentRunEventType, CreateAgentRequest, UpdateAgentRequest, workflowApi, ToolInfo } from '../lib/api';
 
 /**
  * Agents Dashboard
@@ -15,6 +15,7 @@ export default function AgentsPage() {
     const [isRefreshing, setIsRefreshing] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+    const [isEditModalOpen, setIsEditModalOpen] = useState(false);
     const [availableTools, setAvailableTools] = useState<ToolInfo[]>([]);
 
     // Load agents and tools on mount
@@ -148,6 +149,18 @@ export default function AgentsPage() {
             console.error('Failed to create agent:', err);
         }
     }, [refreshAgents]);
+
+    // Update agent
+    const handleUpdateAgent = useCallback(async (agentId: number, data: UpdateAgentRequest) => {
+        try {
+            await agentApi.update(agentId, data);
+            await refreshAgents();
+            await handleSelectAgent(agentId);
+            setIsEditModalOpen(false);
+        } catch (err) {
+            console.error('Failed to update agent:', err);
+        }
+    }, [refreshAgents, handleSelectAgent]);
 
     // Format relative time
     const formatRelativeTime = (dateStr: string | null) => {
@@ -297,6 +310,13 @@ export default function AgentsPage() {
                                 >
                                     <ArrowPathIcon className={`h-5 w-5 ${isRefreshing ? 'animate-spin' : ''}`} />
                                 </button>
+                                <button
+                                    onClick={() => setIsEditModalOpen(true)}
+                                    className="p-2 bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-200 rounded-md transition-colors"
+                                    title="Edit agent"
+                                >
+                                    <PencilIcon className="h-5 w-5" />
+                                </button>
                                 {selectedAgent.status === 'active' && (
                                     <>
                                         <button
@@ -344,25 +364,49 @@ export default function AgentsPage() {
                             </div>
                         </div>
 
-                        {/* Stats */}
-                        <div className="grid grid-cols-3 gap-4 mb-6">
+                        {/* Stats & Info */}
+                        <div className="grid grid-cols-2 gap-4 mb-6">
                             <div className="p-4 bg-gray-50 dark:bg-gray-700 rounded-lg">
-                                <div className="text-2xl font-bold text-gray-900 dark:text-white">
-                                    {selectedAgent.total_runs}
+                                <div className="flex items-baseline gap-4 mb-2">
+                                    <div>
+                                        <span className="text-2xl font-bold text-gray-900 dark:text-white">{selectedAgent.total_runs}</span>
+                                        <span className="text-sm text-gray-500 dark:text-gray-400 ml-1">runs</span>
+                                    </div>
+                                    <div>
+                                        <span className="text-2xl font-bold text-gray-900 dark:text-white">{selectedAgent.total_assets_created}</span>
+                                        <span className="text-sm text-gray-500 dark:text-gray-400 ml-1">assets</span>
+                                    </div>
                                 </div>
-                                <div className="text-sm text-gray-500 dark:text-gray-400">Total Runs</div>
+                                <div className="text-sm text-gray-600 dark:text-gray-300">
+                                    <span className="font-medium">Lifecycle:</span> {getLifecycleBadge(selectedAgent.lifecycle).label}
+                                    {selectedAgent.lifecycle === 'monitor' && selectedAgent.monitor_interval_minutes && (
+                                        <span className="text-gray-500 dark:text-gray-400"> (every {selectedAgent.monitor_interval_minutes}m)</span>
+                                    )}
+                                </div>
+                                {selectedAgent.next_run_at && (
+                                    <div className="text-sm text-gray-600 dark:text-gray-300 mt-1">
+                                        <span className="font-medium">Next run:</span> {new Date(selectedAgent.next_run_at).toLocaleString()}
+                                    </div>
+                                )}
                             </div>
                             <div className="p-4 bg-gray-50 dark:bg-gray-700 rounded-lg">
-                                <div className="text-2xl font-bold text-gray-900 dark:text-white">
-                                    {selectedAgent.total_assets_created}
+                                <div className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                                    Tools ({selectedAgent.tools.length})
                                 </div>
-                                <div className="text-sm text-gray-500 dark:text-gray-400">Assets Created</div>
-                            </div>
-                            <div className="p-4 bg-gray-50 dark:bg-gray-700 rounded-lg">
-                                <div className="text-2xl font-bold text-gray-900 dark:text-white">
-                                    {selectedAgent.tools.length}
-                                </div>
-                                <div className="text-sm text-gray-500 dark:text-gray-400">Tools Enabled</div>
+                                {selectedAgent.tools.length === 0 ? (
+                                    <div className="text-sm text-gray-500 dark:text-gray-400">No tools configured</div>
+                                ) : (
+                                    <div className="flex flex-wrap gap-1">
+                                        {selectedAgent.tools.map(tool => (
+                                            <span
+                                                key={tool}
+                                                className="px-2 py-0.5 text-xs bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200 rounded"
+                                            >
+                                                {tool}
+                                            </span>
+                                        ))}
+                                    </div>
+                                )}
                             </div>
                         </div>
 
@@ -372,7 +416,7 @@ export default function AgentsPage() {
                             {selectedAgent.recent_runs.length === 0 ? (
                                 <div className="text-gray-500 dark:text-gray-400 py-4">No runs yet</div>
                             ) : (
-                                <div className="space-y-2">
+                                <div className="space-y-2 max-h-96 overflow-y-auto">
                                     {selectedAgent.recent_runs.map(run => (
                                         <RunCard
                                             key={run.run_id}
@@ -430,6 +474,16 @@ export default function AgentsPage() {
                     availableTools={availableTools}
                     onClose={() => setIsCreateModalOpen(false)}
                     onCreate={handleCreateAgent}
+                />
+            )}
+
+            {/* Edit Agent Modal */}
+            {isEditModalOpen && selectedAgent && (
+                <EditAgentModal
+                    agent={selectedAgent}
+                    availableTools={availableTools}
+                    onClose={() => setIsEditModalOpen(false)}
+                    onUpdate={(data) => handleUpdateAgent(selectedAgent.agent_id, data)}
                 />
             )}
         </div>
@@ -602,6 +656,174 @@ function CreateAgentModal({
                         className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white rounded-md transition-colors"
                     >
                         Create Agent
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
+}
+
+// Edit Agent Modal Component
+function EditAgentModal({
+    agent,
+    availableTools,
+    onClose,
+    onUpdate
+}: {
+    agent: AgentDetail;
+    availableTools: ToolInfo[];
+    onClose: () => void;
+    onUpdate: (data: UpdateAgentRequest) => void;
+}) {
+    const [name, setName] = useState(agent.name);
+    const [description, setDescription] = useState(agent.description || '');
+    const [instructions, setInstructions] = useState(agent.instructions);
+    const [selectedTools, setSelectedTools] = useState<Set<string>>(new Set(agent.tools));
+    const [monitorInterval, setMonitorInterval] = useState(agent.monitor_interval_minutes || 60);
+
+    const handleSubmit = (e: React.FormEvent) => {
+        e.preventDefault();
+        onUpdate({
+            name,
+            description: description || undefined,
+            instructions,
+            tools: Array.from(selectedTools),
+            monitor_interval_minutes: agent.lifecycle === 'monitor' ? monitorInterval : undefined
+        });
+    };
+
+    const toggleTool = (toolName: string) => {
+        setSelectedTools(prev => {
+            const next = new Set(prev);
+            if (next.has(toolName)) {
+                next.delete(toolName);
+            } else {
+                next.add(toolName);
+            }
+            return next;
+        });
+    };
+
+    return (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+            <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] overflow-hidden flex flex-col">
+                <div className="p-4 border-b border-gray-200 dark:border-gray-700">
+                    <h2 className="text-xl font-semibold text-gray-900 dark:text-white">Edit Agent</h2>
+                </div>
+
+                <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto p-4 space-y-4">
+                    {/* Name */}
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                            Name *
+                        </label>
+                        <input
+                            type="text"
+                            value={name}
+                            onChange={(e) => setName(e.target.value)}
+                            required
+                            className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                        />
+                    </div>
+
+                    {/* Description */}
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                            Description
+                        </label>
+                        <input
+                            type="text"
+                            value={description}
+                            onChange={(e) => setDescription(e.target.value)}
+                            className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                        />
+                    </div>
+
+                    {/* Lifecycle (read-only) */}
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                            Lifecycle Type
+                        </label>
+                        <input
+                            type="text"
+                            value={agent.lifecycle === 'one_shot' ? 'One-Shot' : agent.lifecycle === 'scheduled' ? 'Scheduled' : 'Monitor'}
+                            disabled
+                            className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-gray-100 dark:bg-gray-600 text-gray-500 dark:text-gray-400"
+                        />
+                        <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Lifecycle type cannot be changed after creation</p>
+                    </div>
+
+                    {/* Monitor Interval */}
+                    {agent.lifecycle === 'monitor' && (
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                                Check Interval (minutes)
+                            </label>
+                            <input
+                                type="number"
+                                min={1}
+                                value={monitorInterval}
+                                onChange={(e) => setMonitorInterval(parseInt(e.target.value) || 60)}
+                                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                            />
+                        </div>
+                    )}
+
+                    {/* Instructions */}
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                            Instructions *
+                        </label>
+                        <textarea
+                            value={instructions}
+                            onChange={(e) => setInstructions(e.target.value)}
+                            required
+                            rows={6}
+                            className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                        />
+                    </div>
+
+                    {/* Tools */}
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                            Available Tools
+                        </label>
+                        <div className="max-h-40 overflow-y-auto border border-gray-300 dark:border-gray-600 rounded-md p-2 space-y-1">
+                            {availableTools.map(tool => (
+                                <label
+                                    key={tool.name}
+                                    className="flex items-center gap-2 p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded cursor-pointer"
+                                >
+                                    <input
+                                        type="checkbox"
+                                        checked={selectedTools.has(tool.name)}
+                                        onChange={() => toggleTool(tool.name)}
+                                        className="rounded border-gray-300 dark:border-gray-600"
+                                    />
+                                    <span className="text-sm text-gray-900 dark:text-white">{tool.name}</span>
+                                    <span className="text-xs text-gray-500 dark:text-gray-400 truncate">
+                                        - {tool.description}
+                                    </span>
+                                </label>
+                            ))}
+                        </div>
+                    </div>
+                </form>
+
+                <div className="p-4 border-t border-gray-200 dark:border-gray-700 flex justify-end gap-3">
+                    <button
+                        type="button"
+                        onClick={onClose}
+                        className="px-4 py-2 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md transition-colors"
+                    >
+                        Cancel
+                    </button>
+                    <button
+                        onClick={handleSubmit}
+                        disabled={!name || !instructions}
+                        className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white rounded-md transition-colors"
+                    >
+                        Save Changes
                     </button>
                 </div>
             </div>
