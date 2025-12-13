@@ -605,7 +605,7 @@ function ToolSelector({
             </div>
 
             {/* Tools list */}
-            <div className="max-h-48 overflow-y-auto border border-t-0 border-gray-300 dark:border-gray-600 rounded-b-md">
+            <div className="border border-t-0 border-gray-300 dark:border-gray-600 rounded-b-md">
                 {currentTools.length === 0 ? (
                     <div className="p-3 text-sm text-gray-500 dark:text-gray-400 text-center">
                         No tools in this category
@@ -627,7 +627,7 @@ function ToolSelector({
                                     <div className="text-sm font-medium text-gray-900 dark:text-white">
                                         {tool.name}
                                     </div>
-                                    <div className="text-xs text-gray-500 dark:text-gray-400 line-clamp-2">
+                                    <div className="text-xs text-gray-500 dark:text-gray-400 line-clamp-1">
                                         {tool.description}
                                     </div>
                                 </div>
@@ -671,15 +671,15 @@ function CreateAgentModal({
 
     return (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-            <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl w-full max-w-4xl h-[85vh] overflow-hidden flex flex-col">
-                <div className="p-4 border-b border-gray-200 dark:border-gray-700 flex-shrink-0">
+            <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl w-full max-w-6xl h-[calc(100vh-2rem)] overflow-hidden flex flex-col">
+                <div className="p-4 border-b border-gray-200 dark:border-gray-700">
                     <h2 className="text-xl font-semibold text-gray-900 dark:text-white">Create New Agent</h2>
                 </div>
 
-                <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto p-6">
-                    <div className="grid grid-cols-2 gap-6">
+                <form onSubmit={handleSubmit} className="flex-1 overflow-hidden p-6">
+                    <div className="grid grid-cols-2 gap-8 h-full">
                         {/* Left column - Basic info */}
-                        <div className="space-y-4">
+                        <div className="space-y-4 overflow-y-auto pr-2">
                             {/* Name */}
                             <div>
                                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
@@ -750,7 +750,7 @@ function CreateAgentModal({
                         </div>
 
                         {/* Right column - Instructions */}
-                        <div className="flex flex-col">
+                        <div className="flex flex-col h-full">
                             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                                 Instructions *
                             </label>
@@ -758,14 +758,14 @@ function CreateAgentModal({
                                 value={instructions}
                                 onChange={(e) => setInstructions(e.target.value)}
                                 required
-                                className="flex-1 min-h-[300px] w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white resize-none font-mono text-sm"
+                                className="flex-1 w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white font-mono text-sm resize-none"
                                 placeholder="Describe what this agent should do. Be specific about:&#10;&#10;- The task to accomplish&#10;- Data sources to use&#10;- Output format expected&#10;- Any constraints or requirements"
                             />
                         </div>
                     </div>
                 </form>
 
-                <div className="p-4 border-t border-gray-200 dark:border-gray-700 flex justify-end gap-3 flex-shrink-0">
+                <div className="p-4 border-t border-gray-200 dark:border-gray-700 flex justify-end gap-3">
                     <button
                         type="button"
                         onClick={onClose}
@@ -817,15 +817,15 @@ function EditAgentModal({
 
     return (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-            <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl w-full max-w-4xl h-[85vh] overflow-hidden flex flex-col">
-                <div className="p-4 border-b border-gray-200 dark:border-gray-700 flex-shrink-0">
+            <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl w-full max-w-6xl h-[calc(100vh-2rem)] overflow-hidden flex flex-col">
+                <div className="p-4 border-b border-gray-200 dark:border-gray-700">
                     <h2 className="text-xl font-semibold text-gray-900 dark:text-white">Edit Agent</h2>
                 </div>
 
-                <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto p-6">
-                    <div className="grid grid-cols-2 gap-6">
+                <form onSubmit={handleSubmit} className="flex-1 overflow-hidden p-6">
+                    <div className="grid grid-cols-2 gap-8 h-full">
                         {/* Left column - Basic info */}
-                        <div className="space-y-4">
+                        <div className="space-y-4 overflow-y-auto pr-2">
                             {/* Name */}
                             <div>
                                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
@@ -892,7 +892,7 @@ function EditAgentModal({
                         </div>
 
                         {/* Right column - Instructions */}
-                        <div className="flex flex-col">
+                        <div className="flex flex-col h-full">
                             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                                 Instructions *
                             </label>
@@ -900,13 +900,13 @@ function EditAgentModal({
                                 value={instructions}
                                 onChange={(e) => setInstructions(e.target.value)}
                                 required
-                                className="flex-1 min-h-[300px] w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white resize-none font-mono text-sm"
+                                className="flex-1 w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white font-mono text-sm resize-none"
                             />
                         </div>
                     </div>
                 </form>
 
-                <div className="p-4 border-t border-gray-200 dark:border-gray-700 flex justify-end gap-3 flex-shrink-0">
+                <div className="p-4 border-t border-gray-200 dark:border-gray-700 flex justify-end gap-3">
                     <button
                         type="button"
                         onClick={onClose}
