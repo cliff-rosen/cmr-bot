@@ -11,6 +11,7 @@ from .iterator import register_iterator_tools
 from .map_reduce import register_map_reduce_tools
 from .workflow_builder import register_workflow_builder_tools
 from .smart_search import register_smart_search_tools
+from .pubmed_search import register_pubmed_search_tools
 
 
 def register_all_builtin_tools():
@@ -22,6 +23,7 @@ def register_all_builtin_tools():
     register_map_reduce_tools()
     register_workflow_builder_tools()
     register_smart_search_tools()
+    register_pubmed_search_tools()
 
 
 __all__ = [
@@ -32,5 +34,6 @@ __all__ = [
     'register_map_reduce_tools',
     'register_workflow_builder_tools',
     'register_smart_search_tools',
+    'register_pubmed_search_tools',
     'register_all_builtin_tools'
 ]
