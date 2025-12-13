@@ -9,6 +9,7 @@ import {
     StandardPayloadView,
     ToolHistoryView,
     AgentPayloadView,
+    TablePayloadView,
     payloadTypeConfig
 } from './workspace';
 
@@ -102,7 +103,7 @@ export default function WorkspacePanel({
             </div>
 
             {/* Workspace Content */}
-            <div className={`flex-1 p-4 ${showExecuting || (showPayload && (activePayload?.type === 'plan' || activePayload?.type === 'wip' || activePayload?.type === 'final' || activePayload?.type === 'agent_create' || activePayload?.type === 'agent_update')) ? 'overflow-hidden flex flex-col' : 'overflow-y-auto'}`}>
+            <div className={`flex-1 ${showExecuting || (showPayload && (activePayload?.type === 'plan' || activePayload?.type === 'wip' || activePayload?.type === 'final' || activePayload?.type === 'agent_create' || activePayload?.type === 'agent_update' || activePayload?.type === 'table')) ? 'overflow-hidden flex flex-col' : 'overflow-y-auto p-4'}`}>
                 {/* Step Executing View */}
                 {showExecuting && (
                     <StepExecutingView
@@ -152,8 +153,16 @@ export default function WorkspacePanel({
                     />
                 )}
 
+                {/* Table Payload View (TABILIZER) */}
+                {showPayload && activePayload.type === 'table' && (
+                    <TablePayloadView
+                        payload={activePayload}
+                        onSaveAsAsset={onSavePayloadAsAsset}
+                    />
+                )}
+
                 {/* Standard Payload View (draft, summary, data, code) */}
-                {showPayload && activePayload.type !== 'plan' && activePayload.type !== 'wip' && activePayload.type !== 'final' && activePayload.type !== 'agent_create' && activePayload.type !== 'agent_update' && (
+                {showPayload && activePayload.type !== 'plan' && activePayload.type !== 'wip' && activePayload.type !== 'final' && activePayload.type !== 'agent_create' && activePayload.type !== 'agent_update' && activePayload.type !== 'table' && (
                     <StandardPayloadView
                         payload={activePayload}
                         onSaveAsAsset={onSavePayloadAsAsset}

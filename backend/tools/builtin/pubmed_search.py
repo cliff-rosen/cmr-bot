@@ -190,6 +190,36 @@ def execute_pubmed_search(
             progress=1.0
         )
 
+        # Build table payload for workspace
+        table_payload = {
+            "type": "table",
+            "title": f"PubMed: {query[:50]}{'...' if len(query) > 50 else ''}",
+            "content": f"Found {total_results} total results, showing {len(articles)}",
+            "table_data": {
+                "columns": [
+                    {"key": "pmid", "label": "PMID", "type": "text", "sortable": True, "width": "80px"},
+                    {"key": "title", "label": "Title", "type": "text", "sortable": True},
+                    {"key": "authors_display", "label": "Authors", "type": "text", "sortable": True},
+                    {"key": "journal", "label": "Journal", "type": "text", "sortable": True, "filterable": True},
+                    {"key": "publication_date", "label": "Date", "type": "text", "sortable": True, "width": "100px"},
+                    {"key": "url", "label": "Link", "type": "link", "sortable": False, "width": "60px"},
+                ],
+                "rows": [
+                    {
+                        "pmid": a["pmid"],
+                        "title": a["title"],
+                        "authors_display": ", ".join(a["authors"][:3]) + (" et al." if len(a["authors"]) > 3 else "") if a["authors"] else "",
+                        "journal": a["journal"],
+                        "publication_date": a["publication_date"],
+                        "url": a["url"],
+                        "abstract": a["abstract"]  # Include for future use
+                    }
+                    for a in article_data
+                ],
+                "source": "pubmed_search"
+            }
+        }
+
         return ToolResult(
             text=formatted,
             data={
@@ -198,7 +228,8 @@ def execute_pubmed_search(
                 "total_results": total_results,
                 "returned": len(articles),
                 "articles": article_data
-            }
+            },
+            workspace_payload=table_payload
         )
 
     except ValueError as e:

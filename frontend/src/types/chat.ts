@@ -42,7 +42,24 @@ export interface ToolCall {
     workspace_payload?: WorkspacePayload;  // Payload to display in workspace panel
 }
 
-export type WorkspacePayloadType = 'draft' | 'summary' | 'data' | 'code' | 'plan' | 'wip' | 'final' | 'agent_create' | 'agent_update';
+export type WorkspacePayloadType = 'draft' | 'summary' | 'data' | 'code' | 'plan' | 'wip' | 'final' | 'agent_create' | 'agent_update' | 'table';
+
+// Table payload types for TABILIZER functionality
+export interface TableColumn {
+    key: string;
+    label: string;
+    type: 'text' | 'number' | 'boolean' | 'date' | 'link';
+    sortable?: boolean;
+    filterable?: boolean;
+    computed?: boolean;  // Was this column added by LLM?
+    width?: string;      // Optional column width (e.g., '200px', '20%')
+}
+
+export interface TablePayloadData {
+    columns: TableColumn[];
+    rows: Record<string, any>[];
+    source?: string;     // Origin tool: "pubmed_search", "web_search", etc.
+}
 
 export interface AgentPayloadData {
     agent_id?: number;  // Only for updates
@@ -72,6 +89,8 @@ export interface WorkspacePayload {
     steps_completed?: number;
     // Extended fields for agent payloads
     agent_data?: AgentPayloadData;
+    // Extended fields for table payloads (TABILIZER)
+    table_data?: TablePayloadData;
 }
 
 // ============================================================================
@@ -120,7 +139,7 @@ export interface WipOutput {
     data?: any;  // Structured data when content_type is 'data'
 }
 
-const VALID_PAYLOAD_TYPES = ['draft', 'summary', 'data', 'code', 'plan', 'wip', 'agent_create', 'agent_update'];
+const VALID_PAYLOAD_TYPES = ['draft', 'summary', 'data', 'code', 'plan', 'wip', 'agent_create', 'agent_update', 'table'];
 
 /**
  * Parse a workspace payload from message content.

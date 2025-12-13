@@ -10,6 +10,7 @@ export { default as FinalPayloadView } from './FinalPayloadView';
 export { default as StandardPayloadView } from './StandardPayloadView';
 export { default as ToolHistoryView } from './ToolHistoryView';
 export { default as AgentPayloadView } from './AgentPayloadView';
+export { default as TablePayloadView } from './TablePayloadView';
 export { default as IteratorProgress } from './IteratorProgress';
 export { default as MapReduceProgress } from './MapReduceProgress';
 export { default as ToolProgress } from './ToolProgress';
