@@ -27,12 +27,13 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/oauth", tags=["oauth"])
 
 # Google OAuth2 scopes for Gmail
+# gmail.readonly allows full read access including search
+# gmail.metadata is more limited and conflicts with search, so don't use both
 GOOGLE_SCOPES = [
     "openid",
     "https://www.googleapis.com/auth/userinfo.email",
     "https://www.googleapis.com/auth/userinfo.profile",
     "https://www.googleapis.com/auth/gmail.readonly",
-    "https://www.googleapis.com/auth/gmail.metadata",
 ]
 
 
