@@ -5,7 +5,7 @@
  */
 
 import { useState } from 'react';
-import { XMarkIcon, SparklesIcon } from '@heroicons/react/24/solid';
+import { XMarkIcon, SparklesIcon, DocumentTextIcon } from '@heroicons/react/24/solid';
 import { TableColumn } from '../../../types/chat';
 
 interface AddColumnModalProps {
@@ -57,6 +57,20 @@ export default function AddColumnModal({
         setPrompt(prev => prev + `{${field}}`);
     };
 
+    // Build article template from available fields
+    const insertArticleTemplate = () => {
+        const parts: string[] = [];
+
+        if (sampleRow.title !== undefined) parts.push(`Title: {title}`);
+        if (sampleRow.authors_display !== undefined) parts.push(`Authors: {authors_display}`);
+        if (sampleRow.journal !== undefined) parts.push(`Journal: {journal}`);
+        if (sampleRow.publication_date !== undefined) parts.push(`Date: {publication_date}`);
+        if (sampleRow.abstract !== undefined) parts.push(`Abstract: {abstract}`);
+
+        const template = parts.join('\n');
+        setPrompt(prev => prev + template);
+    };
+
     // Type-specific prompt suggestions
     const getPromptHint = () => {
         switch (type) {
@@ -71,9 +85,9 @@ export default function AddColumnModal({
 
     return (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-            <div className="bg-white dark:bg-gray-900 rounded-xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-hidden">
+            <div className="bg-white dark:bg-gray-900 rounded-xl shadow-2xl w-full max-w-4xl h-[80vh] flex flex-col">
                 {/* Header */}
-                <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 dark:border-gray-700">
+                <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 dark:border-gray-700 flex-shrink-0">
                     <div className="flex items-center gap-2">
                         <SparklesIcon className="h-5 w-5 text-teal-500" />
                         <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
@@ -88,9 +102,11 @@ export default function AddColumnModal({
                     </button>
                 </div>
 
-                {/* Form */}
-                <form onSubmit={handleSubmit} className="p-6 space-y-6">
-                    {/* Column Name */}
+                {/* Scrollable content */}
+                <div className="flex-1 overflow-y-auto">
+                    {/* Form */}
+                    <form onSubmit={handleSubmit} className="p-6 space-y-6 h-full flex flex-col">
+                        {/* Column Name */}
                     <div>
                         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                             Column Name
@@ -132,8 +148,19 @@ export default function AddColumnModal({
                     {/* Available Fields */}
                     <div>
                         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                            Available Fields (click to insert)
+                            Insert Fields
                         </label>
+                        <div className="flex flex-wrap gap-2 mb-3">
+                            {/* Article template button */}
+                            <button
+                                type="button"
+                                onClick={insertArticleTemplate}
+                                className="px-3 py-1.5 text-xs bg-blue-100 dark:bg-blue-900/50 hover:bg-blue-200 dark:hover:bg-blue-900 text-blue-700 dark:text-blue-300 rounded-lg border border-blue-300 dark:border-blue-700 transition-colors flex items-center gap-1.5 font-medium"
+                            >
+                                <DocumentTextIcon className="h-3.5 w-3.5" />
+                                Insert Article
+                            </button>
+                        </div>
                         <div className="flex flex-wrap gap-2">
                             {availableFields.map(field => (
                                 <button
@@ -149,58 +176,41 @@ export default function AddColumnModal({
                     </div>
 
                     {/* Prompt */}
-                    <div>
+                    <div className="flex-1 flex flex-col min-h-0">
                         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                             Prompt (applied to each row)
                         </label>
                         <textarea
                             value={prompt}
                             onChange={e => setPrompt(e.target.value)}
-                            placeholder={`For example: Based on the title "{title}" and abstract "{abstract}", determine if this article is relevant to asbestos litigation. ${getPromptHint()}`}
-                            rows={4}
-                            className="w-full px-4 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-teal-500 focus:border-transparent font-mono text-sm"
+                            placeholder={`For example:\n\nBased on the article below, determine if it is relevant to asbestos litigation.\n\n[Click "Insert Article" above to add the article template]\n\nAnswer with only "Yes" or "No".`}
+                            className="flex-1 min-h-[180px] w-full px-4 py-3 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-teal-500 focus:border-transparent font-mono text-sm resize-none"
                         />
-                        <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                        <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
                             Use {'{field_name}'} to reference row data. {getPromptHint()}
                         </p>
                     </div>
 
-                    {/* Preview */}
-                    {prompt && (
-                        <div>
-                            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                                Preview (first row)
-                            </label>
-                            <div className="p-3 bg-gray-50 dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 text-sm text-gray-600 dark:text-gray-400 font-mono whitespace-pre-wrap">
-                                {prompt.replace(/\{(\w+)\}/g, (_, field) => {
-                                    const value = sampleRow[field];
-                                    if (value === undefined) return `{${field}}`;
-                                    const str = String(value);
-                                    return str.length > 100 ? str.slice(0, 100) + '...' : str;
-                                })}
-                            </div>
+                        {/* Actions */}
+                        <div className="flex justify-end gap-3 pt-4 border-t border-gray-200 dark:border-gray-700 mt-auto">
+                            <button
+                                type="button"
+                                onClick={onClose}
+                                className="px-4 py-2 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition-colors"
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                type="submit"
+                                disabled={!name.trim() || !prompt.trim()}
+                                className="px-4 py-2 bg-teal-500 hover:bg-teal-600 disabled:bg-gray-300 dark:disabled:bg-gray-700 text-white rounded-lg transition-colors flex items-center gap-2"
+                            >
+                                <SparklesIcon className="h-4 w-4" />
+                                Compute Column
+                            </button>
                         </div>
-                    )}
-
-                    {/* Actions */}
-                    <div className="flex justify-end gap-3 pt-4 border-t border-gray-200 dark:border-gray-700">
-                        <button
-                            type="button"
-                            onClick={onClose}
-                            className="px-4 py-2 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition-colors"
-                        >
-                            Cancel
-                        </button>
-                        <button
-                            type="submit"
-                            disabled={!name.trim() || !prompt.trim()}
-                            className="px-4 py-2 bg-teal-500 hover:bg-teal-600 disabled:bg-gray-300 dark:disabled:bg-gray-700 text-white rounded-lg transition-colors flex items-center gap-2"
-                        >
-                            <SparklesIcon className="h-4 w-4" />
-                            Compute Column
-                        </button>
-                    </div>
-                </form>
+                    </form>
+                </div>
             </div>
         </div>
     );
