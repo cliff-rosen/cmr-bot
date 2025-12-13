@@ -13,6 +13,8 @@ from typing import Any, Dict, List, Optional
 import asyncio
 
 from database import get_db
+from models import User
+from routers.auth import get_current_user
 from services.step_execution_service import (
     StepExecutionService,
     StepAssignment,
@@ -21,11 +23,6 @@ from services.step_execution_service import (
 from tools import get_all_tools
 
 router = APIRouter(prefix="/workflow", tags=["workflow"])
-
-
-# For now, hardcode user_id = 1 (same as other routers)
-def get_current_user_id() -> int:
-    return 1
 
 
 class StepInputSource(BaseModel):
@@ -45,11 +42,11 @@ class StepExecutionRequest(BaseModel):
 async def execute_step(
     request: StepExecutionRequest,
     db: Session = Depends(get_db),
-    user_id: int = Depends(get_current_user_id)
+    current_user: User = Depends(get_current_user)
 ):
     """Execute a workflow step with SSE streaming for status updates."""
 
-    service = StepExecutionService(db, user_id)
+    service = StepExecutionService(db, current_user.user_id)
 
     # Convert Pydantic models to dataclass objects
     input_data_converted = {
