@@ -26,7 +26,7 @@ logger = logging.getLogger(__name__)
 ITERATOR_MODEL = "claude-sonnet-4-20250514"
 ITERATOR_MAX_TOKENS = 1024
 DEFAULT_MAX_CONCURRENCY = 5
-DEFAULT_SEQUENTIAL_DELAY = 0.5  # Delay between items in sequential mode
+DEFAULT_SEQUENTIAL_DELAY = 0.1  # Small delay between items in sequential mode
 
 
 @dataclass
