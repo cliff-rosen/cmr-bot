@@ -161,8 +161,8 @@ def execute_create_agent(
     user_id: int,
     context: Dict[str, Any]
 ) -> ToolResult:
-    """Create a new autonomous agent."""
-    from services.autonomous_agent_service import AutonomousAgentService
+    """Propose creating a new autonomous agent (returns a payload for user approval)."""
+    import json
 
     name = params.get("name")
     instructions = params.get("instructions")
@@ -177,49 +177,46 @@ def execute_create_agent(
         return ToolResult(text="Error: Agent instructions are required")
 
     try:
-        lifecycle_enum = AgentLifecycle(lifecycle)
+        AgentLifecycle(lifecycle)
     except ValueError:
         return ToolResult(text=f"Error: Invalid lifecycle '{lifecycle}'. Must be one of: one_shot, scheduled, monitor")
 
-    service = AutonomousAgentService(db, user_id)
+    # Build the payload for frontend approval
+    payload = {
+        "type": "agent_create",
+        "title": f"Create Agent: {name}",
+        "content": description or f"New {lifecycle} agent",
+        "agent_data": {
+            "name": name,
+            "description": description,
+            "instructions": instructions,
+            "lifecycle": lifecycle,
+            "tools": tools,
+            "monitor_interval_minutes": monitor_interval
+        }
+    }
 
-    try:
-        agent = service.create_agent(
-            name=name,
-            instructions=instructions,
-            lifecycle=lifecycle_enum,
-            description=description,
-            tools=tools,
-            monitor_interval_minutes=monitor_interval
-        )
+    # Format explanation for the chat
+    formatted = f"I've prepared a proposal to create a new agent:\n\n"
+    formatted += f"**Name:** {name}\n"
+    formatted += f"**Lifecycle:** {lifecycle}\n"
+    if description:
+        formatted += f"**Description:** {description}\n"
+    if tools:
+        formatted += f"**Tools:** {', '.join(tools)}\n"
+    formatted += f"\nPlease review the details in the workspace panel and click **Create Agent** to confirm."
 
-        formatted = f"**Agent Created Successfully!**\n\n"
-        formatted += f"**Name:** {agent.name}\n"
-        formatted += f"**ID:** {agent.agent_id}\n"
-        formatted += f"**Lifecycle:** {agent.lifecycle.value}\n"
-        formatted += f"**Status:** {agent.status.value}\n"
-        if tools:
-            formatted += f"**Tools:** {', '.join(tools)}\n"
+    # Include the payload block for the frontend to parse
+    formatted += f"\n\n```payload\n{json.dumps(payload, indent=2)}\n```"
 
-        if lifecycle_enum == AgentLifecycle.ONE_SHOT:
-            formatted += "\nThis is a one-shot agent. Use `trigger_agent_run` to execute it."
-        elif lifecycle_enum == AgentLifecycle.MONITOR:
-            formatted += f"\nThis monitor agent will run every {monitor_interval or 60} minutes."
-
-        return ToolResult(
-            text=formatted,
-            data={
-                "success": True,
-                "agent_id": agent.agent_id,
-                "name": agent.name,
-                "lifecycle": agent.lifecycle.value,
-                "status": agent.status.value
-            }
-        )
-
-    except Exception as e:
-        logger.error(f"Failed to create agent: {e}", exc_info=True)
-        return ToolResult(text=f"Error creating agent: {str(e)}", data={"success": False, "error": str(e)})
+    return ToolResult(
+        text=formatted,
+        data={
+            "proposal": True,
+            "payload_type": "agent_create",
+            "agent_data": payload["agent_data"]
+        }
+    )
 
 
 def execute_trigger_agent_run(
@@ -316,7 +313,8 @@ def execute_update_agent(
     user_id: int,
     context: Dict[str, Any]
 ) -> ToolResult:
-    """Update an agent's configuration."""
+    """Propose updating an agent's configuration (returns a payload for user approval)."""
+    import json
     from services.autonomous_agent_service import AutonomousAgentService
 
     agent_id = params.get("agent_id")
@@ -325,32 +323,63 @@ def execute_update_agent(
 
     service = AutonomousAgentService(db, user_id)
 
-    # Build update dict from provided params
-    update_data = {}
-    if "name" in params:
-        update_data["name"] = params["name"]
-    if "description" in params:
-        update_data["description"] = params["description"]
-    if "instructions" in params:
-        update_data["instructions"] = params["instructions"]
-    if "tools" in params:
-        update_data["tools"] = params["tools"]
-    if "monitor_interval_minutes" in params:
-        update_data["monitor_interval_minutes"] = params["monitor_interval_minutes"]
-
-    if not update_data:
-        return ToolResult(text="Error: No update fields provided")
-
-    agent = service.update_agent(agent_id, **update_data)
+    # Get current agent to show full state after update
+    agent = service.get_agent(agent_id)
     if not agent:
         return ToolResult(text=f"Agent not found: {agent_id}", data={"success": False})
 
-    formatted = f"**Agent Updated**\n\nAgent '{agent.name}' has been updated.\n"
-    formatted += f"Updated fields: {', '.join(update_data.keys())}"
+    # Build the updated agent data (merge current with updates)
+    agent_data = {
+        "agent_id": agent_id,
+        "name": params.get("name", agent.name),
+        "description": params.get("description", agent.description),
+        "instructions": params.get("instructions", agent.instructions),
+        "lifecycle": agent.lifecycle.value,  # Can't change lifecycle
+        "tools": params.get("tools", agent.tools or []),
+        "monitor_interval_minutes": params.get("monitor_interval_minutes", agent.monitor_interval_minutes)
+    }
+
+    # Track what's being changed
+    changes = []
+    if "name" in params and params["name"] != agent.name:
+        changes.append("name")
+    if "description" in params and params["description"] != agent.description:
+        changes.append("description")
+    if "instructions" in params and params["instructions"] != agent.instructions:
+        changes.append("instructions")
+    if "tools" in params and params["tools"] != (agent.tools or []):
+        changes.append("tools")
+    if "monitor_interval_minutes" in params and params["monitor_interval_minutes"] != agent.monitor_interval_minutes:
+        changes.append("monitor_interval_minutes")
+
+    if not changes:
+        return ToolResult(text="No changes detected - the provided values match the current agent configuration.")
+
+    # Build the payload for frontend approval
+    payload = {
+        "type": "agent_update",
+        "title": f"Update Agent: {agent_data['name']}",
+        "content": f"Updating: {', '.join(changes)}",
+        "agent_data": agent_data
+    }
+
+    # Format explanation for the chat
+    formatted = f"I've prepared an update proposal for agent **{agent.name}** (ID: {agent_id}):\n\n"
+    formatted += f"**Changes:** {', '.join(changes)}\n"
+    formatted += f"\nPlease review the details in the workspace panel and click **Update Agent** to confirm."
+
+    # Include the payload block for the frontend to parse
+    formatted += f"\n\n```payload\n{json.dumps(payload, indent=2)}\n```"
 
     return ToolResult(
         text=formatted,
-        data={"success": True, "agent_id": agent_id, "updated_fields": list(update_data.keys())}
+        data={
+            "proposal": True,
+            "payload_type": "agent_update",
+            "agent_id": agent_id,
+            "changes": changes,
+            "agent_data": agent_data
+        }
     )
 
 
@@ -481,7 +510,7 @@ GET_AGENT_TOOL = ToolConfig(
 
 CREATE_AGENT_TOOL = ToolConfig(
     name="create_agent",
-    description="""Create a new autonomous background agent.
+    description="""Propose creating a new autonomous background agent. This will show a preview for the user to review and approve before the agent is actually created.
 
 Lifecycle types:
 - one_shot: Runs once when triggered manually
@@ -579,7 +608,7 @@ RESUME_AGENT_TOOL = ToolConfig(
 
 UPDATE_AGENT_TOOL = ToolConfig(
     name="update_agent",
-    description="Update an agent's configuration. You can update name, description, instructions, tools, or monitor interval.",
+    description="Propose updating an agent's configuration. This will show a preview for the user to review and approve before changes are applied. You can update name, description, instructions, tools, or monitor interval.",
     input_schema={
         "type": "object",
         "properties": {

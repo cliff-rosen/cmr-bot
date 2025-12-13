@@ -4,7 +4,8 @@
 
 import {
     DocumentTextIcon, TableCellsIcon, CodeBracketIcon,
-    ClipboardDocumentListIcon, PlayIcon, ArrowPathIcon, CheckCircleIcon
+    ClipboardDocumentListIcon, PlayIcon, ArrowPathIcon, CheckCircleIcon,
+    CpuChipIcon, PencilSquareIcon
 } from '@heroicons/react/24/solid';
 import { ComponentType } from 'react';
 
@@ -72,6 +73,22 @@ export const payloadTypeConfig: Record<string, PayloadTypeConfig> = {
         bg: 'bg-green-50 dark:bg-green-900/20',
         border: 'border-green-200 dark:border-green-800',
         label: 'Workflow Complete',
+        editable: false
+    },
+    agent_create: {
+        icon: CpuChipIcon,
+        color: 'text-cyan-500',
+        bg: 'bg-cyan-50 dark:bg-cyan-900/20',
+        border: 'border-cyan-200 dark:border-cyan-800',
+        label: 'Create Agent',
+        editable: false
+    },
+    agent_update: {
+        icon: PencilSquareIcon,
+        color: 'text-amber-500',
+        bg: 'bg-amber-50 dark:bg-amber-900/20',
+        border: 'border-amber-200 dark:border-amber-800',
+        label: 'Update Agent',
         editable: false
     }
 };

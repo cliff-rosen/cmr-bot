@@ -4,7 +4,7 @@ import { ChevronLeftIcon, ChevronRightIcon, PlusIcon } from '@heroicons/react/24
 import { useGeneralChat } from '../hooks/useGeneralChat';
 import { useProfile } from '../context/ProfileContext';
 import { InteractionType, ToolCall, GeneralChatMessage, WorkspacePayload, WorkflowPlan, WorkflowStep, WorkflowStepDefinition } from '../types/chat';
-import { memoryApi, Memory, assetApi, Asset, AssetUpdate, workflowApi, StepStatusUpdate, ToolCallRecord, ToolInfo, ToolProgressUpdate } from '../lib/api';
+import { memoryApi, Memory, assetApi, Asset, AssetUpdate, workflowApi, StepStatusUpdate, ToolCallRecord, ToolInfo, ToolProgressUpdate, agentApi } from '../lib/api';
 import {
     ConversationSidebar,
     ChatPanel,
@@ -661,6 +661,58 @@ export default function MainPage() {
         setActivePayload(null);
     }, []);
 
+    // Agent payload handlers
+    const handleAcceptAgent = useCallback(async (payload: WorkspacePayload) => {
+        if (!payload.agent_data) return;
+
+        try {
+            if (payload.type === 'agent_create') {
+                // Create new agent
+                await agentApi.create({
+                    name: payload.agent_data.name,
+                    description: payload.agent_data.description,
+                    instructions: payload.agent_data.instructions,
+                    lifecycle: payload.agent_data.lifecycle,
+                    tools: payload.agent_data.tools,
+                    schedule: payload.agent_data.schedule,
+                    monitor_interval_minutes: payload.agent_data.monitor_interval_minutes
+                });
+                // Notify user
+                sendMessage(`Agent "${payload.agent_data.name}" has been created successfully.`, InteractionType.ACTION_EXECUTED, {
+                    action_identifier: 'agent_created',
+                    action_data: { name: payload.agent_data.name }
+                });
+            } else if (payload.type === 'agent_update' && payload.agent_data.agent_id) {
+                // Update existing agent
+                await agentApi.update(payload.agent_data.agent_id, {
+                    name: payload.agent_data.name,
+                    description: payload.agent_data.description,
+                    instructions: payload.agent_data.instructions,
+                    tools: payload.agent_data.tools,
+                    schedule: payload.agent_data.schedule,
+                    monitor_interval_minutes: payload.agent_data.monitor_interval_minutes
+                });
+                // Notify user
+                sendMessage(`Agent "${payload.agent_data.name}" has been updated successfully.`, InteractionType.ACTION_EXECUTED, {
+                    action_identifier: 'agent_updated',
+                    action_data: { agent_id: payload.agent_data.agent_id, name: payload.agent_data.name }
+                });
+            }
+        } catch (error) {
+            console.error('Failed to save agent:', error);
+            sendMessage(`Failed to save agent: ${error instanceof Error ? error.message : 'Unknown error'}`, InteractionType.ACTION_EXECUTED, {
+                action_identifier: 'agent_save_failed'
+            });
+        }
+
+        // Clear the payload
+        setActivePayload(null);
+    }, [sendMessage]);
+
+    const handleRejectAgent = useCallback(() => {
+        setActivePayload(null);
+    }, []);
+
     const handleViewStepOutput = useCallback((stepNumber: number) => {
         if (!activeWorkflow) return;
         const step = activeWorkflow.steps.find(s => s.step_number === stepNumber);
@@ -772,6 +824,8 @@ export default function MainPage() {
                     onRejectWip={handleRejectWip}
                     onAcceptFinal={handleAcceptFinal}
                     onDismissFinal={handleDismissFinal}
+                    onAcceptAgent={handleAcceptAgent}
+                    onRejectAgent={handleRejectAgent}
                 />
             </div>
 

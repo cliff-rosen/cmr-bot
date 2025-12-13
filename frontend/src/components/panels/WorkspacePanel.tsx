@@ -8,6 +8,7 @@ import {
     FinalPayloadView,
     StandardPayloadView,
     ToolHistoryView,
+    AgentPayloadView,
     payloadTypeConfig
 } from './workspace';
 
@@ -31,6 +32,9 @@ interface WorkspacePanelProps {
     onRejectWip?: () => void;
     onAcceptFinal?: (payload: WorkspacePayload) => void;
     onDismissFinal?: () => void;
+    // Agent callbacks
+    onAcceptAgent?: (payload: WorkspacePayload) => void;
+    onRejectAgent?: () => void;
 }
 
 export default function WorkspacePanel({
@@ -51,7 +55,9 @@ export default function WorkspacePanel({
     onEditWip,
     onRejectWip,
     onAcceptFinal,
-    onDismissFinal
+    onDismissFinal,
+    onAcceptAgent,
+    onRejectAgent
 }: WorkspacePanelProps) {
     const config = activePayload ? payloadTypeConfig[activePayload.type] : null;
 
@@ -96,7 +102,7 @@ export default function WorkspacePanel({
             </div>
 
             {/* Workspace Content */}
-            <div className={`flex-1 p-4 ${showExecuting || (showPayload && (activePayload?.type === 'plan' || activePayload?.type === 'wip' || activePayload?.type === 'final')) ? 'overflow-hidden flex flex-col' : 'overflow-y-auto'}`}>
+            <div className={`flex-1 p-4 ${showExecuting || (showPayload && (activePayload?.type === 'plan' || activePayload?.type === 'wip' || activePayload?.type === 'final' || activePayload?.type === 'agent_create' || activePayload?.type === 'agent_update')) ? 'overflow-hidden flex flex-col' : 'overflow-y-auto'}`}>
                 {/* Step Executing View */}
                 {showExecuting && (
                     <StepExecutingView
@@ -137,8 +143,17 @@ export default function WorkspacePanel({
                     />
                 )}
 
+                {/* Agent Payload View (create/update) */}
+                {showPayload && (activePayload.type === 'agent_create' || activePayload.type === 'agent_update') && (
+                    <AgentPayloadView
+                        payload={activePayload}
+                        onAccept={onAcceptAgent || (() => {})}
+                        onReject={onRejectAgent || (() => {})}
+                    />
+                )}
+
                 {/* Standard Payload View (draft, summary, data, code) */}
-                {showPayload && activePayload.type !== 'plan' && activePayload.type !== 'wip' && activePayload.type !== 'final' && (
+                {showPayload && activePayload.type !== 'plan' && activePayload.type !== 'wip' && activePayload.type !== 'final' && activePayload.type !== 'agent_create' && activePayload.type !== 'agent_update' && (
                     <StandardPayloadView
                         payload={activePayload}
                         onSaveAsAsset={onSavePayloadAsAsset}

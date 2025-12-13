@@ -41,7 +41,18 @@ export interface ToolCall {
     output: string | Record<string, any>;
 }
 
-export type WorkspacePayloadType = 'draft' | 'summary' | 'data' | 'code' | 'plan' | 'wip' | 'final';
+export type WorkspacePayloadType = 'draft' | 'summary' | 'data' | 'code' | 'plan' | 'wip' | 'final' | 'agent_create' | 'agent_update';
+
+export interface AgentPayloadData {
+    agent_id?: number;  // Only for updates
+    name: string;
+    description?: string;
+    instructions: string;
+    lifecycle: 'one_shot' | 'scheduled' | 'monitor';
+    tools?: string[];
+    schedule?: string;
+    monitor_interval_minutes?: number;
+}
 
 export interface WorkspacePayload {
     type: WorkspacePayloadType;
@@ -58,6 +69,8 @@ export interface WorkspacePayload {
     // Extended fields for final workflow output
     workflow_title?: string;
     steps_completed?: number;
+    // Extended fields for agent payloads
+    agent_data?: AgentPayloadData;
 }
 
 // ============================================================================
@@ -106,7 +119,7 @@ export interface WipOutput {
     data?: any;  // Structured data when content_type is 'data'
 }
 
-const VALID_PAYLOAD_TYPES = ['draft', 'summary', 'data', 'code', 'plan', 'wip'];
+const VALID_PAYLOAD_TYPES = ['draft', 'summary', 'data', 'code', 'plan', 'wip', 'agent_create', 'agent_update'];
 
 /**
  * Parse a workspace payload from message content.
@@ -118,7 +131,7 @@ export function parseWorkspacePayload(content: string): { text: string; payload:
     const patterns = [
         /```payload\s*\n([\s\S]*?)\n```/,      // ```payload\n...\n```
         /```payload\s+([\s\S]*?)```/,           // ```payload {...}```
-        /```json\s*\n(\{[\s\S]*?"type"\s*:\s*"(?:draft|summary|data|code|plan|wip)"[\s\S]*?\})\n```/, // ```json with type field
+        /```json\s*\n(\{[\s\S]*?"type"\s*:\s*"(?:draft|summary|data|code|plan|wip|agent_create|agent_update)"[\s\S]*?\})\n```/, // ```json with type field
     ];
 
     for (const regex of patterns) {
@@ -143,6 +156,15 @@ export function parseWorkspacePayload(content: string): { text: string; payload:
             } else if (payload.type === 'wip') {
                 // WIP requires step_number and content
                 if (!payload.title || !payload.content || payload.step_number === undefined) {
+                    continue;
+                }
+            } else if (payload.type === 'agent_create' || payload.type === 'agent_update') {
+                // Agent payloads require agent_data with name and instructions
+                if (!payload.title || !payload.agent_data?.name || !payload.agent_data?.instructions) {
+                    continue;
+                }
+                // agent_update also requires agent_id
+                if (payload.type === 'agent_update' && !payload.agent_data?.agent_id) {
                     continue;
                 }
             } else {
