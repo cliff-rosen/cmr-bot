@@ -47,6 +47,13 @@ class AgentTextDelta(AgentEvent):
 
 
 @dataclass
+class AgentMessage(AgentEvent):
+    """Emitted when the agent produces a text response."""
+    text: str
+    iteration: int
+
+
+@dataclass
 class AgentToolStart(AgentEvent):
     """Emitted when starting a tool call."""
     tool_name: str
@@ -222,9 +229,15 @@ async def run_agent_loop(
                 response = await client.messages.create(**api_kwargs)
 
                 # Collect text from response
+                iteration_text = ""
                 for block in response.content:
                     if hasattr(block, 'text'):
+                        iteration_text += block.text
                         collected_text += block.text
+
+                # Emit message event with what the LLM said
+                if iteration_text:
+                    yield AgentMessage(text=iteration_text, iteration=iteration)
 
             # Check for cancellation after API call
             if cancellation_token.is_cancelled:
@@ -390,43 +403,53 @@ def run_agent_loop_sync(
         final_tool_calls: List[Dict[str, Any]] = []
         error: Optional[str] = None
 
-        async for event in run_agent_loop(
-            client=client,
-            model=model,
-            max_tokens=max_tokens,
-            max_iterations=max_iterations,
-            system_prompt=system_prompt,
-            messages=messages,
-            tools=tools,
-            db=db,
-            user_id=user_id,
-            context=context,
-            cancellation_token=cancellation_token,
-            stream_text=False,  # No streaming in sync mode
-            temperature=temperature
-        ):
-            # Call event callback if provided
-            if on_event:
-                on_event(event)
+        try:
+            async for event in run_agent_loop(
+                client=client,
+                model=model,
+                max_tokens=max_tokens,
+                max_iterations=max_iterations,
+                system_prompt=system_prompt,
+                messages=messages,
+                tools=tools,
+                db=db,
+                user_id=user_id,
+                context=context,
+                cancellation_token=cancellation_token,
+                stream_text=False,  # No streaming in sync mode
+                temperature=temperature
+            ):
+                # Call event callback if provided
+                if on_event:
+                    on_event(event)
 
-            # Extract final state from terminal events
-            if isinstance(event, AgentComplete):
-                final_text = event.text
-                final_tool_calls = event.tool_calls
-            elif isinstance(event, AgentCancelled):
-                final_text = event.text
-                final_tool_calls = event.tool_calls
-                error = "cancelled"
-            elif isinstance(event, AgentError):
-                final_text = event.text
-                final_tool_calls = event.tool_calls
-                error = event.error
+                # Extract final state from terminal events
+                if isinstance(event, AgentComplete):
+                    final_text = event.text
+                    final_tool_calls = event.tool_calls
+                elif isinstance(event, AgentCancelled):
+                    final_text = event.text
+                    final_tool_calls = event.tool_calls
+                    error = "cancelled"
+                elif isinstance(event, AgentError):
+                    final_text = event.text
+                    final_tool_calls = event.tool_calls
+                    error = event.error
+        finally:
+            # Properly close the client before the event loop closes
+            await client.close()
 
         return final_text, final_tool_calls, error
 
     # Run in a new event loop (safe in ThreadPoolExecutor threads)
     loop = asyncio.new_event_loop()
     try:
+        asyncio.set_event_loop(loop)
         return loop.run_until_complete(_run())
     finally:
+        # Properly shutdown - especially important on Windows
+        try:
+            loop.run_until_complete(loop.shutdown_asyncgens())
+        except Exception:
+            pass
         loop.close()

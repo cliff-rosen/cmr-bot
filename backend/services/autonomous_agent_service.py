@@ -18,7 +18,7 @@ from models import (
 )
 from services.agent_loop import (
     run_agent_loop_sync, CancellationToken,
-    AgentEvent, AgentThinking, AgentToolStart, AgentToolProgress,
+    AgentEvent, AgentThinking, AgentMessage, AgentToolStart, AgentToolProgress,
     AgentToolComplete, AgentComplete, AgentCancelled, AgentError
 )
 from tools import get_tool
@@ -239,6 +239,15 @@ class AutonomousAgentService:
                         AgentRunEventType.THINKING,
                         event.message
                     )
+                elif isinstance(event, AgentMessage):
+                    # Log the actual LLM response - truncate if very long
+                    text_preview = event.text[:1000] if len(event.text) > 1000 else event.text
+                    self.log_event(
+                        run_id,
+                        AgentRunEventType.MESSAGE,
+                        f"[Iteration {event.iteration}] {text_preview}",
+                        {"iteration": event.iteration, "full_text": event.text[:2000]}
+                    )
                 elif isinstance(event, AgentToolStart):
                     self.log_event(
                         run_id,
@@ -335,6 +344,19 @@ class AutonomousAgentService:
                 config = get_tool(tool_name)
                 if config:
                     tool_configs[tool_name] = config
+
+            # Log what tools are available
+            configured_tools = list(tool_configs.keys())
+            self.log_event(
+                run_id,
+                AgentRunEventType.STATUS,
+                f"Tools configured: {configured_tools if configured_tools else 'None'}",
+                {
+                    "requested_tools": agent.tools or [],
+                    "available_tools": configured_tools,
+                    "missing_tools": [t for t in (agent.tools or []) if t not in tool_configs]
+                }
+            )
 
             # Build system prompt
             system_prompt = f"""You are an autonomous agent executing a specific task.
