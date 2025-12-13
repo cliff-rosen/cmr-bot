@@ -50,6 +50,164 @@ const getMemoryTypeInfo = (type: MemoryType) => {
     }
 };
 
+// Tool category tabs configuration
+type ToolTab = 'system' | 'search' | 'processing' | 'workflow';
+
+const TOOL_TABS: { key: ToolTab; label: string; categories: string[] }[] = [
+    { key: 'system', label: 'System', categories: ['memory', 'assets'] },
+    { key: 'search', label: 'Search', categories: ['search', 'research'] },
+    { key: 'processing', label: 'Processing', categories: ['processing'] },
+    { key: 'workflow', label: 'Workflow', categories: ['workflow'] },
+];
+
+interface ToolsSectionProps {
+    availableTools: ToolInfo[];
+    enabledTools: Set<string>;
+    isExpanded: boolean;
+    onToggleExpanded: () => void;
+    onToggleTool: (toolId: string) => void;
+}
+
+function ToolsSection({ availableTools, enabledTools, isExpanded, onToggleExpanded, onToggleTool }: ToolsSectionProps) {
+    const [activeTab, setActiveTab] = useState<ToolTab>('system');
+
+    // Group tools by tab
+    const getToolsForTab = (tab: ToolTab) => {
+        const tabConfig = TOOL_TABS.find(t => t.key === tab);
+        if (!tabConfig) return [];
+        return availableTools.filter(tool => tabConfig.categories.includes(tool.category));
+    };
+
+    // Count enabled tools per tab
+    const getTabCounts = (tab: ToolTab) => {
+        const tools = getToolsForTab(tab);
+        const enabled = tools.filter(t => enabledTools.has(t.name)).length;
+        return { enabled, total: tools.length };
+    };
+
+    // Enable/disable all tools in current tab
+    const handleEnableAll = () => {
+        const tools = getToolsForTab(activeTab);
+        tools.forEach(tool => {
+            if (!enabledTools.has(tool.name)) {
+                onToggleTool(tool.name);
+            }
+        });
+    };
+
+    const handleDisableAll = () => {
+        const tools = getToolsForTab(activeTab);
+        tools.forEach(tool => {
+            if (enabledTools.has(tool.name)) {
+                onToggleTool(tool.name);
+            }
+        });
+    };
+
+    const currentTools = getToolsForTab(activeTab);
+    const enabledCount = enabledTools.size;
+
+    return (
+        <div className="border-b border-gray-200 dark:border-gray-700">
+            {/* Header */}
+            <div className="px-4 py-3 bg-gray-100 dark:bg-gray-800">
+                <button
+                    onClick={onToggleExpanded}
+                    className="flex items-center gap-2"
+                >
+                    {isExpanded ? (
+                        <ChevronDownIcon className="h-3 w-3 text-gray-500" />
+                    ) : (
+                        <ChevronRightIcon className="h-3 w-3 text-gray-500" />
+                    )}
+                    <WrenchScrewdriverIcon className="h-4 w-4 text-blue-600 dark:text-blue-400" />
+                    <span className="text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase">
+                        Tools
+                    </span>
+                    <span className="text-xs text-gray-500">({enabledCount}/{availableTools.length})</span>
+                </button>
+            </div>
+
+            {isExpanded && (
+                <div>
+                    {/* Tabs */}
+                    <div className="flex border-b border-gray-200 dark:border-gray-700">
+                        {TOOL_TABS.map(tab => {
+                            const counts = getTabCounts(tab.key);
+                            if (counts.total === 0) return null;
+                            const isActive = activeTab === tab.key;
+                            return (
+                                <button
+                                    key={tab.key}
+                                    onClick={() => setActiveTab(tab.key)}
+                                    className={`flex-1 px-2 py-2 text-xs font-medium transition-colors ${
+                                        isActive
+                                            ? 'text-blue-600 dark:text-blue-400 border-b-2 border-blue-600 dark:border-blue-400 bg-blue-50 dark:bg-blue-900/20'
+                                            : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'
+                                    }`}
+                                >
+                                    <div>{tab.label}</div>
+                                    <div className="text-[10px] opacity-70">
+                                        {counts.enabled}/{counts.total}
+                                    </div>
+                                </button>
+                            );
+                        })}
+                    </div>
+
+                    {/* Enable/Disable All buttons */}
+                    <div className="flex gap-1 px-2 py-1.5 border-b border-gray-100 dark:border-gray-800">
+                        <button
+                            onClick={handleEnableAll}
+                            className="flex-1 px-2 py-1 text-[10px] text-green-600 dark:text-green-400 hover:bg-green-50 dark:hover:bg-green-900/20 rounded transition-colors"
+                        >
+                            Enable All
+                        </button>
+                        <button
+                            onClick={handleDisableAll}
+                            className="flex-1 px-2 py-1 text-[10px] text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 rounded transition-colors"
+                        >
+                            Disable All
+                        </button>
+                    </div>
+
+                    {/* Tools list for current tab */}
+                    <div className="p-2 space-y-1">
+                        {currentTools.length === 0 ? (
+                            <div className="text-xs text-gray-400 dark:text-gray-500 text-center py-2">
+                                No tools in this category
+                            </div>
+                        ) : (
+                            currentTools.map(tool => {
+                                const isEnabled = enabledTools.has(tool.name);
+                                return (
+                                    <button
+                                        key={tool.name}
+                                        onClick={() => onToggleTool(tool.name)}
+                                        className={`w-full flex items-center gap-2 px-2 py-1.5 rounded text-xs transition-colors ${
+                                            isEnabled
+                                                ? 'bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300'
+                                                : 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800'
+                                        }`}
+                                        title={tool.description}
+                                    >
+                                        {isEnabled ? (
+                                            <CheckIcon className="h-3.5 w-3.5 text-green-500 flex-shrink-0" />
+                                        ) : (
+                                            <CheckCircleOutlineIcon className="h-3.5 w-3.5 flex-shrink-0" />
+                                        )}
+                                        <span className="flex-1 text-left">{tool.name}</span>
+                                    </button>
+                                );
+                            })
+                        )}
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+}
+
 export default function ContextPanel({
     availableTools,
     memories,
@@ -101,8 +259,6 @@ export default function ContextPanel({
             setNewMemoryInput('');
         }
     };
-
-    const enabledToolCount = enabledTools.size;
 
     return (
         <div className="flex flex-col h-full">
@@ -318,54 +474,13 @@ export default function ContextPanel({
                 </div>
 
                 {/* Tools Section */}
-                <div className="border-b border-gray-200 dark:border-gray-700">
-                    <div className="px-4 py-3 bg-gray-100 dark:bg-gray-800">
-                        <button
-                            onClick={() => setIsToolsExpanded(!isToolsExpanded)}
-                            className="flex items-center gap-2"
-                        >
-                            {isToolsExpanded ? (
-                                <ChevronDownIcon className="h-3 w-3 text-gray-500" />
-                            ) : (
-                                <ChevronRightIcon className="h-3 w-3 text-gray-500" />
-                            )}
-                            <WrenchScrewdriverIcon className="h-4 w-4 text-blue-600 dark:text-blue-400" />
-                            <span className="text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase">
-                                Tools
-                            </span>
-                            <span className="text-xs text-gray-500">({enabledToolCount}/{availableTools.length})</span>
-                        </button>
-                    </div>
-                    {isToolsExpanded && (
-                        <div className="p-2 space-y-1">
-                            {availableTools.map(tool => {
-                                const isEnabled = enabledTools.has(tool.name);
-                                return (
-                                    <button
-                                        key={tool.name}
-                                        onClick={() => onToggleTool(tool.name)}
-                                        className={`w-full flex items-center gap-2 px-2 py-1.5 rounded text-xs transition-colors ${
-                                            isEnabled
-                                                ? 'bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300'
-                                                : 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800'
-                                        }`}
-                                        title={tool.description}
-                                    >
-                                        {isEnabled ? (
-                                            <CheckIcon className="h-3.5 w-3.5 text-green-500 flex-shrink-0" />
-                                        ) : (
-                                            <CheckCircleOutlineIcon className="h-3.5 w-3.5 flex-shrink-0" />
-                                        )}
-                                        <span className="flex-1 text-left">{tool.name}</span>
-                                        {tool.category !== 'general' && (
-                                            <span className="text-[10px] text-gray-400 dark:text-gray-500">{tool.category}</span>
-                                        )}
-                                    </button>
-                                );
-                            })}
-                        </div>
-                    )}
-                </div>
+                <ToolsSection
+                    availableTools={availableTools}
+                    enabledTools={enabledTools}
+                    isExpanded={isToolsExpanded}
+                    onToggleExpanded={() => setIsToolsExpanded(!isToolsExpanded)}
+                    onToggleTool={onToggleTool}
+                />
 
                 {/* Memories Section */}
                 <div className="border-b border-gray-200 dark:border-gray-700">
