@@ -219,6 +219,25 @@ export default function MainPage() {
         }
     };
 
+    const handleClearChat = async () => {
+        // Delete current conversation if one exists, then start fresh
+        if (conversationId) {
+            try {
+                await deleteConversation(conversationId);
+            } catch (err) {
+                console.error('Failed to clear chat:', err);
+            }
+        } else {
+            // No conversation yet, just clear via newConversation
+            await newConversation();
+        }
+        // Clear workspace state too
+        setActivePayload(null);
+        setSelectedToolHistory(null);
+        setActiveWorkflow(null);
+        setExecutingStep(null);
+    };
+
     // Memory handlers
     const handleAddWorkingMemory = async (content: string) => {
         try {
@@ -709,6 +728,7 @@ export default function MainPage() {
                 activeToolProgress={activeToolProgress}
                 onSendMessage={handleSendMessage}
                 onCancel={cancelRequest}
+                onClearChat={handleClearChat}
                 onValueSelect={handleValueSelect}
                 onActionClick={handleActionClick}
                 onToolHistoryClick={(history) => {

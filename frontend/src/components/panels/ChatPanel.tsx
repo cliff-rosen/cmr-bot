@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import { PaperAirplaneIcon, WrenchScrewdriverIcon, DocumentPlusIcon, ArrowTopRightOnSquareIcon, StopIcon } from '@heroicons/react/24/solid';
+import { PaperAirplaneIcon, WrenchScrewdriverIcon, DocumentPlusIcon, ArrowTopRightOnSquareIcon, StopIcon, TrashIcon } from '@heroicons/react/24/solid';
 import { MarkdownRenderer } from '../common';
 import { GeneralChatMessage, ToolCall, SuggestedValue, SuggestedAction, WorkspacePayload, parseWorkspacePayload } from '../../types/chat';
 import { ActiveToolProgress } from '../../hooks/useGeneralChat';
@@ -13,6 +13,7 @@ interface ChatPanelProps {
     activeToolProgress: ActiveToolProgress | null;
     onSendMessage: (message: string) => void;
     onCancel: () => void;
+    onClearChat: () => void;
     onValueSelect: (value: string) => void;
     onActionClick: (action: any) => void;
     onToolHistoryClick: (toolHistory: ToolCall[]) => void;
@@ -29,6 +30,7 @@ export default function ChatPanel({
     activeToolProgress,
     onSendMessage,
     onCancel,
+    onClearChat,
     onValueSelect,
     onActionClick,
     onToolHistoryClick,
@@ -36,9 +38,21 @@ export default function ChatPanel({
     onPayloadClick
 }: ChatPanelProps) {
     const [input, setInput] = useState('');
+    const [clearConfirm, setClearConfirm] = useState(false);
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const inputRef = useRef<HTMLTextAreaElement>(null);
-      const lastPayloadShownRef = useRef<string | null>(null);
+    const lastPayloadShownRef = useRef<string | null>(null);
+
+    // Handle clear chat with double-click confirmation
+    const handleClearClick = () => {
+        if (clearConfirm) {
+            onClearChat();
+            setClearConfirm(false);
+        } else {
+            setClearConfirm(true);
+            setTimeout(() => setClearConfirm(false), 3000);
+        }
+    };
 
     const scrollToBottom = () => {
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -107,6 +121,22 @@ export default function ChatPanel({
                         {conversationId ? `Conversation #${conversationId}` : 'New conversation'}
                     </p>
                 </div>
+                {/* Clear Chat Button - requires double-click */}
+                {(conversationId || messages.length > 0) && (
+                    <button
+                        onClick={handleClearClick}
+                        disabled={isLoading}
+                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors disabled:opacity-50 ${
+                            clearConfirm
+                                ? 'bg-red-600 text-white hover:bg-red-700'
+                                : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800'
+                        }`}
+                        title={clearConfirm ? 'Click again to confirm' : 'Clear chat (click twice)'}
+                    >
+                        <TrashIcon className="h-4 w-4" />
+                        {clearConfirm ? 'Confirm Clear' : 'Clear'}
+                    </button>
+                )}
             </div>
 
             {/* Messages Area */}
