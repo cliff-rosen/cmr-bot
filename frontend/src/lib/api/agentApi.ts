@@ -63,6 +63,15 @@ export interface CreateAgentRequest {
     monitor_interval_minutes?: number;
 }
 
+export interface AgentAsset {
+    asset_id: number;
+    name: string;
+    asset_type: string;
+    description: string | null;
+    created_at: string;
+    run_id: number | null;
+}
+
 export interface UpdateAgentRequest {
     name?: string;
     description?: string;
@@ -154,6 +163,15 @@ export const agentApi = {
     async getRunEvents(runId: number, limit = 100): Promise<AgentRunEvent[]> {
         const params = new URLSearchParams({ limit: limit.toString() });
         const response = await api.get(`/api/agents/runs/${runId}/events?${params}`);
+        return response.data;
+    },
+
+    /**
+     * Get assets created by an agent
+     */
+    async getAgentAssets(agentId: number, limit = 20): Promise<AgentAsset[]> {
+        const params = new URLSearchParams({ limit: limit.toString() });
+        const response = await api.get(`/api/agents/${agentId}/assets?${params}`);
         return response.data;
     }
 };

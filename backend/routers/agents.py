@@ -276,3 +276,50 @@ async def get_run_events(
 
     events = service.get_run_events(run_id, limit=limit)
     return [AgentRunEventResponse.model_validate(e) for e in events]
+
+
+class AssetSummaryResponse(BaseModel):
+    asset_id: int
+    name: str
+    asset_type: str
+    description: Optional[str]
+    created_at: datetime
+    run_id: Optional[int]
+
+    class Config:
+        from_attributes = True
+
+
+@router.get("/{agent_id}/assets", response_model=List[AssetSummaryResponse])
+async def get_agent_assets(
+    agent_id: int,
+    limit: int = 20,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Get assets created by a specific agent."""
+    from models import Asset
+
+    service = AutonomousAgentService(db, current_user.user_id)
+
+    agent = service.get_agent(agent_id)
+    if not agent:
+        raise HTTPException(status_code=404, detail="Agent not found")
+
+    # Query assets created by this agent
+    assets = db.query(Asset).filter(
+        Asset.created_by_agent_id == agent_id,
+        Asset.user_id == current_user.user_id
+    ).order_by(Asset.created_at.desc()).limit(limit).all()
+
+    return [
+        AssetSummaryResponse(
+            asset_id=a.asset_id,
+            name=a.name,
+            asset_type=a.asset_type.value,
+            description=a.description,
+            created_at=a.created_at,
+            run_id=a.agent_run_id
+        )
+        for a in assets
+    ]

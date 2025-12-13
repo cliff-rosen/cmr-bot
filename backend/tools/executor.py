@@ -217,6 +217,7 @@ async def execute_streaming_tool(
 
                 # Yield progress updates
                 if isinstance(item, ToolProgress):
+                    logger.info(f"execute_streaming_tool yielding ToolProgress: {item.stage} - {item.message}")
                     yield item
                 elif isinstance(item, ToolResult):
                     final_result = item

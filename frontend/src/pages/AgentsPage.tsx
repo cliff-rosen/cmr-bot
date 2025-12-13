@@ -1,6 +1,6 @@
-import { useState, useEffect, useCallback } from 'react';
-import { PlusIcon, PlayIcon, PauseIcon, TrashIcon, ArrowPathIcon, ChevronDownIcon, ChevronUpIcon } from '@heroicons/react/24/outline';
-import { agentApi, Agent, AgentDetail, AgentRun, AgentRunEvent, AgentLifecycle, AgentStatus, AgentRunEventType, CreateAgentRequest, workflowApi, ToolInfo } from '../lib/api';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { PlusIcon, PlayIcon, PauseIcon, TrashIcon, ArrowPathIcon, ChevronDownIcon, ChevronUpIcon, DocumentTextIcon } from '@heroicons/react/24/outline';
+import { agentApi, Agent, AgentDetail, AgentRun, AgentRunEvent, AgentAsset, AgentLifecycle, AgentStatus, AgentRunEventType, CreateAgentRequest, workflowApi, ToolInfo } from '../lib/api';
 
 /**
  * Agents Dashboard
@@ -10,11 +10,12 @@ import { agentApi, Agent, AgentDetail, AgentRun, AgentRunEvent, AgentLifecycle, 
 export default function AgentsPage() {
     const [agents, setAgents] = useState<Agent[]>([]);
     const [selectedAgent, setSelectedAgent] = useState<AgentDetail | null>(null);
+    const [agentAssets, setAgentAssets] = useState<AgentAsset[]>([]);
     const [isLoading, setIsLoading] = useState(true);
+    const [isRefreshing, setIsRefreshing] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
     const [availableTools, setAvailableTools] = useState<ToolInfo[]>([]);
-    const [refreshCounter, setRefreshCounter] = useState(0);
 
     // Load agents and tools on mount
     useEffect(() => {
@@ -49,13 +50,36 @@ export default function AgentsPage() {
     // Select agent and load details
     const handleSelectAgent = useCallback(async (agentId: number) => {
         try {
-            const detail = await agentApi.get(agentId);
-            // Force React to see the change by spreading to create new object reference
+            const [detail, assets] = await Promise.all([
+                agentApi.get(agentId),
+                agentApi.getAgentAssets(agentId).catch(() => []) // Gracefully handle if columns don't exist yet
+            ]);
             setSelectedAgent({ ...detail, recent_runs: [...detail.recent_runs] });
+            setAgentAssets(assets);
         } catch (err) {
             console.error('Failed to load agent details:', err);
         }
     }, []);
+
+    // Refresh current agent (with loading indicator)
+    const handleRefresh = useCallback(async () => {
+        if (!selectedAgent) return;
+        setIsRefreshing(true);
+        try {
+            const [agentList, detail, assets] = await Promise.all([
+                agentApi.list(),
+                agentApi.get(selectedAgent.agent_id),
+                agentApi.getAgentAssets(selectedAgent.agent_id).catch(() => [])
+            ]);
+            setAgents(agentList);
+            setSelectedAgent({ ...detail, recent_runs: [...detail.recent_runs] });
+            setAgentAssets(assets);
+        } catch (err) {
+            console.error('Failed to refresh:', err);
+        } finally {
+            setIsRefreshing(false);
+        }
+    }, [selectedAgent]);
 
     // Pause agent
     const handlePauseAgent = useCallback(async (agentId: number, e: React.MouseEvent) => {
@@ -265,6 +289,14 @@ export default function AgentsPage() {
                                 </div>
                             </div>
                             <div className="flex items-center gap-2">
+                                <button
+                                    onClick={handleRefresh}
+                                    disabled={isRefreshing}
+                                    className="p-2 bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-200 rounded-md transition-colors disabled:opacity-50"
+                                    title="Refresh"
+                                >
+                                    <ArrowPathIcon className={`h-5 w-5 ${isRefreshing ? 'animate-spin' : ''}`} />
+                                </button>
                                 {selectedAgent.status === 'active' && (
                                     <>
                                         <button
@@ -289,7 +321,7 @@ export default function AgentsPage() {
                                         className="p-2 bg-green-600 hover:bg-green-700 text-white rounded-md transition-colors"
                                         title="Resume agent"
                                     >
-                                        <ArrowPathIcon className="h-5 w-5" />
+                                        <PlayIcon className="h-5 w-5" />
                                     </button>
                                 )}
                                 <button
@@ -335,30 +367,51 @@ export default function AgentsPage() {
                         </div>
 
                         {/* Recent Runs */}
-                        <div>
-                            <div className="flex items-center justify-between mb-2">
-                                <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Recent Runs</h2>
-                                <button
-                                    onClick={async () => {
-                                        await handleSelectAgent(selectedAgent.agent_id);
-                                        setRefreshCounter(c => c + 1);
-                                    }}
-                                    className="p-1.5 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 rounded transition-colors"
-                                    title="Refresh runs"
-                                >
-                                    <ArrowPathIcon className="h-5 w-5" />
-                                </button>
-                            </div>
+                        <div className="mb-6">
+                            <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">Recent Runs</h2>
                             {selectedAgent.recent_runs.length === 0 ? (
                                 <div className="text-gray-500 dark:text-gray-400 py-4">No runs yet</div>
                             ) : (
                                 <div className="space-y-2">
                                     {selectedAgent.recent_runs.map(run => (
                                         <RunCard
-                                            key={`${run.run_id}-${refreshCounter}`}
+                                            key={run.run_id}
                                             run={run}
                                             formatRelativeTime={formatRelativeTime}
                                         />
+                                    ))}
+                                </div>
+                            )}
+                        </div>
+
+                        {/* Assets Created */}
+                        <div>
+                            <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">Assets Created</h2>
+                            {agentAssets.length === 0 ? (
+                                <div className="text-gray-500 dark:text-gray-400 py-4">No assets created yet</div>
+                            ) : (
+                                <div className="space-y-2">
+                                    {agentAssets.map(asset => (
+                                        <div
+                                            key={asset.asset_id}
+                                            className="p-3 bg-gray-50 dark:bg-gray-700 rounded-lg flex items-start gap-3"
+                                        >
+                                            <DocumentTextIcon className="h-5 w-5 text-blue-500 flex-shrink-0 mt-0.5" />
+                                            <div className="flex-1 min-w-0">
+                                                <div className="font-medium text-gray-900 dark:text-white truncate">
+                                                    {asset.name}
+                                                </div>
+                                                <div className="text-sm text-gray-500 dark:text-gray-400">
+                                                    {asset.asset_type} • {formatRelativeTime(asset.created_at)}
+                                                    {asset.run_id && ` • Run #${asset.run_id}`}
+                                                </div>
+                                                {asset.description && (
+                                                    <div className="text-sm text-gray-600 dark:text-gray-300 mt-1 truncate">
+                                                        {asset.description}
+                                                    </div>
+                                                )}
+                                            </div>
+                                        </div>
                                     ))}
                                 </div>
                             )}
@@ -567,13 +620,21 @@ function RunCard({
     const [isExpanded, setIsExpanded] = useState(false);
     const [events, setEvents] = useState<AgentRunEvent[]>([]);
     const [isLoadingEvents, setIsLoadingEvents] = useState(false);
+    const eventsContainerRef = useRef<HTMLDivElement>(null);
 
-    const loadEvents = async () => {
-        if (events.length > 0) return; // Already loaded
+    const loadEvents = async (scrollToBottom = false) => {
         setIsLoadingEvents(true);
         try {
             const runEvents = await agentApi.getRunEvents(run.run_id);
             setEvents(runEvents);
+            // Scroll to bottom after state updates
+            if (scrollToBottom) {
+                setTimeout(() => {
+                    if (eventsContainerRef.current) {
+                        eventsContainerRef.current.scrollTop = eventsContainerRef.current.scrollHeight;
+                    }
+                }, 50);
+            }
         } catch (err) {
             console.error('Failed to load events:', err);
         } finally {
@@ -583,7 +644,7 @@ function RunCard({
 
     const handleToggle = () => {
         if (!isExpanded) {
-            loadEvents();
+            loadEvents(true); // Scroll to bottom on initial open
         }
         setIsExpanded(!isExpanded);
     };
@@ -673,15 +734,30 @@ function RunCard({
             {/* Events Panel */}
             {isExpanded && (
                 <div className="border-t border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 p-4">
-                    <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
-                        Execution Log
-                    </h4>
-                    {isLoadingEvents ? (
+                    <div className="flex items-center justify-between mb-3">
+                        <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                            Execution Log
+                            {isLoadingEvents && events.length > 0 && (
+                                <ArrowPathIcon className="inline-block ml-2 h-3 w-3 animate-spin text-gray-400" />
+                            )}
+                        </h4>
+                        <button
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                loadEvents(true); // Scroll to bottom on manual reload
+                            }}
+                            disabled={isLoadingEvents}
+                            className="text-xs text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300 disabled:opacity-50"
+                        >
+                            Reload
+                        </button>
+                    </div>
+                    {isLoadingEvents && events.length === 0 ? (
                         <div className="text-sm text-gray-500 dark:text-gray-400">Loading events...</div>
                     ) : events.length === 0 ? (
                         <div className="text-sm text-gray-500 dark:text-gray-400">No events recorded</div>
                     ) : (
-                        <div className="space-y-2 max-h-64 overflow-y-auto">
+                        <div ref={eventsContainerRef} className="space-y-2 max-h-64 overflow-y-auto">
                             {events.map(event => (
                                 <div
                                     key={event.event_id}

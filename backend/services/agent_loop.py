@@ -296,6 +296,7 @@ async def run_agent_loop(
                         return
 
                     if isinstance(progress_or_result, ToolProgress):
+                        logger.info(f"Yielding tool progress: {tool_name} - {progress_or_result.stage}: {progress_or_result.message}")
                         yield AgentToolProgress(
                             tool_name=tool_name,
                             progress=progress_or_result
