@@ -1,7 +1,7 @@
 """
 Iterator tool for CMR Bot.
 
-Processes each item in a list with an operation (LLM prompt or tool call).
+Processes each item in a list with an operation (LLM prompt, tool call, or agent).
 Supports parallel execution for efficiency, or sequential for rate-limited APIs.
 """
 
@@ -18,14 +18,15 @@ import anthropic
 from sqlalchemy.orm import Session
 
 from models import Asset, AssetType
-from tools.registry import ToolConfig, ToolResult, ToolProgress, register_tool, get_tool
+from tools.registry import ToolConfig, ToolResult, ToolProgress, register_tool, get_tool, get_all_tools
 from tools.executor import execute_tool_sync
 
 logger = logging.getLogger(__name__)
 
 # Configuration
 ITERATOR_MODEL = "claude-sonnet-4-20250514"
-ITERATOR_MAX_TOKENS = 1024
+ITERATOR_MAX_TOKENS = 2048
+AGENT_MAX_ITERATIONS = 10  # Prevent infinite loops
 DEFAULT_MAX_CONCURRENCY = 5
 DEFAULT_SEQUENTIAL_DELAY = 0.1  # Small delay between items in sequential mode
 
@@ -108,6 +109,120 @@ def _process_item_tool(
     )
 
 
+def _process_item_agent(
+    item: str,
+    prompt: str,
+    tool_names: List[str],
+    max_iterations: int,
+    db: Session,
+    user_id: int
+) -> ItemResult:
+    """Process a single item using an agentic loop with tools."""
+    try:
+        client = anthropic.Anthropic(api_key=os.getenv('ANTHROPIC_API_KEY'))
+
+        # Build tool configs for allowed tools
+        available_tools = []
+        tool_configs = {}
+        for name in tool_names:
+            config = get_tool(name)
+            if config:
+                tool_configs[name] = config
+                available_tools.append({
+                    "name": config.name,
+                    "description": config.description,
+                    "input_schema": config.input_schema
+                })
+
+        if not available_tools:
+            return ItemResult(
+                item=item,
+                result="",
+                success=False,
+                error=f"No valid tools found from: {tool_names}"
+            )
+
+        # Substitute {item} in the prompt
+        full_prompt = prompt.replace("{item}", item)
+
+        # Initialize conversation
+        messages = [{"role": "user", "content": full_prompt}]
+
+        # Agentic loop
+        for iteration in range(max_iterations):
+            response = client.messages.create(
+                model=ITERATOR_MODEL,
+                max_tokens=ITERATOR_MAX_TOKENS,
+                tools=available_tools,
+                messages=messages
+            )
+
+            # Check stop reason
+            if response.stop_reason == "end_turn":
+                # Extract final text response
+                text_parts = [block.text for block in response.content if hasattr(block, 'text')]
+                final_text = "\n".join(text_parts) if text_parts else ""
+                return ItemResult(item=item, result=final_text, success=True)
+
+            elif response.stop_reason == "tool_use":
+                # Process tool calls
+                assistant_content = response.content
+                tool_results = []
+
+                for block in assistant_content:
+                    if block.type == "tool_use":
+                        tool_name = block.name
+                        tool_input = block.input
+                        tool_use_id = block.id
+
+                        # Execute the tool
+                        if tool_name in tool_configs:
+                            tool_config = tool_configs[tool_name]
+                            try:
+                                result = execute_tool_sync(tool_config, tool_input, db, user_id)
+                                tool_results.append({
+                                    "type": "tool_result",
+                                    "tool_use_id": tool_use_id,
+                                    "content": result.text if result.success else f"Error: {result.error}"
+                                })
+                            except Exception as e:
+                                tool_results.append({
+                                    "type": "tool_result",
+                                    "tool_use_id": tool_use_id,
+                                    "content": f"Tool execution error: {str(e)}",
+                                    "is_error": True
+                                })
+                        else:
+                            tool_results.append({
+                                "type": "tool_result",
+                                "tool_use_id": tool_use_id,
+                                "content": f"Tool '{tool_name}' not available",
+                                "is_error": True
+                            })
+
+                # Add assistant message and tool results to conversation
+                messages.append({"role": "assistant", "content": assistant_content})
+                messages.append({"role": "user", "content": tool_results})
+
+            else:
+                # Unexpected stop reason
+                text_parts = [block.text for block in response.content if hasattr(block, 'text')]
+                final_text = "\n".join(text_parts) if text_parts else f"Stopped with reason: {response.stop_reason}"
+                return ItemResult(item=item, result=final_text, success=True)
+
+        # Max iterations reached
+        return ItemResult(
+            item=item,
+            result="",
+            success=False,
+            error=f"Max iterations ({max_iterations}) reached without completion"
+        )
+
+    except Exception as e:
+        logger.error(f"Agent processing error for item '{item}': {e}")
+        return ItemResult(item=item, result="", success=False, error=str(e))
+
+
 def _load_items_from_asset(db: Session, user_id: int, asset_id: int) -> List[str]:
     """Load items from a LIST asset."""
     asset = db.query(Asset).filter(
@@ -170,12 +285,18 @@ def execute_iterate(
     op_prompt = operation.get("prompt")
     op_tool_name = operation.get("tool_name")
     op_tool_params = operation.get("tool_params_template", {})
+    op_tools = operation.get("tools", [])
+    op_max_iterations = operation.get("max_iterations", AGENT_MAX_ITERATIONS)
 
     # Validate operation
     if op_type == "llm" and not op_prompt:
         return ToolResult(text="LLM operation requires a 'prompt' field")
     if op_type == "tool" and not op_tool_name:
         return ToolResult(text="Tool operation requires a 'tool_name' field")
+    if op_type == "agent" and not op_prompt:
+        return ToolResult(text="Agent operation requires a 'prompt' field")
+    if op_type == "agent" and not op_tools:
+        return ToolResult(text="Agent operation requires a 'tools' field with at least one tool")
 
     total = len(items)
     completed = 0
@@ -200,8 +321,12 @@ def execute_iterate(
     def process_item_with_index(index: int, item: str) -> Tuple[int, ItemResult]:
         if op_type == "llm":
             return index, _process_item_llm(item, op_prompt)
-        else:
+        elif op_type == "tool":
             return index, _process_item_tool(item, op_tool_name, op_tool_params, db, user_id)
+        elif op_type == "agent":
+            return index, _process_item_agent(item, op_prompt, op_tools, op_max_iterations, db, user_id)
+        else:
+            return index, ItemResult(item=item, result="", success=False, error=f"Unknown operation type: {op_type}")
 
     # Sequential processing for rate-limited APIs
     if sequential:
@@ -380,7 +505,7 @@ def execute_iterate(
 
 ITERATE_TOOL = ToolConfig(
     name="iterate",
-    description="Process each item in a list with an operation (LLM prompt or tool call). Use this to apply the same operation to multiple items. Items can be provided directly or loaded from a LIST asset. Use sequential=true when calling rate-limited APIs like PubMed.",
+    description="Process each item in a list with an operation (LLM prompt, tool call, or agentic loop). Use this to apply the same operation to multiple items. Items can be provided directly or loaded from a LIST asset. Use sequential=true when calling rate-limited APIs like PubMed. For complex per-item tasks requiring multiple tool calls, use type='agent' with a list of tools.",
     input_schema={
         "type": "object",
         "properties": {
@@ -399,8 +524,8 @@ ITERATE_TOOL = ToolConfig(
                 "properties": {
                     "type": {
                         "type": "string",
-                        "enum": ["llm", "tool"],
-                        "description": "Type of operation: 'llm' for LLM prompt, 'tool' for tool call"
+                        "enum": ["llm", "tool", "agent"],
+                        "description": "Type of operation: 'llm' for LLM prompt, 'tool' for tool call, 'agent' for agentic loop with tools"
                     },
                     "prompt": {
                         "type": "string",
@@ -413,6 +538,16 @@ ITERATE_TOOL = ToolConfig(
                     "tool_params_template": {
                         "type": "object",
                         "description": "For tool operations: parameters template with {item} placeholders"
+                    },
+                    "tools": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "For agent operations: list of tool names the agent can use"
+                    },
+                    "max_iterations": {
+                        "type": "integer",
+                        "description": "For agent operations: maximum iterations per item (default: 10)",
+                        "default": 10
                     }
                 },
                 "required": ["type"]
