@@ -361,12 +361,17 @@ class GeneralChatService:
             include_profile: Whether to include user profile information
             has_workflow_builder: Whether the design_workflow tool is available
         """
+        from datetime import datetime
+        current_date = datetime.now().strftime("%Y-%m-%d")
+
         context_section = self._build_context_section(user_message, include_profile)
         workflow_section = self._build_workflow_section(has_workflow_builder)
 
         return f"""You are CMR Bot, a personal AI assistant with full access to tools and capabilities.
 
         You are the primary agent in a personal AI system designed for deep integration and autonomy. You help the user with research, information gathering, analysis, and various tasks.
+
+        **Today's date: {current_date}**
 
         ## Your Capabilities
 

@@ -154,7 +154,12 @@ class StepExecutionService:
                 }
             input_section = json.dumps(input_dict, indent=2)
 
+            from datetime import datetime
+            current_date = datetime.now().strftime("%Y-%m-%d")
+
             system_prompt = f"""You are a task execution agent. Execute the task and return ONLY the output.
+
+            **Today's date: {current_date}**
 
             ## Task
             {assignment.description}
