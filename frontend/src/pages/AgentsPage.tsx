@@ -494,7 +494,7 @@ export default function AgentsPage() {
 type ToolTab = 'system' | 'search' | 'process' | 'workflow' | 'agents' | 'mail';
 
 const TOOL_TABS: { key: ToolTab; label: string; categories: string[] }[] = [
-    { key: 'system', label: 'System', categories: ['memory', 'assets'] },
+    { key: 'system', label: 'Sys', categories: ['memory', 'assets'] },
     { key: 'search', label: 'Search', categories: ['search', 'research'] },
     { key: 'process', label: 'Process', categories: ['processing'] },
     { key: 'workflow', label: 'Flow', categories: ['workflow'] },
@@ -670,98 +670,102 @@ function CreateAgentModal({
     };
 
     return (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-            <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] overflow-hidden flex flex-col">
-                <div className="p-4 border-b border-gray-200 dark:border-gray-700">
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+            <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl w-full max-w-4xl h-[85vh] overflow-hidden flex flex-col">
+                <div className="p-4 border-b border-gray-200 dark:border-gray-700 flex-shrink-0">
                     <h2 className="text-xl font-semibold text-gray-900 dark:text-white">Create New Agent</h2>
                 </div>
 
-                <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto p-4 space-y-4">
-                    {/* Name */}
-                    <div>
-                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                            Name *
-                        </label>
-                        <input
-                            type="text"
-                            value={name}
-                            onChange={(e) => setName(e.target.value)}
-                            required
-                            className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-                            placeholder="e.g., Daily News Summarizer"
-                        />
-                    </div>
+                <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto p-6">
+                    <div className="grid grid-cols-2 gap-6">
+                        {/* Left column - Basic info */}
+                        <div className="space-y-4">
+                            {/* Name */}
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                                    Name *
+                                </label>
+                                <input
+                                    type="text"
+                                    value={name}
+                                    onChange={(e) => setName(e.target.value)}
+                                    required
+                                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                                    placeholder="e.g., Daily News Summarizer"
+                                />
+                            </div>
 
-                    {/* Description */}
-                    <div>
-                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                            Description
-                        </label>
-                        <input
-                            type="text"
-                            value={description}
-                            onChange={(e) => setDescription(e.target.value)}
-                            className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-                            placeholder="Brief description of what this agent does"
-                        />
-                    </div>
+                            {/* Description */}
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                                    Description
+                                </label>
+                                <input
+                                    type="text"
+                                    value={description}
+                                    onChange={(e) => setDescription(e.target.value)}
+                                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                                    placeholder="Brief description of what this agent does"
+                                />
+                            </div>
 
-                    {/* Lifecycle */}
-                    <div>
-                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                            Lifecycle Type *
-                        </label>
-                        <select
-                            value={lifecycle}
-                            onChange={(e) => setLifecycle(e.target.value as AgentLifecycle)}
-                            className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-                        >
-                            <option value="one_shot">One-Shot (run once)</option>
-                            <option value="scheduled">Scheduled (run on schedule)</option>
-                            <option value="monitor">Monitor (watch for conditions)</option>
-                        </select>
-                    </div>
+                            {/* Lifecycle */}
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                                    Lifecycle Type *
+                                </label>
+                                <select
+                                    value={lifecycle}
+                                    onChange={(e) => setLifecycle(e.target.value as AgentLifecycle)}
+                                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                                >
+                                    <option value="one_shot">One-Shot (run once)</option>
+                                    <option value="scheduled">Scheduled (run on schedule)</option>
+                                    <option value="monitor">Monitor (watch for conditions)</option>
+                                </select>
+                            </div>
 
-                    {/* Monitor Interval */}
-                    {lifecycle === 'monitor' && (
-                        <div>
-                            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                                Check Interval (minutes)
-                            </label>
-                            <input
-                                type="number"
-                                min={1}
-                                value={monitorInterval}
-                                onChange={(e) => setMonitorInterval(parseInt(e.target.value) || 60)}
-                                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                            {/* Monitor Interval */}
+                            {lifecycle === 'monitor' && (
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                                        Check Interval (minutes)
+                                    </label>
+                                    <input
+                                        type="number"
+                                        min={1}
+                                        value={monitorInterval}
+                                        onChange={(e) => setMonitorInterval(parseInt(e.target.value) || 60)}
+                                        className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                                    />
+                                </div>
+                            )}
+
+                            {/* Tools */}
+                            <ToolSelector
+                                availableTools={availableTools}
+                                selectedTools={selectedTools}
+                                setSelectedTools={setSelectedTools}
                             />
                         </div>
-                    )}
 
-                    {/* Instructions */}
-                    <div>
-                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                            Instructions *
-                        </label>
-                        <textarea
-                            value={instructions}
-                            onChange={(e) => setInstructions(e.target.value)}
-                            required
-                            rows={6}
-                            className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-                            placeholder="Describe what this agent should do. Be specific about the task, any data sources to use, and what output to produce."
-                        />
+                        {/* Right column - Instructions */}
+                        <div className="flex flex-col">
+                            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                                Instructions *
+                            </label>
+                            <textarea
+                                value={instructions}
+                                onChange={(e) => setInstructions(e.target.value)}
+                                required
+                                className="flex-1 min-h-[300px] w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white resize-none font-mono text-sm"
+                                placeholder="Describe what this agent should do. Be specific about:&#10;&#10;- The task to accomplish&#10;- Data sources to use&#10;- Output format expected&#10;- Any constraints or requirements"
+                            />
+                        </div>
                     </div>
-
-                    {/* Tools */}
-                    <ToolSelector
-                        availableTools={availableTools}
-                        selectedTools={selectedTools}
-                        setSelectedTools={setSelectedTools}
-                    />
                 </form>
 
-                <div className="p-4 border-t border-gray-200 dark:border-gray-700 flex justify-end gap-3">
+                <div className="p-4 border-t border-gray-200 dark:border-gray-700 flex justify-end gap-3 flex-shrink-0">
                     <button
                         type="button"
                         onClick={onClose}
@@ -812,93 +816,97 @@ function EditAgentModal({
     };
 
     return (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-            <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] overflow-hidden flex flex-col">
-                <div className="p-4 border-b border-gray-200 dark:border-gray-700">
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+            <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl w-full max-w-4xl h-[85vh] overflow-hidden flex flex-col">
+                <div className="p-4 border-b border-gray-200 dark:border-gray-700 flex-shrink-0">
                     <h2 className="text-xl font-semibold text-gray-900 dark:text-white">Edit Agent</h2>
                 </div>
 
-                <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto p-4 space-y-4">
-                    {/* Name */}
-                    <div>
-                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                            Name *
-                        </label>
-                        <input
-                            type="text"
-                            value={name}
-                            onChange={(e) => setName(e.target.value)}
-                            required
-                            className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-                        />
-                    </div>
+                <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto p-6">
+                    <div className="grid grid-cols-2 gap-6">
+                        {/* Left column - Basic info */}
+                        <div className="space-y-4">
+                            {/* Name */}
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                                    Name *
+                                </label>
+                                <input
+                                    type="text"
+                                    value={name}
+                                    onChange={(e) => setName(e.target.value)}
+                                    required
+                                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                                />
+                            </div>
 
-                    {/* Description */}
-                    <div>
-                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                            Description
-                        </label>
-                        <input
-                            type="text"
-                            value={description}
-                            onChange={(e) => setDescription(e.target.value)}
-                            className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-                        />
-                    </div>
+                            {/* Description */}
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                                    Description
+                                </label>
+                                <input
+                                    type="text"
+                                    value={description}
+                                    onChange={(e) => setDescription(e.target.value)}
+                                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                                />
+                            </div>
 
-                    {/* Lifecycle (read-only) */}
-                    <div>
-                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                            Lifecycle Type
-                        </label>
-                        <input
-                            type="text"
-                            value={agent.lifecycle === 'one_shot' ? 'One-Shot' : agent.lifecycle === 'scheduled' ? 'Scheduled' : 'Monitor'}
-                            disabled
-                            className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-gray-100 dark:bg-gray-600 text-gray-500 dark:text-gray-400"
-                        />
-                        <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Lifecycle type cannot be changed after creation</p>
-                    </div>
+                            {/* Lifecycle (read-only) */}
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                                    Lifecycle Type
+                                </label>
+                                <input
+                                    type="text"
+                                    value={agent.lifecycle === 'one_shot' ? 'One-Shot' : agent.lifecycle === 'scheduled' ? 'Scheduled' : 'Monitor'}
+                                    disabled
+                                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-gray-100 dark:bg-gray-600 text-gray-500 dark:text-gray-400"
+                                />
+                                <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Lifecycle type cannot be changed</p>
+                            </div>
 
-                    {/* Monitor Interval */}
-                    {agent.lifecycle === 'monitor' && (
-                        <div>
-                            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                                Check Interval (minutes)
-                            </label>
-                            <input
-                                type="number"
-                                min={1}
-                                value={monitorInterval}
-                                onChange={(e) => setMonitorInterval(parseInt(e.target.value) || 60)}
-                                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                            {/* Monitor Interval */}
+                            {agent.lifecycle === 'monitor' && (
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                                        Check Interval (minutes)
+                                    </label>
+                                    <input
+                                        type="number"
+                                        min={1}
+                                        value={monitorInterval}
+                                        onChange={(e) => setMonitorInterval(parseInt(e.target.value) || 60)}
+                                        className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                                    />
+                                </div>
+                            )}
+
+                            {/* Tools */}
+                            <ToolSelector
+                                availableTools={availableTools}
+                                selectedTools={selectedTools}
+                                setSelectedTools={setSelectedTools}
                             />
                         </div>
-                    )}
 
-                    {/* Instructions */}
-                    <div>
-                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                            Instructions *
-                        </label>
-                        <textarea
-                            value={instructions}
-                            onChange={(e) => setInstructions(e.target.value)}
-                            required
-                            rows={6}
-                            className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-                        />
+                        {/* Right column - Instructions */}
+                        <div className="flex flex-col">
+                            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                                Instructions *
+                            </label>
+                            <textarea
+                                value={instructions}
+                                onChange={(e) => setInstructions(e.target.value)}
+                                required
+                                className="flex-1 min-h-[300px] w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white resize-none font-mono text-sm"
+                            />
+                        </div>
                     </div>
-
-                    {/* Tools */}
-                    <ToolSelector
-                        availableTools={availableTools}
-                        selectedTools={selectedTools}
-                        setSelectedTools={setSelectedTools}
-                    />
                 </form>
 
-                <div className="p-4 border-t border-gray-200 dark:border-gray-700 flex justify-end gap-3">
+                <div className="p-4 border-t border-gray-200 dark:border-gray-700 flex justify-end gap-3 flex-shrink-0">
                     <button
                         type="button"
                         onClick={onClose}
