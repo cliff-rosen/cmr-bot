@@ -357,7 +357,7 @@ export default function AgentsPage() {
                         {/* Instructions */}
                         <div className="mb-6">
                             <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">Instructions</h2>
-                            <div className="p-4 bg-gray-50 dark:bg-gray-700 rounded-lg">
+                            <div className="p-4 bg-gray-50 dark:bg-gray-700 rounded-lg max-h-48 overflow-y-auto">
                                 <pre className="whitespace-pre-wrap text-sm text-gray-700 dark:text-gray-300 font-mono">
                                     {selectedAgent.instructions}
                                 </pre>
