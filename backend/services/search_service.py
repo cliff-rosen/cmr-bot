@@ -1,8 +1,8 @@
 """
 Search Service for Web Search functionality
 
-This service handles web search operations using various search APIs.
-Currently supports Google Custom Search API with DuckDuckGo fallback.
+This service handles web search operations using Google Custom Search API.
+Requires GOOGLE_SEARCH_API_KEY and GOOGLE_SEARCH_ENGINE_ID to be configured.
 """
 
 from typing import List, Optional, Dict, Any, TypedDict
@@ -54,7 +54,7 @@ class SearchService:
     def initialize(self) -> bool:
         """
         Initialize search service with app-level API keys from settings
-        
+
         Returns:
             bool: True if initialization successful, False otherwise
         """
@@ -62,26 +62,17 @@ class SearchService:
             # Get API keys from settings (app-level, not user-specific)
             self.api_key = settings.GOOGLE_SEARCH_API_KEY
             self.custom_search_id = settings.GOOGLE_SEARCH_ENGINE_ID
-            self.search_engine = "google"  # Default to Google
-            
+            self.search_engine = "google"
+
             if not self.api_key:
-                logger.warning("Google Search API key not configured in settings")
-                # Fall back to DuckDuckGo which doesn't require API key
-                self.search_engine = "duckduckgo"
-                self.initialized = True
-                return True
-                
+                logger.warning("Google Search API key not configured - web search will be unavailable")
+
             if not self.custom_search_id:
-                logger.warning("Google Custom Search Engine ID not configured in settings")
-                # Fall back to DuckDuckGo
-                self.search_engine = "duckduckgo"
-                self.initialized = True
-                return True
-            
-            logger.info(f"Search service initialized with {self.search_engine}")
+                logger.warning("Google Custom Search Engine ID not configured - web search will be unavailable")
+
             self.initialized = True
             return True
-            
+
         except Exception as e:
             logger.error(f"Error initializing search service: {str(e)}")
             return False
@@ -291,97 +282,6 @@ class SearchService:
         # Return current date if no date found in snippet
         return datetime.utcnow().strftime("%Y-%m-%d")
 
-    async def search_duckduckgo(
-        self,
-        search_term: str,
-        num_results: int = 10,
-        region: str = "global"
-    ) -> SearchServiceResult:
-        """
-        Perform search using DuckDuckGo API (as fallback)
-        
-        Args:
-            search_term: The search query
-            num_results: Number of results to return
-            region: Geographic region for search results
-            
-        Returns:
-            SearchServiceResult containing canonical search results and metadata
-        """
-        # DuckDuckGo Instant Answer API
-        url = "https://api.duckduckgo.com/"
-        
-        params = {
-            "q": search_term,
-            "format": "json",
-            "no_html": "1",
-            "skip_disambig": "1"
-        }
-        
-        try:
-            async with aiohttp.ClientSession() as session:
-                start_time = datetime.utcnow()
-                async with session.get(url, params=params) as response:
-                    end_time = datetime.utcnow()
-                    search_time_ms = int((end_time - start_time).total_seconds() * 1000)
-                    
-                    if response.status == 200:
-                        data = await response.json()
-                        return self._format_duckduckgo_results(data, search_term, search_time_ms, num_results)
-                    else:
-                        error_text = await response.text()
-                        logger.error(f"DuckDuckGo search API error {response.status}: {error_text}")
-                        raise Exception(f"Search API error: {response.status} - {error_text}")
-                        
-        except Exception as e:
-            logger.error(f"Error performing DuckDuckGo search: {str(e)}")
-            raise
-
-    def _format_duckduckgo_results(self, data: Dict[str, Any], search_term: str, search_time_ms: int, num_results: int) -> SearchServiceResult:
-        """
-        Format DuckDuckGo API results into our service result format
-        
-        Returns:
-            SearchServiceResult with canonical search results and metadata
-        """
-        # DuckDuckGo instant answers are limited, so we create a basic response
-        search_results: List[CanonicalSearchResult] = []
-        
-        # Add instant answer if available
-        if data.get("AbstractText"):
-            result = CanonicalSearchResult(
-                title=data.get("AbstractSource", "DuckDuckGo"),
-                url=data.get("AbstractURL", ""),
-                snippet=data.get("AbstractText", ""),
-                published_date=datetime.utcnow().strftime("%Y-%m-%d"),
-                source=self._extract_domain(data.get("AbstractURL", "")),
-                rank=1
-            )
-            search_results.append(result)
-        
-        # Add related topics
-        for idx, topic in enumerate(data.get("RelatedTopics", [])[:num_results-1], 2):
-            if isinstance(topic, dict) and topic.get("Text"):
-                result = CanonicalSearchResult(
-                    title=topic.get("FirstURL", "").split("/")[-1].replace("_", " ") or "Related Topic",
-                    url=topic.get("FirstURL", ""),
-                    snippet=topic.get("Text", ""),
-                    published_date=datetime.utcnow().strftime("%Y-%m-%d"),
-                    source=self._extract_domain(topic.get("FirstURL", "")),
-                    rank=idx
-                )
-                search_results.append(result)
-        
-        return SearchServiceResult(
-            search_results=search_results,
-            query=search_term,
-            total_results=len(search_results),
-            search_time=search_time_ms,
-            timestamp=datetime.utcnow().isoformat(),
-            search_engine=self.search_engine,
-            metadata=None
-        )
-
     async def search(
         self,
         search_term: str,
@@ -391,51 +291,37 @@ class SearchService:
         language: str = "en"
     ) -> SearchServiceResult:
         """
-        Perform web search using the configured search engine
-        
+        Perform web search using Google Custom Search API.
+
         Args:
             search_term: The search query
             num_results: Number of results to return
             date_range: Date range filter
             region: Geographic region for search results
             language: Language for search results
-            
+
         Returns:
             SearchServiceResult containing canonical search results and metadata
+
+        Raises:
+            SearchAPIError: If Google API keys are not configured or search fails
+            SearchQuotaExceededError: If Google API quota is exceeded
         """
         if not self.initialized:
-            # Auto-initialize if not already done
             if not self.initialize():
                 raise ValueError("Search service could not be initialized")
-        
-        try:
-            if self.search_engine == "google" and self.api_key and self.custom_search_id:
-                try:
-                    return await self.search_google(search_term, num_results, date_range, region, language)
-                except SearchQuotaExceededError as e:
-                    # Fallback to DuckDuckGo on quota exceeded
-                    logger.warning(f"Google quota exceeded, falling back to DuckDuckGo: {e}")
-                    result = await self.search_duckduckgo(search_term, num_results, region)
-                    # Mark in metadata that we fell back
-                    result["metadata"] = {"fallback_reason": "google_quota_exceeded"}
-                    return result
-                except SearchAPIError as e:
-                    if e.is_retryable:
-                        # For retryable errors, try DuckDuckGo as fallback
-                        logger.warning(f"Google search failed (retryable), falling back to DuckDuckGo: {e}")
-                        result = await self.search_duckduckgo(search_term, num_results, region)
-                        result["metadata"] = {"fallback_reason": "google_error"}
-                        return result
-                    raise  # Non-retryable errors should propagate
-            elif self.search_engine == "duckduckgo":
-                return await self.search_duckduckgo(search_term, num_results, region)
-            else:
-                # Fallback to DuckDuckGo if Google not properly configured
-                logger.warning(f"Search engine '{self.search_engine}' not properly configured, falling back to DuckDuckGo")
-                return await self.search_duckduckgo(search_term, num_results, region)
 
+        # Check if Google API is properly configured
+        if not self.api_key or not self.custom_search_id:
+            raise SearchAPIError(
+                "Web search unavailable. Google Search API key and Custom Search Engine ID are required. "
+                "Please configure GOOGLE_SEARCH_API_KEY and GOOGLE_SEARCH_ENGINE_ID in settings.",
+                is_retryable=False
+            )
+
+        try:
+            return await self.search_google(search_term, num_results, date_range, region, language)
         except (SearchQuotaExceededError, SearchAPIError):
-            # Re-raise our custom exceptions if they make it here
             raise
         except Exception as e:
             logger.error(f"Error performing search: {str(e)}")

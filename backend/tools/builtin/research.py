@@ -417,11 +417,6 @@ class DeepResearchEngine:
                     search_service.search(search_term=query, num_results=MAX_SEARCH_RESULTS)
                 )
 
-                # Check if fallback was used (indicates quota issues)
-                metadata = result.get("metadata")
-                if metadata and metadata.get("fallback_reason") == "google_quota_exceeded":
-                    logger.info(f"Search fell back to DuckDuckGo for query: {query}")
-
                 for item in result.get("search_results", []):
                     all_results.append({
                         "title": item.title,

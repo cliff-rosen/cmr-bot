@@ -199,18 +199,6 @@ async def get_supported_search_engines(
                 "requests_per_day": 100,
                 "requests_per_second": 10
             }
-        },
-        {
-            "name": "duckduckgo",
-            "display_name": "DuckDuckGo",
-            "description": "Privacy-focused search with instant answers",
-            "requires_api_key": False,
-            "requires_custom_search_id": False,
-            "features": ["region"],
-            "rate_limits": {
-                "requests_per_day": 1000,
-                "requests_per_second": 1
-            }
         }
     ]
 
