@@ -599,8 +599,6 @@ class PubMedService:
     def _get_articles_from_ids(self, ids: List[str]) -> List[PubMedArticle]:
         """Fetch full article data from PubMed IDs."""
         BATCH_SIZE = 100
-        # NCBI rate limit: 3 requests/sec without API key, 10/sec with key
-        REQUEST_DELAY = 0.1 if self.api_key else 0.4
 
         articles = []
         batch_size = BATCH_SIZE
@@ -666,10 +664,6 @@ class PubMedService:
 
             low += batch_size
             high += batch_size
-
-            # Rate limiting delay between batches
-            if low < len(ids):
-                time.sleep(REQUEST_DELAY)
 
         return articles
 

@@ -17,6 +17,7 @@ from sqlalchemy.orm import Session
 
 from models import Asset, AssetType
 from tools.registry import ToolConfig, ToolResult, ToolProgress, register_tool, get_tool
+from tools.executor import execute_tool_sync
 
 logger = logging.getLogger(__name__)
 
@@ -76,52 +77,21 @@ def _map_item_tool(
     user_id: int
 ) -> MapResult:
     """Process a single item using a tool in the map phase."""
-    try:
-        tool_config = get_tool(tool_name)
-        if not tool_config:
-            return MapResult(
-                item=item,
-                result="",
-                success=False,
-                error=f"Tool '{tool_name}' not found"
-            )
+    tool_config = get_tool(tool_name)
+    if not tool_config:
+        return MapResult(item=item, result="", success=False, error=f"Tool '{tool_name}' not found")
 
-        params = _substitute_placeholder(params_template, "{item}", item)
-        context = {}
-        result = tool_config.executor(params, db, user_id, context)
+    params = _substitute_placeholder(params_template, "{item}", item)
 
-        # Handle streaming tools (generators)
-        if hasattr(result, '__iter__') and hasattr(result, '__next__'):
-            # It's a generator - consume it to get the final ToolResult
-            # Note: Generators can RETURN a value (via StopIteration.value) or YIELD a ToolResult
-            final_result = None
-            try:
-                while True:
-                    item_result = next(result)
-                    if isinstance(item_result, ToolResult):
-                        final_result = item_result
-            except StopIteration as e:
-                # The generator's return value is in e.value
-                if e.value is not None:
-                    if isinstance(e.value, ToolResult):
-                        final_result = e.value
-                    elif isinstance(e.value, str):
-                        final_result = ToolResult(text=e.value, data=None)
+    # Execute using shared utility (handles streaming and non-streaming tools)
+    result = execute_tool_sync(tool_config, params, db, user_id)
 
-            if final_result:
-                return MapResult(item=item, result=final_result.text, success=True)
-            else:
-                return MapResult(item=item, result="", success=False, error="Tool returned no result")
-        elif isinstance(result, ToolResult):
-            return MapResult(item=item, result=result.text, success=True)
-        elif isinstance(result, str):
-            return MapResult(item=item, result=result, success=True)
-        else:
-            return MapResult(item=item, result=str(result), success=True)
-
-    except Exception as e:
-        logger.error(f"Map tool error for item '{item}': {e}")
-        return MapResult(item=item, result="", success=False, error=str(e))
+    return MapResult(
+        item=item,
+        result=result.text,
+        success=result.success,
+        error=result.error
+    )
 
 
 def _reduce_llm(results: List[Dict[str, Any]], prompt: str) -> Tuple[str, bool, Optional[str]]:
@@ -155,50 +125,18 @@ def _reduce_tool(
     user_id: int
 ) -> Tuple[str, bool, Optional[str]]:
     """Reduce all mapped results using a tool."""
-    try:
-        tool_config = get_tool(tool_name)
-        if not tool_config:
-            return "", False, f"Tool '{tool_name}' not found"
+    tool_config = get_tool(tool_name)
+    if not tool_config:
+        return "", False, f"Tool '{tool_name}' not found"
 
-        # Substitute {results} with JSON string of results
-        results_json = json.dumps(results)
-        params = _substitute_placeholder(params_template, "{results}", results_json)
+    # Substitute {results} with JSON string of results
+    results_json = json.dumps(results)
+    params = _substitute_placeholder(params_template, "{results}", results_json)
 
-        context = {}
-        result = tool_config.executor(params, db, user_id, context)
+    # Execute using shared utility (handles streaming and non-streaming tools)
+    result = execute_tool_sync(tool_config, params, db, user_id)
 
-        # Handle streaming tools (generators)
-        if hasattr(result, '__iter__') and hasattr(result, '__next__'):
-            # It's a generator - consume it to get the final ToolResult
-            # Note: Generators can RETURN a value (via StopIteration.value) or YIELD a ToolResult
-            final_result = None
-            try:
-                while True:
-                    item_result = next(result)
-                    if isinstance(item_result, ToolResult):
-                        final_result = item_result
-            except StopIteration as e:
-                # The generator's return value is in e.value
-                if e.value is not None:
-                    if isinstance(e.value, ToolResult):
-                        final_result = e.value
-                    elif isinstance(e.value, str):
-                        final_result = ToolResult(text=e.value, data=None)
-
-            if final_result:
-                return final_result.text, True, None
-            else:
-                return "", False, "Tool returned no result"
-        elif isinstance(result, ToolResult):
-            return result.text, True, None
-        elif isinstance(result, str):
-            return result, True, None
-        else:
-            return str(result), True, None
-
-    except Exception as e:
-        logger.error(f"Reduce tool error: {e}")
-        return "", False, str(e)
+    return result.text, result.success, result.error
 
 
 def _load_items_from_asset(db: Session, user_id: int, asset_id: int) -> List[str]:

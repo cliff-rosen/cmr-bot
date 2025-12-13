@@ -8,6 +8,7 @@ for executing tools (both streaming and non-streaming).
 import asyncio
 import types
 import logging
+from dataclasses import dataclass
 from typing import Any, Coroutine, Dict, AsyncGenerator, Optional, Tuple, TypeVar, Union, TYPE_CHECKING
 
 from tools.registry import ToolResult, ToolProgress, ToolConfig
@@ -18,6 +19,114 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 T = TypeVar('T')
+
+
+@dataclass
+class ToolExecutionResult:
+    """Result of executing a tool (streaming or non-streaming)."""
+    text: str
+    data: Optional[Dict[str, Any]]
+    success: bool
+    error: Optional[str] = None
+
+
+def consume_tool_generator(generator) -> ToolExecutionResult:
+    """
+    Consume a streaming tool generator and return the final result.
+
+    Handles both generators that YIELD ToolResult and those that RETURN ToolResult.
+    Also checks the result's data.success field to determine if the tool reported failure.
+
+    Args:
+        generator: A generator from a streaming tool executor
+
+    Returns:
+        ToolExecutionResult with the tool's output and success status
+    """
+    final_result = None
+
+    try:
+        while True:
+            item = next(generator)
+            if isinstance(item, ToolResult):
+                final_result = item
+            # ToolProgress items are ignored when consuming synchronously
+    except StopIteration as e:
+        # The generator's return value is in e.value
+        if e.value is not None:
+            if isinstance(e.value, ToolResult):
+                final_result = e.value
+            elif isinstance(e.value, str):
+                final_result = ToolResult(text=e.value, data=None)
+
+    if final_result:
+        # Check if tool indicated failure in its data
+        success = True
+        error = None
+        if final_result.data and isinstance(final_result.data, dict):
+            if final_result.data.get("success") is False:
+                success = False
+                error = final_result.data.get("error") or final_result.data.get("reason") or "Tool reported failure"
+        return ToolExecutionResult(
+            text=final_result.text,
+            data=final_result.data,
+            success=success,
+            error=error
+        )
+    else:
+        return ToolExecutionResult(
+            text="",
+            data=None,
+            success=False,
+            error="Tool returned no result"
+        )
+
+
+def execute_tool_sync(
+    tool_config: ToolConfig,
+    tool_input: Dict[str, Any],
+    db: Any,
+    user_id: int,
+    context: Optional[Dict[str, Any]] = None
+) -> ToolExecutionResult:
+    """
+    Execute a tool synchronously and return the result.
+
+    Handles both streaming (generator) and non-streaming tools.
+
+    Args:
+        tool_config: The tool configuration
+        tool_input: Parameters to pass to the tool
+        db: Database session
+        user_id: Current user ID
+        context: Optional execution context
+
+    Returns:
+        ToolExecutionResult with the tool's output and success status
+    """
+    try:
+        result = tool_config.executor(tool_input, db, user_id, context or {})
+
+        # Handle streaming tools (generators)
+        if hasattr(result, '__iter__') and hasattr(result, '__next__'):
+            return consume_tool_generator(result)
+        elif isinstance(result, ToolResult):
+            # Check if tool indicated failure in its data
+            success = True
+            error = None
+            if result.data and isinstance(result.data, dict):
+                if result.data.get("success") is False:
+                    success = False
+                    error = result.data.get("error") or result.data.get("reason") or "Tool reported failure"
+            return ToolExecutionResult(text=result.text, data=result.data, success=success, error=error)
+        elif isinstance(result, str):
+            return ToolExecutionResult(text=result, data=None, success=True)
+        else:
+            return ToolExecutionResult(text=str(result), data=None, success=True)
+
+    except Exception as e:
+        logger.error(f"Tool execution error: {e}", exc_info=True)
+        return ToolExecutionResult(text="", data=None, success=False, error=str(e))
 
 
 def run_async(coro: Coroutine[Any, Any, T]) -> T:

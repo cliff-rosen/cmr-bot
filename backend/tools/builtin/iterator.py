@@ -19,6 +19,7 @@ from sqlalchemy.orm import Session
 
 from models import Asset, AssetType
 from tools.registry import ToolConfig, ToolResult, ToolProgress, register_tool, get_tool
+from tools.executor import execute_tool_sync
 
 logger = logging.getLogger(__name__)
 
@@ -89,70 +90,22 @@ def _process_item_tool(
     user_id: int
 ) -> ItemResult:
     """Process a single item using a tool."""
-    try:
-        tool_config = get_tool(tool_name)
-        if not tool_config:
-            return ItemResult(
-                item=item,
-                result="",
-                success=False,
-                error=f"Tool '{tool_name}' not found"
-            )
+    tool_config = get_tool(tool_name)
+    if not tool_config:
+        return ItemResult(item=item, result="", success=False, error=f"Tool '{tool_name}' not found")
 
-        # Substitute {item} in the params template
-        params = _substitute_item(params_template, item)
+    # Substitute {item} in the params template
+    params = _substitute_item(params_template, item)
 
-        # Execute the tool synchronously
-        context = {}
-        result = tool_config.executor(params, db, user_id, context)
+    # Execute using shared utility (handles streaming and non-streaming tools)
+    result = execute_tool_sync(tool_config, params, db, user_id)
 
-        # Handle streaming tools (generators)
-        if hasattr(result, '__iter__') and hasattr(result, '__next__'):
-            # It's a generator - consume it to get the final ToolResult
-            # Note: Generators can RETURN a value (via StopIteration.value) or YIELD a ToolResult
-            final_result = None
-            try:
-                while True:
-                    item_result = next(result)
-                    if isinstance(item_result, ToolResult):
-                        final_result = item_result
-                    # ToolProgress items are ignored (we're not streaming from iterator)
-            except StopIteration as e:
-                # The generator's return value is in e.value
-                if e.value is not None:
-                    if isinstance(e.value, ToolResult):
-                        final_result = e.value
-                    elif isinstance(e.value, str):
-                        final_result = ToolResult(text=e.value, data=None)
-
-            if final_result:
-                # Check if tool indicated failure in its data
-                tool_success = True
-                tool_error = None
-                if final_result.data and isinstance(final_result.data, dict):
-                    if final_result.data.get("success") is False:
-                        tool_success = False
-                        tool_error = final_result.data.get("error") or final_result.data.get("reason") or "Tool reported failure"
-                return ItemResult(item=item, result=final_result.text, success=tool_success, error=tool_error)
-            else:
-                return ItemResult(item=item, result="", success=False, error="Tool returned no result")
-        elif isinstance(result, ToolResult):
-            # Check if tool indicated failure in its data
-            tool_success = True
-            tool_error = None
-            if result.data and isinstance(result.data, dict):
-                if result.data.get("success") is False:
-                    tool_success = False
-                    tool_error = result.data.get("error") or result.data.get("reason") or "Tool reported failure"
-            return ItemResult(item=item, result=result.text, success=tool_success, error=tool_error)
-        elif isinstance(result, str):
-            return ItemResult(item=item, result=result, success=True)
-        else:
-            return ItemResult(item=item, result=str(result), success=True)
-
-    except Exception as e:
-        logger.error(f"Tool processing error for item '{item}': {e}")
-        return ItemResult(item=item, result="", success=False, error=str(e))
+    return ItemResult(
+        item=item,
+        result=result.text,
+        success=result.success,
+        error=result.error
+    )
 
 
 def _load_items_from_asset(db: Session, user_id: int, asset_id: int) -> List[str]:

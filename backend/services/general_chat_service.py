@@ -135,7 +135,7 @@ class GeneralChatService:
                     break
 
                 iteration += 1
-                logger.info(f"Loop iteration {iteration}")
+                logger.debug(f"Loop iteration {iteration}")
 
                 async with self.async_client.messages.stream(**api_kwargs) as stream:
                     async for event in stream:
@@ -254,11 +254,12 @@ class GeneralChatService:
                 if tool_result_str and ("<generator object" in tool_result_str or "Generator" in tool_result_str):
                     logger.error(f"BUG: Tool {tool_name} returned generator object instead of result: {tool_result_str[:200]}")
 
-                # Log what the LLM will see as the tool result
-                result_preview = tool_result_str[:500] if tool_result_str else "(empty)"
-                if len(tool_result_str) > 500:
-                    result_preview += f"... (truncated, total {len(tool_result_str)} chars)"
-                logger.info(f"Tool result for {tool_name} (sending to LLM): {result_preview}")
+                # Log what the LLM will see as the tool result (debug level - can be verbose)
+                if logger.isEnabledFor(logging.DEBUG):
+                    result_preview = tool_result_str[:500] if tool_result_str else "(empty)"
+                    if len(tool_result_str) > 500:
+                        result_preview += f"... (truncated, total {len(tool_result_str)} chars)"
+                    logger.debug(f"Tool result for {tool_name}: {result_preview}")
 
                 yield ChatStatusResponse(
                     status=f"Completed {tool_name}",
