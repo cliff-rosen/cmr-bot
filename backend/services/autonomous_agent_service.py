@@ -232,8 +232,12 @@ class AutonomousAgentService:
     def _create_event_handler(self, run_id: int):
         """Create an event callback for the agent loop that logs to DB."""
         def handle_event(event: AgentEvent):
+            event_type_name = type(event).__name__
+            logger.debug(f"[Run {run_id}] Received event: {event_type_name}")
+
             try:
                 if isinstance(event, AgentThinking):
+                    logger.info(f"[Run {run_id}] THINKING: {event.message}")
                     self.log_event(
                         run_id,
                         AgentRunEventType.THINKING,
@@ -241,11 +245,12 @@ class AutonomousAgentService:
                     )
                 elif isinstance(event, AgentMessage):
                     # Log the actual LLM response - truncate if very long
-                    text_preview = event.text[:1000] if len(event.text) > 1000 else event.text
+                    text_preview = event.text[:500] if len(event.text) > 500 else event.text
+                    logger.info(f"[Run {run_id}] MESSAGE (iter {event.iteration}): {text_preview[:200]}...")
                     self.log_event(
                         run_id,
                         AgentRunEventType.MESSAGE,
-                        f"[Iteration {event.iteration}] {text_preview}",
+                        f"[Iteration {event.iteration}] {event.text[:1000] if len(event.text) > 1000 else event.text}",
                         {"iteration": event.iteration, "full_text": event.text[:2000]}
                     )
                 elif isinstance(event, AgentToolStart):
@@ -338,23 +343,33 @@ class AutonomousAgentService:
         event_handler = self._create_event_handler(run_id)
 
         try:
+            # Debug: Log all registered tools in the system
+            from tools import get_all_tools
+            all_registered = [t.name for t in get_all_tools()]
+            logger.info(f"All registered tools in system: {all_registered}")
+
             # Build tool configs
             tool_configs = {}
             for tool_name in (agent.tools or []):
                 config = get_tool(tool_name)
                 if config:
                     tool_configs[tool_name] = config
+                else:
+                    logger.warning(f"Tool '{tool_name}' not found in registry")
 
             # Log what tools are available
             configured_tools = list(tool_configs.keys())
+            logger.info(f"Agent {agent.agent_id} requested tools: {agent.tools}, configured: {configured_tools}")
+
             self.log_event(
                 run_id,
                 AgentRunEventType.STATUS,
-                f"Tools configured: {configured_tools if configured_tools else 'None'}",
+                f"Tools configured: {configured_tools if configured_tools else 'None'} (from {len(all_registered)} registered)",
                 {
                     "requested_tools": agent.tools or [],
                     "available_tools": configured_tools,
-                    "missing_tools": [t for t in (agent.tools or []) if t not in tool_configs]
+                    "missing_tools": [t for t in (agent.tools or []) if t not in tool_configs],
+                    "all_registered_tools": all_registered
                 }
             )
 

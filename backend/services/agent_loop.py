@@ -177,6 +177,12 @@ async def run_agent_loop(
         for config in tools.values()
     ] if tools else None
 
+    # Log tool configuration
+    if anthropic_tools:
+        logger.info(f"Agent loop starting with {len(anthropic_tools)} tools: {[t['name'] for t in anthropic_tools]}")
+    else:
+        logger.warning("Agent loop starting with NO TOOLS - model will not be able to use tools!")
+
     # API kwargs
     api_kwargs = {
         "model": model,
@@ -247,9 +253,13 @@ async def run_agent_loop(
             # Check for tool use
             tool_use_blocks = [b for b in response.content if b.type == "tool_use"]
 
+            # Debug: log response content types
+            content_types = [b.type for b in response.content]
+            logger.info(f"Response content blocks: {content_types}, stop_reason: {response.stop_reason}")
+
             if not tool_use_blocks:
                 # No tool calls - we're done
-                logger.info(f"Agent loop complete after {iteration} iterations")
+                logger.info(f"Agent loop complete after {iteration} iterations (no tool_use blocks found)")
                 yield AgentComplete(text=collected_text, tool_calls=tool_call_history)
                 return
 
