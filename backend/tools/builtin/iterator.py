@@ -19,7 +19,8 @@ from sqlalchemy.orm import Session
 from models import Asset, AssetType
 from tools.registry import ToolConfig, ToolResult, ToolProgress, register_tool, get_tool, get_all_tools
 from tools.executor import execute_tool_sync
-from services.agent_loop import run_agent_loop_sync, CancellationToken
+
+# Note: run_agent_loop_sync imported lazily in _process_item_agent to avoid circular import
 
 logger = logging.getLogger(__name__)
 
@@ -116,12 +117,15 @@ def _process_item_agent(
     max_iterations: int,
     db: Session,
     user_id: int,
-    cancellation_token: Optional[CancellationToken] = None
+    cancellation_token: Optional[Any] = None  # Actually CancellationToken, but avoiding circular import
 ) -> ItemResult:
     """Process a single item using an agentic loop with tools.
 
     Uses the shared run_agent_loop_sync for the agentic processing.
     """
+    # Lazy import to avoid circular dependency
+    from services.agent_loop import run_agent_loop_sync
+
     try:
         # Build tool configs for allowed tools
         tool_configs = {}

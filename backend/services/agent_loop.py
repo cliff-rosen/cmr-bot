@@ -10,16 +10,16 @@ Used by:
 - Iterator tool (per-item agent processing)
 """
 
-from dataclasses import dataclass, field
-from typing import Any, AsyncGenerator, Dict, List, Optional, Tuple
-
-import anthropic
 import asyncio
 import logging
+import os
+from dataclasses import dataclass, field
+from typing import Any, AsyncGenerator, Callable, Dict, List, Optional, Tuple
 
+import anthropic
 from sqlalchemy.orm import Session
 
-from tools import ToolConfig, ToolResult, ToolProgress, execute_streaming_tool, execute_tool
+from tools import ToolConfig, ToolProgress, execute_streaming_tool, execute_tool
 
 logger = logging.getLogger(__name__)
 
@@ -79,7 +79,7 @@ class AgentComplete(AgentEvent):
 @dataclass
 class AgentCancelled(AgentEvent):
     """Emitted when the agent loop is cancelled."""
-    text: str  # Partial text collected so far
+    text: str
     tool_calls: List[Dict[str, Any]]
 
 
@@ -87,7 +87,7 @@ class AgentCancelled(AgentEvent):
 class AgentError(AgentEvent):
     """Emitted when an error occurs."""
     error: str
-    text: str = ""  # Partial text collected so far
+    text: str = ""
     tool_calls: List[Dict[str, Any]] = field(default_factory=list)
 
 
@@ -115,7 +115,7 @@ class CancellationToken:
 
 
 # =============================================================================
-# Main Agent Loop
+# Main Agent Loop (Async)
 # =============================================================================
 
 async def run_agent_loop(
@@ -369,10 +369,13 @@ def run_agent_loop_sync(
     context: Optional[Dict[str, Any]] = None,
     cancellation_token: Optional[CancellationToken] = None,
     temperature: float = 0.7,
-    on_event: Optional[callable] = None
+    on_event: Optional[Callable[[AgentEvent], None]] = None
 ) -> Tuple[str, List[Dict[str, Any]], Optional[str]]:
     """
-    Synchronous version of run_agent_loop for use in thread pools.
+    Synchronous wrapper for run_agent_loop.
+
+    Runs the async agent loop in a new event loop. Safe to call from
+    ThreadPoolExecutor threads which have no existing event loop.
 
     Args:
         ... (same as run_agent_loop, minus client and stream_text)
@@ -381,145 +384,49 @@ def run_agent_loop_sync(
     Returns:
         Tuple of (final_text, tool_calls, error_or_none)
     """
-    import anthropic
-    import os
+    async def _run() -> Tuple[str, List[Dict[str, Any]], Optional[str]]:
+        client = anthropic.AsyncAnthropic(api_key=os.getenv('ANTHROPIC_API_KEY'))
+        final_text = ""
+        final_tool_calls: List[Dict[str, Any]] = []
+        error: Optional[str] = None
 
-    client = anthropic.Anthropic(api_key=os.getenv('ANTHROPIC_API_KEY'))
+        async for event in run_agent_loop(
+            client=client,
+            model=model,
+            max_tokens=max_tokens,
+            max_iterations=max_iterations,
+            system_prompt=system_prompt,
+            messages=messages,
+            tools=tools,
+            db=db,
+            user_id=user_id,
+            context=context,
+            cancellation_token=cancellation_token,
+            stream_text=False,  # No streaming in sync mode
+            temperature=temperature
+        ):
+            # Call event callback if provided
+            if on_event:
+                on_event(event)
 
-    if context is None:
-        context = {}
+            # Extract final state from terminal events
+            if isinstance(event, AgentComplete):
+                final_text = event.text
+                final_tool_calls = event.tool_calls
+            elif isinstance(event, AgentCancelled):
+                final_text = event.text
+                final_tool_calls = event.tool_calls
+                error = "cancelled"
+            elif isinstance(event, AgentError):
+                final_text = event.text
+                final_tool_calls = event.tool_calls
+                error = event.error
 
-    if cancellation_token is None:
-        cancellation_token = CancellationToken()
+        return final_text, final_tool_calls, error
 
-    # Build Anthropic tools format
-    anthropic_tools = [
-        {
-            "name": config.name,
-            "description": config.description,
-            "input_schema": config.input_schema
-        }
-        for config in tools.values()
-    ] if tools else None
-
-    # API kwargs
-    api_kwargs = {
-        "model": model,
-        "max_tokens": max_tokens,
-        "temperature": temperature,
-        "system": system_prompt,
-        "messages": messages
-    }
-    if anthropic_tools:
-        api_kwargs["tools"] = anthropic_tools
-
-    # State
-    iteration = 0
-    collected_text = ""
-    tool_call_history: List[Dict[str, Any]] = []
-
-    if on_event:
-        on_event(AgentThinking(message="Starting..."))
-
+    # Run in a new event loop (safe in ThreadPoolExecutor threads)
+    loop = asyncio.new_event_loop()
     try:
-        while iteration < max_iterations:
-            # Check for cancellation
-            if cancellation_token.is_cancelled:
-                logger.info("Agent loop cancelled")
-                if on_event:
-                    on_event(AgentCancelled(text=collected_text, tool_calls=tool_call_history))
-                return collected_text, tool_call_history, "cancelled"
-
-            iteration += 1
-            logger.debug(f"Agent loop iteration {iteration}")
-
-            response = client.messages.create(**api_kwargs)
-
-            # Collect text from response
-            for block in response.content:
-                if hasattr(block, 'text'):
-                    collected_text += block.text
-
-            # Check for tool use
-            tool_use_blocks = [b for b in response.content if b.type == "tool_use"]
-
-            if not tool_use_blocks:
-                # No tool calls - we're done
-                logger.info(f"Agent loop complete after {iteration} iterations")
-                if on_event:
-                    on_event(AgentComplete(text=collected_text, tool_calls=tool_call_history))
-                return collected_text, tool_call_history, None
-
-            # Handle tool calls (process first one)
-            tool_block = tool_use_blocks[0]
-            tool_name = tool_block.name
-            tool_input = tool_block.input
-            tool_use_id = tool_block.id
-
-            logger.info(f"Agent tool call: {tool_name}")
-
-            if on_event:
-                on_event(AgentToolStart(
-                    tool_name=tool_name,
-                    tool_input=tool_input,
-                    tool_use_id=tool_use_id
-                ))
-
-            # Execute tool (sync version - no streaming support)
-            from tools.executor import execute_tool_sync
-
-            tool_config = tools.get(tool_name)
-            tool_result_str = ""
-            tool_result_data = None
-
-            if not tool_config:
-                tool_result_str = f"Unknown tool: {tool_name}"
-            else:
-                result = execute_tool_sync(tool_config, tool_input, db, user_id, context)
-                tool_result_str = result.text
-                tool_result_data = result.data
-
-            # Check cancellation after tool execution
-            if cancellation_token.is_cancelled:
-                if on_event:
-                    on_event(AgentCancelled(text=collected_text, tool_calls=tool_call_history))
-                return collected_text, tool_call_history, "cancelled"
-
-            # Record tool call
-            tool_call_history.append({
-                "tool_name": tool_name,
-                "input": tool_input,
-                "output": tool_result_data if tool_result_data else tool_result_str
-            })
-
-            if on_event:
-                on_event(AgentToolComplete(
-                    tool_name=tool_name,
-                    result_text=tool_result_str,
-                    result_data=tool_result_data
-                ))
-
-            # Add tool interaction to messages
-            assistant_content = _format_assistant_content(response.content)
-            messages.append({"role": "assistant", "content": assistant_content})
-            messages.append({
-                "role": "user",
-                "content": [{
-                    "type": "tool_result",
-                    "tool_use_id": tool_use_id,
-                    "content": tool_result_str
-                }]
-            })
-            api_kwargs["messages"] = messages
-
-        # Max iterations reached
-        logger.warning(f"Agent loop reached max iterations ({max_iterations})")
-        if on_event:
-            on_event(AgentComplete(text=collected_text, tool_calls=tool_call_history))
-        return collected_text, tool_call_history, None
-
-    except Exception as e:
-        logger.error(f"Agent loop error: {e}", exc_info=True)
-        if on_event:
-            on_event(AgentError(error=str(e), text=collected_text, tool_calls=tool_call_history))
-        return collected_text, tool_call_history, str(e)
+        return loop.run_until_complete(_run())
+    finally:
+        loop.close()
