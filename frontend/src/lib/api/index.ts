@@ -108,3 +108,6 @@ export type { Profile, ProfileUpdate } from './profileApi';
 
 export { workflowApi } from './workflowApi';
 export type { StepExecutionRequest, StepExecutionResult, StepStatusUpdate, ToolCallRecord, ToolInfo, ToolProgressUpdate } from './workflowApi';
+
+export { toolsApi } from './toolsApi';
+export type { PubMedSearchRequest, PubMedArticle, PubMedSearchResponse } from './toolsApi';

@@ -30,7 +30,7 @@ class ToolExecutionResult:
     error: Optional[str] = None
 
 
-def consume_tool_generator(generator) -> ToolExecutionResult:
+def _consume_tool_generator(generator) -> ToolExecutionResult:
     """
     Consume a streaming tool generator and return the final result.
 
@@ -109,7 +109,7 @@ def execute_tool_sync(
 
         # Handle streaming tools (generators)
         if hasattr(result, '__iter__') and hasattr(result, '__next__'):
-            return consume_tool_generator(result)
+            return _consume_tool_generator(result)
         elif isinstance(result, ToolResult):
             # Check if tool indicated failure in its data
             success = True
@@ -127,25 +127,6 @@ def execute_tool_sync(
     except Exception as e:
         logger.error(f"Tool execution error: {e}", exc_info=True)
         return ToolExecutionResult(text="", data=None, success=False, error=str(e))
-
-
-def run_async(coro: Coroutine[Any, Any, T]) -> T:
-    """
-    Run an async coroutine from a sync context.
-
-    This is used by tool executors that need to call async services
-    (like SearchService, WebRetrievalService) from their sync executor functions.
-
-    Uses asyncio.run() which properly creates and cleans up an event loop.
-    This is safe because tool executors run in a separate thread via asyncio.to_thread().
-
-    Args:
-        coro: The coroutine to run
-
-    Returns:
-        The result of the coroutine
-    """
-    return asyncio.run(coro)
 
 
 async def execute_streaming_tool(
@@ -292,3 +273,23 @@ async def execute_tool(
     except Exception as e:
         logger.error(f"Tool execution error: {e}", exc_info=True)
         return f"Error executing tool: {str(e)}", None
+
+
+def run_async(coro: Coroutine[Any, Any, T]) -> T:
+    """
+    Run an async coroutine from a sync context.
+
+    This is used by tool executors that need to call async services
+    (like SearchService, WebRetrievalService) from their sync executor functions.
+
+    Uses asyncio.run() which properly creates and cleans up an event loop.
+    This is safe because tool executors run in a separate thread via asyncio.to_thread().
+
+    Args:
+        coro: The coroutine to run
+
+    Returns:
+        The result of the coroutine
+    """
+    return asyncio.run(coro)
+
