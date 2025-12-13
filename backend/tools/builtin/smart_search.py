@@ -165,21 +165,21 @@ def execute_smart_search(
             "role": "user",
             "content": f"""Question: {question}
 
-Search results:
-{results_text}
+            Search results:
+            {results_text}
 
-Can you confidently answer this question using ONLY the information in these search snippets?
+            Can you confidently answer this question using ONLY the information in these search snippets?
 
-Respond with JSON:
-{{
-  "can_answer": true/false,
-  "confidence": "high"/"medium"/"low",
-  "answer": "your answer if can_answer is true, otherwise null",
-  "best_url_index": <1-indexed number of best URL to fetch if can_answer is false, otherwise null>,
-  "reasoning": "brief explanation"
-}}
+            Respond with JSON:
+            {{
+            "can_answer": true/false,
+            "confidence": "high"/"medium"/"low",
+            "answer": "your answer if can_answer is true, otherwise null",
+            "best_url_index": <1-indexed number of best URL to fetch if can_answer is false, otherwise null>,
+            "reasoning": "brief explanation"
+            }}
 
-JSON response:"""
+            JSON response:"""
         }]
     )
 
