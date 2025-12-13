@@ -437,82 +437,39 @@ class GeneralChatService:
         - Complex deliverables that need iteration
         - Projects where the user wants visibility into your process
         - Tasks where intermediate outputs might need user feedback
+        - Research or analysis of MULTIPLE items that need synthesis
+        - Comparison tasks (e.g., "compare these 5 options")
 
-        **Plan payload format:**
+        **IMPORTANT: Use the design_workflow tool**
+
+        When you decide a workflow is appropriate, DO NOT create the workflow plan yourself. Instead, call the `design_workflow` tool with the user's goal. This specialized workflow architect will design an optimal plan that leverages advanced patterns like:
+        - **map_reduce**: For processing multiple items and synthesizing results (e.g., research 5 companies and compare them)
+        - **iterate**: For applying the same operation to multiple items in parallel
+        - **Multi-source inputs**: For steps that combine data from multiple prior steps
+
+        Example: If the user asks "Research these 5 AI companies and compare them", call:
+        ```
+        design_workflow(goal="Research and compare 5 AI companies: OpenAI, Anthropic, Google DeepMind, Meta AI, and Mistral")
+        ```
+
+        The workflow builder will return an optimized plan. Then present it to the user as a `plan` payload.
+
+        **Plan payload format (after receiving from design_workflow):**
 
         ```payload
         {{
         "type": "plan",
-        "title": "<workflow title>",
-        "goal": "<what the workflow will achieve>",
-        "initial_input": "<what the user is providing to start>",
-        "steps": [
-            {{
-            "description": "<what this step does>",
-            "input_description": "<what this step takes as input>",
-            "input_source": "user" | <step_number>,
-            "output_description": "<what this step produces>",
-            "method": {{
-                "approach": "<how you'll accomplish this>",
-                "tools": ["<tool1>", "<tool2>"],
-                "reasoning": "<why this approach>"
-            }}
-            }}
-        ]
+        "title": "<from workflow>",
+        "goal": "<from workflow>",
+        "initial_input": "<user's input>",
+        "steps": [<steps from workflow>]
         }}
         ```
 
-        **input_source** indicates where this step gets its input:
-        - `"user"` - The initial input provided by the user
-        - `<step_number>` (integer) - The output from a previous step (e.g., 1, 2, 3)
-
-        **Example workflow plan:**
-
-        User: "Research the top 5 AI companies and create a comparison report"
-
-        ```payload
-        {{
-        "type": "plan",
-        "title": "AI Companies Comparison Report",
-        "goal": "Create a comprehensive comparison of the top 5 AI companies",
-        "initial_input": "User request for AI company comparison",
-        "steps": [
-            {{
-            "description": "Research and identify the top 5 AI companies",
-            "input_description": "User's criteria for 'top' AI companies",
-            "input_source": "user",
-            "output_description": "List of 5 companies with brief profiles",
-            "method": {{
-                "approach": "Web search for AI company rankings and analysis",
-                "tools": ["web_search"],
-                "reasoning": "Need current information on market leaders"
-            }}
-            }},
-            {{
-            "description": "Deep dive on each company",
-            "input_description": "The 5 identified companies",
-            "input_source": 1,
-            "output_description": "Detailed profiles for each company",
-            "method": {{
-                "approach": "Research each company's products, funding, and recent news",
-                "tools": ["web_search", "fetch_webpage"],
-                "reasoning": "Need comprehensive data for fair comparison"
-            }}
-            }},
-            {{
-            "description": "Create comparison report",
-            "input_description": "Detailed company profiles",
-            "input_source": 2,
-            "output_description": "Formatted comparison document",
-            "method": {{
-                "approach": "Synthesize research into structured comparison",
-                "tools": [],
-                "reasoning": "Analysis and writing based on gathered data"
-            }}
-            }}
-        ]
-        }}
-        ```
+        **input_sources** indicates where each step gets its input:
+        - `["user"]` - The initial input provided by the user
+        - `[1]`, `[2]` - Output from a previous step
+        - `["user", 1]` - Multiple sources combined
 
         ## Executing Workflow Steps (WIP Outputs)
 
