@@ -104,6 +104,7 @@ export default function MainPage() {
 
     // Content state
     const [selectedToolHistory, setSelectedToolHistory] = useState<ToolCall[] | null>(null);
+    const [selectedTool, setSelectedTool] = useState<ToolCall | null>(null);
     const [activePayload, setActivePayload] = useState<WorkspacePayload | null>(null);
 
     // Workflow state
@@ -247,6 +248,7 @@ export default function MainPage() {
         // Clear workspace state too
         setActivePayload(null);
         setSelectedToolHistory(null);
+        setSelectedTool(null);
         setActiveWorkflow(null);
         setExecutingStep(null);
     };
@@ -432,7 +434,15 @@ export default function MainPage() {
 
     const handleWorkspaceClose = () => {
         setSelectedToolHistory(null);
+        setSelectedTool(null);
         setActivePayload(null);
+    };
+
+    // Handler for inline tool chip clicks
+    const handleToolClick = (toolCall: ToolCall) => {
+        setSelectedToolHistory(null);
+        setActivePayload(null);
+        setSelectedTool(toolCall);
     };
 
     // Step execution state
@@ -929,8 +939,10 @@ export default function MainPage() {
                 onActionClick={handleActionClick}
                 onToolHistoryClick={(history) => {
                     setActivePayload(null);
+                    setSelectedTool(null);
                     setSelectedToolHistory(history);
                 }}
+                onToolClick={handleToolClick}
                 onSaveMessageAsAsset={handleSaveMessageAsAsset}
                 onPayloadClick={handlePayloadClick}
             />
@@ -951,6 +963,7 @@ export default function MainPage() {
             >
                 <WorkspacePanel
                     selectedToolHistory={selectedToolHistory}
+                    selectedTool={selectedTool}
                     activePayload={activePayload}
                     executingStep={executingStep}
                     stepStatus={stepStatus}

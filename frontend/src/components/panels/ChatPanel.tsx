@@ -17,6 +17,7 @@ interface ChatPanelProps {
     onValueSelect: (value: string) => void;
     onActionClick: (action: any) => void;
     onToolHistoryClick: (toolHistory: ToolCall[]) => void;
+    onToolClick: (toolCall: ToolCall) => void;
     onSaveMessageAsAsset: (message: GeneralChatMessage) => void;
     onPayloadClick: (payload: WorkspacePayload) => void;
 }
@@ -34,6 +35,7 @@ export default function ChatPanel({
     onValueSelect,
     onActionClick,
     onToolHistoryClick,
+    onToolClick,
     onSaveMessageAsAsset,
     onPayloadClick
 }: ChatPanelProps) {
@@ -213,7 +215,14 @@ export default function ChatPanel({
                                 }`}
                             >
                                 {message.role === 'assistant' ? (
-                                    <MarkdownRenderer content={displayText} />
+                                    <MarkdownRenderer
+                                        content={displayText}
+                                        toolHistory={message.custom_payload?.type === 'tool_history'
+                                            ? message.custom_payload.data as ToolCall[]
+                                            : undefined
+                                        }
+                                        onToolClick={(toolCall) => onToolClick(toolCall)}
+                                    />
                                 ) : (
                                     <div className="text-sm whitespace-pre-wrap">{displayText}</div>
                                 )}

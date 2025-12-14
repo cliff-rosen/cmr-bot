@@ -140,6 +140,120 @@ class CancellationToken:
 
 
 # =============================================================================
+# Main Agent Loop
+# =============================================================================
+
+async def run_agent_loop(
+    client: anthropic.AsyncAnthropic,
+    model: str,
+    max_tokens: int,
+    max_iterations: int,
+    system_prompt: str,
+    messages: List[Dict],
+    tools: Dict[str, ToolConfig],
+    db: Session,
+    user_id: int,
+    context: Optional[Dict[str, Any]] = None,
+    cancellation_token: Optional[CancellationToken] = None,
+    stream_text: bool = False,
+    temperature: float = 0.7
+) -> AsyncGenerator[AgentEvent, None]:
+    """
+    Generic agentic loop that yields events.
+
+    Args:
+        client: Anthropic async client
+        model: Model to use (e.g., "claude-sonnet-4-20250514")
+        max_tokens: Maximum tokens per response
+        max_iterations: Maximum tool call iterations
+        system_prompt: System prompt for the agent
+        messages: Initial message history
+        tools: Dict mapping tool name -> ToolConfig
+        db: Database session
+        user_id: User ID for tool execution
+        context: Additional context passed to tool executors
+        cancellation_token: Optional token to check for cancellation
+        stream_text: If True, yield AgentTextDelta events for streaming
+        temperature: Model temperature
+
+    Yields:
+        AgentEvent subclasses representing loop progress
+    """
+    context = context or {}
+    cancellation_token = cancellation_token or CancellationToken()
+
+    # Setup
+    api_kwargs = _build_api_kwargs(model, max_tokens, temperature, system_prompt, messages, tools)
+    collected_text = ""
+    tool_call_history: List[Dict[str, Any]] = []
+
+    yield AgentThinking(message="Starting...")
+
+    try:
+        for iteration in range(1, max_iterations + 1):
+            if cancellation_token.is_cancelled:
+                yield AgentCancelled(text=collected_text, tool_calls=tool_call_history)
+                return
+
+            logger.debug(f"Agent loop iteration {iteration}")
+
+            # 1. Call model
+            response = None
+            async for event in _call_model(client, api_kwargs, stream_text, cancellation_token):
+                if isinstance(event, _ModelResult):
+                    response = event.response
+                    collected_text += event.text
+                else:
+                    yield event
+
+            if cancellation_token.is_cancelled:
+                yield AgentCancelled(text=collected_text, tool_calls=tool_call_history)
+                return
+
+            # 2. Check for tool use
+            tool_use_blocks = [b for b in response.content if b.type == "tool_use"]
+
+            if not tool_use_blocks:
+                logger.info(f"Agent loop complete after {iteration} iterations")
+                yield AgentComplete(text=collected_text, tool_calls=tool_call_history)
+                return
+
+            # 3. Process tools
+            tool_results = None
+            async for event in _process_tools(
+                tool_use_blocks, tools, db, user_id, context, cancellation_token
+            ):
+                if isinstance(event, _ToolsResult):
+                    tool_results = event.tool_results
+                    tool_call_history.extend(event.tool_records)
+                else:
+                    yield event
+
+            # 4. Update messages for next iteration
+            _append_tool_exchange(messages, response, tool_results)
+            api_kwargs["messages"] = messages
+
+            if stream_text:
+                collected_text += "\n\n"
+                yield AgentTextDelta(text="\n\n")
+
+        # Max iterations reached
+        logger.warning(f"Agent loop reached max iterations ({max_iterations})")
+        yield AgentComplete(text=collected_text, tool_calls=tool_call_history)
+
+    except asyncio.CancelledError:
+        yield AgentCancelled(text=collected_text, tool_calls=tool_call_history)
+    except Exception as e:
+        logger.error(f"Agent loop error: {e}", exc_info=True)
+        yield AgentError(
+            error=_format_error_message(e),
+            text=collected_text,
+            tool_calls=tool_call_history
+        )
+
+
+
+# =============================================================================
 # Helper: Call Model
 # =============================================================================
 
@@ -272,119 +386,6 @@ async def _process_tools(
         )
 
     yield _ToolsResult(tool_results=tool_results, tool_records=tool_records)
-
-
-# =============================================================================
-# Main Agent Loop
-# =============================================================================
-
-async def run_agent_loop(
-    client: anthropic.AsyncAnthropic,
-    model: str,
-    max_tokens: int,
-    max_iterations: int,
-    system_prompt: str,
-    messages: List[Dict],
-    tools: Dict[str, ToolConfig],
-    db: Session,
-    user_id: int,
-    context: Optional[Dict[str, Any]] = None,
-    cancellation_token: Optional[CancellationToken] = None,
-    stream_text: bool = False,
-    temperature: float = 0.7
-) -> AsyncGenerator[AgentEvent, None]:
-    """
-    Generic agentic loop that yields events.
-
-    Args:
-        client: Anthropic async client
-        model: Model to use (e.g., "claude-sonnet-4-20250514")
-        max_tokens: Maximum tokens per response
-        max_iterations: Maximum tool call iterations
-        system_prompt: System prompt for the agent
-        messages: Initial message history
-        tools: Dict mapping tool name -> ToolConfig
-        db: Database session
-        user_id: User ID for tool execution
-        context: Additional context passed to tool executors
-        cancellation_token: Optional token to check for cancellation
-        stream_text: If True, yield AgentTextDelta events for streaming
-        temperature: Model temperature
-
-    Yields:
-        AgentEvent subclasses representing loop progress
-    """
-    context = context or {}
-    cancellation_token = cancellation_token or CancellationToken()
-
-    # Setup
-    api_kwargs = _build_api_kwargs(model, max_tokens, temperature, system_prompt, messages, tools)
-    collected_text = ""
-    tool_call_history: List[Dict[str, Any]] = []
-
-    yield AgentThinking(message="Starting...")
-
-    try:
-        for iteration in range(1, max_iterations + 1):
-            if cancellation_token.is_cancelled:
-                yield AgentCancelled(text=collected_text, tool_calls=tool_call_history)
-                return
-
-            logger.debug(f"Agent loop iteration {iteration}")
-
-            # 1. Call model
-            response = None
-            async for event in _call_model(client, api_kwargs, stream_text, cancellation_token):
-                if isinstance(event, _ModelResult):
-                    response = event.response
-                    collected_text += event.text
-                else:
-                    yield event
-
-            if cancellation_token.is_cancelled:
-                yield AgentCancelled(text=collected_text, tool_calls=tool_call_history)
-                return
-
-            # 2. Check for tool use
-            tool_use_blocks = [b for b in response.content if b.type == "tool_use"]
-
-            if not tool_use_blocks:
-                logger.info(f"Agent loop complete after {iteration} iterations")
-                yield AgentComplete(text=collected_text, tool_calls=tool_call_history)
-                return
-
-            # 3. Process tools
-            tool_results = None
-            async for event in _process_tools(
-                tool_use_blocks, tools, db, user_id, context, cancellation_token
-            ):
-                if isinstance(event, _ToolsResult):
-                    tool_results = event.tool_results
-                    tool_call_history.extend(event.tool_records)
-                else:
-                    yield event
-
-            # 4. Update messages for next iteration
-            _append_tool_exchange(messages, response, tool_results)
-            api_kwargs["messages"] = messages
-
-            if stream_text:
-                collected_text += "\n\n"
-                yield AgentTextDelta(text="\n\n")
-
-        # Max iterations reached
-        logger.warning(f"Agent loop reached max iterations ({max_iterations})")
-        yield AgentComplete(text=collected_text, tool_calls=tool_call_history)
-
-    except asyncio.CancelledError:
-        yield AgentCancelled(text=collected_text, tool_calls=tool_call_history)
-    except Exception as e:
-        logger.error(f"Agent loop error: {e}", exc_info=True)
-        yield AgentError(
-            error=_format_error_message(e),
-            text=collected_text,
-            tool_calls=tool_call_history
-        )
 
 
 # =============================================================================

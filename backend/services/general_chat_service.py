@@ -105,6 +105,7 @@ class GeneralChatService:
             # Run the agent loop
             collected_text = ""
             tool_call_history = []
+            tool_call_index = 0  # Track index for [[tool:N]] markers
 
             async for event in run_agent_loop(
                 client=self.async_client,
@@ -134,12 +135,7 @@ class GeneralChatService:
                     ).model_dump_json()
 
                 elif isinstance(event, AgentToolStart):
-                    start_marker = f" [{event.tool_name}..."
-                    collected_text += start_marker
-                    yield ChatStreamChunk(
-                        token=start_marker, response_text=None, payload=None,
-                        status="streaming", error=None, debug=None
-                    ).model_dump_json()
+                    # Just emit status, no text marker - marker comes on completion
                     yield ChatStatusResponse(
                         status=f"Running {event.tool_name}...",
                         payload={"tool": event.tool_name, "phase": "started"},
@@ -158,10 +154,12 @@ class GeneralChatService:
                     ).model_dump_json()
 
                 elif isinstance(event, AgentToolComplete):
-                    complete_marker = " complete]"
-                    collected_text += complete_marker
+                    # Emit [[tool:N]] marker that frontend will render as clickable chip
+                    tool_marker = f"[[tool:{tool_call_index}]]"
+                    collected_text += tool_marker
+                    tool_call_index += 1
                     yield ChatStreamChunk(
-                        token=complete_marker, response_text=None, payload=None,
+                        token=tool_marker, response_text=None, payload=None,
                         status="streaming", error=None, debug=None
                     ).model_dump_json()
                     yield ChatStatusResponse(
@@ -169,11 +167,6 @@ class GeneralChatService:
                         payload={"tool": event.tool_name, "phase": "completed"},
                         error=None, debug=None
                     ).model_dump_json()
-                    tool_call_history.append({
-                        "tool_name": event.tool_name,
-                        "input": {},
-                        "output": event.result_data if event.result_data else event.result_text
-                    })
 
                 elif isinstance(event, (AgentComplete, AgentCancelled)):
                     tool_call_history = event.tool_calls

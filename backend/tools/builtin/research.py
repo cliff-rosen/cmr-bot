@@ -637,7 +637,8 @@ class DeepResearchEngine:
                 "goal": state.goal,
                 "checklist": [item.to_dict() for item in state.checklist],
                 "sources": state.all_sources,
-                "iterations": state.iteration
+                "iterations": state.iteration,
+                "synthesis": synthesis  # Include for UI display
             }
         )
 

@@ -9,6 +9,7 @@ export { default as WipPayloadView } from './WipPayloadView';
 export { default as FinalPayloadView } from './FinalPayloadView';
 export { default as StandardPayloadView } from './StandardPayloadView';
 export { default as ToolHistoryView } from './ToolHistoryView';
+export { default as ToolResultView } from './ToolResultView';
 export { default as AgentPayloadView } from './AgentPayloadView';
 export { default as TablePayloadView } from './TablePayloadView';
 export { default as WorkflowPipelineView } from './WorkflowPipelineView';

@@ -6,6 +6,7 @@ import {
     StepExecutingView,
     StandardPayloadView,
     ToolHistoryView,
+    ToolResultView,
     AgentPayloadView,
     TablePayloadView,
     WorkflowPipelineView,
@@ -16,6 +17,7 @@ import {
 
 interface WorkspacePanelProps {
     selectedToolHistory: ToolCall[] | null;
+    selectedTool: ToolCall | null;
     activePayload: WorkspacePayload | null;
     executingStep: WorkflowStep | null;
     stepStatus: string;
@@ -54,6 +56,7 @@ interface WorkspacePanelProps {
 
 export default function WorkspacePanel({
     selectedToolHistory,
+    selectedTool,
     activePayload,
     executingStep,
     stepStatus,
@@ -97,13 +100,14 @@ export default function WorkspacePanel({
     const isResearchWorkflow = activePayload?.type === 'research';
 
     // Determine what to show
-    const showWorkflowEngine = isWorkflowEngineMode && !selectedToolHistory;
-    const showWorkflowPipeline = !showWorkflowEngine && (isWorkflowMode || (isWorkflowRelatedPayload && !selectedToolHistory));
-    const showResearchWorkflow = !showWorkflowEngine && isResearchWorkflow && !selectedToolHistory;
+    const showWorkflowEngine = isWorkflowEngineMode && !selectedToolHistory && !selectedTool;
+    const showWorkflowPipeline = !showWorkflowEngine && (isWorkflowMode || (isWorkflowRelatedPayload && !selectedToolHistory && !selectedTool));
+    const showResearchWorkflow = !showWorkflowEngine && isResearchWorkflow && !selectedToolHistory && !selectedTool;
     const showExecuting = !showWorkflowEngine && executingStep !== null && !showWorkflowPipeline && !showResearchWorkflow;
-    const showPayload = !showWorkflowEngine && activePayload && !selectedToolHistory && !showExecuting && !showWorkflowPipeline && !showResearchWorkflow;
-    const showToolHistory = !showWorkflowEngine && selectedToolHistory && selectedToolHistory.length > 0 && !showExecuting && !showWorkflowPipeline && !showResearchWorkflow;
-    const showEmpty = !showPayload && !showToolHistory && !showExecuting && !showWorkflowPipeline && !showResearchWorkflow && !showWorkflowEngine;
+    const showPayload = !showWorkflowEngine && activePayload && !selectedToolHistory && !selectedTool && !showExecuting && !showWorkflowPipeline && !showResearchWorkflow;
+    const showToolResult = !showWorkflowEngine && selectedTool && !showExecuting && !showWorkflowPipeline && !showResearchWorkflow;
+    const showToolHistory = !showWorkflowEngine && selectedToolHistory && selectedToolHistory.length > 0 && !selectedTool && !showExecuting && !showWorkflowPipeline && !showResearchWorkflow;
+    const showEmpty = !showPayload && !showToolHistory && !showToolResult && !showExecuting && !showWorkflowPipeline && !showResearchWorkflow && !showWorkflowEngine;
 
     // For workflow engine, render with WorkflowExecutionView
     if (showWorkflowEngine && workflowInstance && workflowHandlers) {
@@ -174,23 +178,27 @@ export default function WorkspacePanel({
                     <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
                         {showExecuting
                             ? `Executing Step ${executingStep.step_number}`
-                            : showToolHistory
-                                ? 'Tool History'
-                                : showPayload
-                                    ? activePayload.title
-                                    : 'Workspace'}
+                            : showToolResult
+                                ? 'Tool Result'
+                                : showToolHistory
+                                    ? 'Tool History'
+                                    : showPayload
+                                        ? activePayload.title
+                                        : 'Workspace'}
                     </h2>
                     <p className="text-sm text-gray-500 dark:text-gray-400">
                         {showExecuting
                             ? 'Please wait...'
-                            : showToolHistory
-                                ? `${selectedToolHistory.length} tool call(s)`
-                                : showPayload
-                                    ? config?.label
-                                    : 'Collaborative space'}
+                            : showToolResult
+                                ? selectedTool.tool_name.replace(/_/g, ' ')
+                                : showToolHistory
+                                    ? `${selectedToolHistory.length} tool call(s)`
+                                    : showPayload
+                                        ? config?.label
+                                        : 'Collaborative space'}
                     </p>
                 </div>
-                {(showToolHistory || showPayload) && (
+                {(showToolResult || showToolHistory || showPayload) && (
                     <button
                         onClick={onClose}
                         className="p-2 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
@@ -236,6 +244,14 @@ export default function WorkspacePanel({
                         payload={activePayload}
                         onSaveAsAsset={onSavePayloadAsAsset}
                         onPayloadEdit={onPayloadEdit}
+                    />
+                )}
+
+                {/* Single Tool Result View */}
+                {showToolResult && selectedTool && (
+                    <ToolResultView
+                        toolCall={selectedTool}
+                        onSaveAsAsset={onSaveAsAsset}
                     />
                 )}
 
