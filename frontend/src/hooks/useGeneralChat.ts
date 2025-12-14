@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
-import { generalChatApi, ToolProgressPayload } from '../lib/api/generalChatApi';
+import { generalChatApi, ToolProgressEvent } from '../lib/api/generalChatApi';
 import { conversationApi, Conversation } from '../lib/api/conversationApi';
 import {
     GeneralChatMessage,
@@ -9,7 +9,7 @@ import {
 
 export interface ActiveToolProgress {
     toolName: string;
-    updates: ToolProgressPayload[];
+    updates: ToolProgressEvent[];
 }
 
 interface UseGeneralChatOptions {
@@ -87,7 +87,7 @@ export function useGeneralChat(options: UseGeneralChatOptions = {}) {
         let collectedText = '';
 
         try {
-            for await (const chunk of generalChatApi.streamMessage({
+            for await (const event of generalChatApi.streamMessage({
                 message: content,
                 conversation_id: conversationId ?? undefined,
                 context,
@@ -96,91 +96,91 @@ export function useGeneralChat(options: UseGeneralChatOptions = {}) {
                 enabled_tools: enabledTools,
                 include_profile: includeProfile
             }, abortController.signal)) {
-                if (chunk.error) {
-                    setError(chunk.error);
-                    // Add error as a visible message so the user knows what happened
-                    const errorMessage: GeneralChatMessage = {
-                        role: 'assistant',
-                        content: `**Error:** ${chunk.error}\n\nPlease try again or check your API configuration.`,
-                        timestamp: new Date().toISOString()
-                    };
-                    setMessages(prev => [...prev, errorMessage]);
-                    setStreamingText('');
-                    setStatusText(null);
-                    setActiveToolProgress(null);
-                    break;
-                }
+                switch (event.type) {
+                    case 'text_delta':
+                        // Clear status when streaming text (unless it's "Completed...")
+                        setStatusText(prev => prev?.startsWith('Completed') ? prev : null);
+                        setActiveToolProgress(null);
+                        collectedText += event.text;
+                        setStreamingText(collectedText);
+                        break;
 
-                // Handle tool progress updates
-                const toolPayload = chunk.payload as ToolProgressPayload | undefined;
-                const isToolProgressUpdate = toolPayload && 'tool' in toolPayload && 'phase' in toolPayload;
+                    case 'status':
+                        console.log('[useGeneralChat] Status:', event.message);
+                        setStatusText(event.message);
+                        break;
 
-                if (isToolProgressUpdate) {
-                    if (toolPayload.phase === 'started') {
-                        // Set the high-level status when tool starts
-                        setStatusText(`Running ${toolPayload.tool.replace(/_/g, ' ')}...`);
-                        setActiveToolProgress({ toolName: toolPayload.tool, updates: [] });
-                    } else if (toolPayload.phase === 'progress') {
+                    case 'tool_start':
+                        setStatusText(`Running ${event.tool.replace(/_/g, ' ')}...`);
+                        setActiveToolProgress({ toolName: event.tool, updates: [] });
+                        break;
+
+                    case 'tool_progress':
                         setActiveToolProgress(prev => {
-                            if (prev && prev.toolName === toolPayload.tool) {
-                                return { ...prev, updates: [...prev.updates, toolPayload] };
+                            if (prev && prev.toolName === event.tool) {
+                                return { ...prev, updates: [...prev.updates, event] };
                             }
-                            return { toolName: toolPayload.tool, updates: [toolPayload] };
+                            return { toolName: event.tool, updates: [event] };
                         });
-                    } else if (toolPayload.phase === 'completed') {
-                        // Clear tool progress when completed
+                        break;
+
+                    case 'tool_complete':
                         setActiveToolProgress(null);
                         setStatusText(null);
+                        break;
+
+                    case 'complete': {
+                        const responsePayload = event.payload;
+
+                        // Update conversation ID if returned (new conversation was created)
+                        if (responsePayload.conversation_id && responsePayload.conversation_id !== conversationId) {
+                            setConversationId(responsePayload.conversation_id);
+                            // Refresh conversation list to include the new conversation
+                            conversationApi.list(50).then(convs => setConversations(convs)).catch(console.error);
+                        }
+
+                        const assistantMessage: GeneralChatMessage = {
+                            role: 'assistant',
+                            content: responsePayload.message,
+                            timestamp: new Date().toISOString(),
+                            suggested_values: responsePayload.suggested_values,
+                            suggested_actions: responsePayload.suggested_actions,
+                            custom_payload: responsePayload.custom_payload,
+                            workspace_payload: responsePayload.workspace_payload
+                        };
+                        setMessages(prev => {
+                            console.log('[setMessages] Adding assistant message, prev:', prev.length, prev.map(m => m.role));
+                            return [...prev, assistantMessage];
+                        });
+                        setStreamingText('');
+                        setStatusText(null);
+
+                        // Notify about tool calls if any
+                        if (onToolCallsComplete && responsePayload.custom_payload?.type === 'tool_history') {
+                            const toolCalls = responsePayload.custom_payload.data as Array<{ tool_name: string }>;
+                            const toolNames = toolCalls.map(tc => tc.tool_name);
+                            onToolCallsComplete(toolNames);
+                        }
+                        break;
                     }
-                }
 
-                // Handle status updates (e.g., "Thinking...") - but NOT when it's a tool progress update
-                if (chunk.status && chunk.status !== 'streaming' && chunk.status !== 'complete' && !isToolProgressUpdate) {
-                    console.log('[useGeneralChat] Status update:', chunk.status);
-                    setStatusText(chunk.status);
-                }
+                    case 'error':
+                        setError(event.message);
+                        // Add error as a visible message so the user knows what happened
+                        const errorMessage: GeneralChatMessage = {
+                            role: 'assistant',
+                            content: `**Error:** ${event.message}\n\nPlease try again or check your API configuration.`,
+                            timestamp: new Date().toISOString()
+                        };
+                        setMessages(prev => [...prev, errorMessage]);
+                        setStreamingText('');
+                        setStatusText(null);
+                        setActiveToolProgress(null);
+                        break;
 
-                // Handle token streaming - clear status only if it's a "Running" status (not "Completed")
-                if (chunk.token) {
-                    setStatusText(prev => prev?.startsWith('Completed') ? prev : null);
-                    setActiveToolProgress(null);  // Clear tool progress when streaming text
-                    collectedText += chunk.token;
-                    setStreamingText(collectedText);
-                }
-
-                // Handle final payload (ChatResponsePayload, not ToolProgressPayload)
-                if (chunk.payload && chunk.status === 'complete' && 'message' in chunk.payload) {
-                    const responsePayload = chunk.payload;
-
-                    // Update conversation ID if returned (new conversation was created)
-                    if (responsePayload.conversation_id && responsePayload.conversation_id !== conversationId) {
-                        setConversationId(responsePayload.conversation_id);
-                        // Refresh conversation list to include the new conversation
-                        conversationApi.list(50).then(convs => setConversations(convs)).catch(console.error);
-                    }
-
-                    const assistantMessage: GeneralChatMessage = {
-                        role: 'assistant',
-                        content: responsePayload.message,
-                        timestamp: new Date().toISOString(),
-                        suggested_values: responsePayload.suggested_values,
-                        suggested_actions: responsePayload.suggested_actions,
-                        custom_payload: responsePayload.custom_payload,
-                        workspace_payload: responsePayload.workspace_payload
-                    };
-                    setMessages(prev => {
-                        console.log('[setMessages] Adding assistant message, prev:', prev.length, prev.map(m => m.role));
-                        return [...prev, assistantMessage];
-                    });
-                    setStreamingText('');
-                    setStatusText(null);
-
-                    // Notify about tool calls if any
-                    if (onToolCallsComplete && responsePayload.custom_payload?.type === 'tool_history') {
-                        const toolCalls = responsePayload.custom_payload.data as Array<{ tool_name: string }>;
-                        const toolNames = toolCalls.map(tc => tc.tool_name);
-                        onToolCallsComplete(toolNames);
-                    }
+                    case 'cancelled':
+                        setStatusText('Cancelled');
+                        break;
                 }
             }
 

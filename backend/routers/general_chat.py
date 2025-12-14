@@ -15,7 +15,16 @@ from models import User
 from routers.auth import get_current_user
 from schemas.general_chat import (
     ActionMetadata,
-    ChatResponsePayload
+    ChatResponsePayload,
+    StreamEvent,
+    TextDeltaEvent,
+    StatusEvent,
+    ToolStartEvent,
+    ToolProgressEvent,
+    ToolCompleteEvent,
+    CompleteEvent,
+    ErrorEvent,
+    CancelledEvent,
 )
 from services.general_chat_service import GeneralChatService, CancellationToken
 
@@ -39,24 +48,6 @@ class ChatRequest(BaseModel):
     include_profile: bool = True  # Whether to include user profile in context
 
 
-class ChatStreamChunk(BaseModel):
-    """Streaming response chunk from chat endpoint"""
-    token: Optional[str] = None
-    response_text: Optional[str] = None
-    payload: Optional[ChatResponsePayload] = None
-    status: Optional[str] = None
-    error: Optional[str] = None
-    debug: Optional[Any] = None
-
-
-class ChatStatusResponse(BaseModel):
-    """Status response for chat"""
-    status: str
-    payload: Optional[Any] = None
-    error: Optional[str] = None
-    debug: Optional[Any] = None
-
-
 @router.post("/stream",
     response_class=EventSourceResponse,
     responses={
@@ -66,8 +57,14 @@ class ChatStatusResponse(BaseModel):
                 "text/event-stream": {
                     "schema": {
                         "oneOf": [
-                            ChatStreamChunk.model_json_schema(),
-                            ChatStatusResponse.model_json_schema()
+                            TextDeltaEvent.model_json_schema(),
+                            StatusEvent.model_json_schema(),
+                            ToolStartEvent.model_json_schema(),
+                            ToolProgressEvent.model_json_schema(),
+                            ToolCompleteEvent.model_json_schema(),
+                            CompleteEvent.model_json_schema(),
+                            ErrorEvent.model_json_schema(),
+                            CancelledEvent.model_json_schema(),
                         ]
                     }
                 }
@@ -125,17 +122,9 @@ async def chat_stream(
             logger.info("Chat stream cancelled")
         except Exception as e:
             logger.error(f"Error in chat stream: {str(e)}")
-            error_response = ChatStreamChunk(
-                token=None,
-                response_text=None,
-                payload=None,
-                status=None,
-                error=str(e),
-                debug=None
-            )
             yield {
                 "event": "message",
-                "data": error_response.model_dump_json()
+                "data": ErrorEvent(message=str(e)).model_dump_json()
             }
         finally:
             # Clean up: cancel the monitor and mark token as cancelled

@@ -12,7 +12,17 @@ import anthropic
 import os
 import logging
 
-from schemas.general_chat import ChatResponsePayload
+from schemas.general_chat import (
+    ChatResponsePayload,
+    TextDeltaEvent,
+    StatusEvent,
+    ToolStartEvent,
+    ToolProgressEvent,
+    ToolCompleteEvent,
+    CompleteEvent,
+    ErrorEvent,
+    CancelledEvent,
+)
 from tools import get_all_tools
 from services.conversation_service import ConversationService
 from services.memory_service import MemoryService
@@ -64,8 +74,6 @@ class GeneralChatService:
             request: The chat request
             cancellation_token: Optional token to check for cancellation
         """
-        from routers.general_chat import ChatStreamChunk, ChatStatusResponse
-
         # Create a no-op token if none provided
         if cancellation_token is None:
             cancellation_token = CancellationToken()
@@ -95,12 +103,7 @@ class GeneralChatService:
             )
 
             # Send initial status
-            yield ChatStatusResponse(
-                status="Thinking...",
-                payload=None,
-                error=None,
-                debug=None
-            ).model_dump_json()
+            yield StatusEvent(message="Thinking...").model_dump_json()
 
             # Run the agent loop
             collected_text = ""
@@ -123,63 +126,47 @@ class GeneralChatService:
                 temperature=0.7
             ):
                 if isinstance(event, AgentThinking):
-                    yield ChatStatusResponse(
-                        status=event.message, payload=None, error=None, debug=None
-                    ).model_dump_json()
+                    yield StatusEvent(message=event.message).model_dump_json()
 
                 elif isinstance(event, AgentTextDelta):
                     collected_text += event.text
-                    yield ChatStreamChunk(
-                        token=event.text, response_text=None, payload=None,
-                        status="streaming", error=None, debug=None
-                    ).model_dump_json()
+                    yield TextDeltaEvent(text=event.text).model_dump_json()
 
                 elif isinstance(event, AgentToolStart):
-                    # Just emit status, no text marker - marker comes on completion
-                    yield ChatStatusResponse(
-                        status=f"Running {event.tool_name}...",
-                        payload={"tool": event.tool_name, "phase": "started"},
-                        error=None, debug=None
+                    yield ToolStartEvent(
+                        tool=event.tool_name,
+                        input=event.tool_input,
+                        tool_use_id=event.tool_use_id
                     ).model_dump_json()
 
                 elif isinstance(event, AgentToolProgress):
-                    yield ChatStatusResponse(
-                        status=event.progress.message,
-                        payload={
-                            "tool": event.tool_name, "phase": "progress",
-                            "stage": event.progress.stage, "data": event.progress.data,
-                            "progress": event.progress.progress
-                        },
-                        error=None, debug=None
+                    yield ToolProgressEvent(
+                        tool=event.tool_name,
+                        stage=event.progress.stage or "",
+                        message=event.progress.message or "",
+                        progress=event.progress.progress or 0.0,
+                        data=event.progress.data
                     ).model_dump_json()
 
                 elif isinstance(event, AgentToolComplete):
-                    # Emit [[tool:N]] marker that frontend will render as clickable chip
+                    # Emit [[tool:N]] marker in text stream
                     tool_marker = f"[[tool:{tool_call_index}]]"
                     collected_text += tool_marker
+                    yield TextDeltaEvent(text=tool_marker).model_dump_json()
+                    # Emit tool complete event with index for frontend to match
+                    yield ToolCompleteEvent(
+                        tool=event.tool_name,
+                        index=tool_call_index
+                    ).model_dump_json()
                     tool_call_index += 1
-                    yield ChatStreamChunk(
-                        token=tool_marker, response_text=None, payload=None,
-                        status="streaming", error=None, debug=None
-                    ).model_dump_json()
-                    yield ChatStatusResponse(
-                        status=f"Completed {event.tool_name}",
-                        payload={"tool": event.tool_name, "phase": "completed"},
-                        error=None, debug=None
-                    ).model_dump_json()
 
                 elif isinstance(event, (AgentComplete, AgentCancelled)):
                     tool_call_history = event.tool_calls
                     if isinstance(event, AgentCancelled):
-                        yield ChatStatusResponse(
-                            status="Cancelled", payload=None, error=None, debug=None
-                        ).model_dump_json()
+                        yield CancelledEvent().model_dump_json()
 
                 elif isinstance(event, AgentError):
-                    yield ChatStreamChunk(
-                        token=None, response_text=None, payload=None, status=None,
-                        error=f"Error: {event.error}", debug={"error_type": "agent_error"}
-                    ).model_dump_json()
+                    yield ErrorEvent(message=event.error).model_dump_json()
                     return
 
             # Save assistant message
@@ -209,25 +196,11 @@ class GeneralChatService:
                 workspace_payload=workspace_payload
             )
 
-            yield ChatStreamChunk(
-                token=None,
-                response_text=None,
-                payload=final_payload,
-                status="complete",
-                error=None,
-                debug=None
-            ).model_dump_json()
+            yield CompleteEvent(payload=final_payload).model_dump_json()
 
         except Exception as e:
             logger.error(f"Error in chat service: {str(e)}", exc_info=True)
-            yield ChatStreamChunk(
-                token=None,
-                response_text=None,
-                payload=None,
-                status=None,
-                error=f"Service error: {str(e)}",
-                debug={"error_type": type(e).__name__}
-            ).model_dump_json()
+            yield ErrorEvent(message=f"Service error: {str(e)}").model_dump_json()
 
     # =========================================================================
     # Conversation Helpers

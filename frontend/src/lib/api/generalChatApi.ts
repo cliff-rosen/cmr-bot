@@ -24,34 +24,87 @@ export interface ChatResponsePayload {
     workspace_payload?: WorkspacePayload;  // Direct workspace payload from tools (takes precedence over parsed message payloads)
 }
 
-export interface ToolProgressPayload {
-    tool: string;
-    phase: 'started' | 'progress' | 'completed';
-    stage?: string;
-    data?: Record<string, any>;
-    progress?: number;
+
+// ============================================================================
+// Stream Event Types (discriminated union with explicit 'type' field)
+// ============================================================================
+
+/** Streaming text token */
+export interface TextDeltaEvent {
+    type: 'text_delta';
+    text: string;
 }
 
-export interface ChatStreamChunk {
-    token?: string | null;
-    response_text?: string | null;
-    payload?: ChatResponsePayload | ToolProgressPayload | null;
-    status?: string | null;
-    error?: string | null;
-    debug?: any;
+/** Status message (thinking, processing, etc.) */
+export interface StatusEvent {
+    type: 'status';
+    message: string;
 }
+
+/** Tool execution begins */
+export interface ToolStartEvent {
+    type: 'tool_start';
+    tool: string;
+    input: any;
+    tool_use_id: string;
+}
+
+/** Tool execution progress update */
+export interface ToolProgressEvent {
+    type: 'tool_progress';
+    tool: string;
+    stage: string;
+    message: string;
+    progress: number;  // 0.0 to 1.0
+    data?: any;
+}
+
+/** Tool execution finished */
+export interface ToolCompleteEvent {
+    type: 'tool_complete';
+    tool: string;
+    index: number;  // Index into tool_history
+}
+
+/** Final response with payload */
+export interface CompleteEvent {
+    type: 'complete';
+    payload: ChatResponsePayload;
+}
+
+/** Error occurred */
+export interface ErrorEvent {
+    type: 'error';
+    message: string;
+}
+
+/** Request was cancelled */
+export interface CancelledEvent {
+    type: 'cancelled';
+}
+
+/** Discriminated union of all stream event types */
+export type StreamEvent =
+    | TextDeltaEvent
+    | StatusEvent
+    | ToolStartEvent
+    | ToolProgressEvent
+    | ToolCompleteEvent
+    | CompleteEvent
+    | ErrorEvent
+    | CancelledEvent;
 
 export const generalChatApi = {
     /**
      * Stream chat messages from the backend
      * @param request - Chat request with message, context, and interaction type
      * @param signal - Optional AbortSignal for cancellation
-     * @returns AsyncGenerator that yields stream chunks
+     * @returns AsyncGenerator that yields stream events
      */
     async* streamMessage(
         request: GeneralChatRequest,
         signal?: AbortSignal
-    ): AsyncGenerator<ChatStreamChunk> {
+    ): AsyncGenerator<StreamEvent> {
         try {
             const rawStream = makeStreamRequest('/api/chat/stream', request, 'POST', signal);
 
@@ -63,10 +116,10 @@ export const generalChatApi = {
                     if (line.startsWith('data: ')) {
                         const jsonStr = line.slice(6);
                         try {
-                            const data = JSON.parse(jsonStr);
-                            // Log non-streaming status updates
-                            if (data.status && data.status !== 'streaming') {
-                                console.log('[SSE] Received status:', data.status);
+                            const data = JSON.parse(jsonStr) as StreamEvent;
+                            // Log non-text events for debugging
+                            if (data.type !== 'text_delta') {
+                                console.log('[SSE] Event:', data.type);
                             }
                             yield data;
                         } catch (e) {
@@ -81,8 +134,8 @@ export const generalChatApi = {
                 throw error;
             }
             yield {
-                error: `Stream error: ${error instanceof Error ? error.message : String(error)}`,
-                status: null
+                type: 'error',
+                message: `Stream error: ${error instanceof Error ? error.message : String(error)}`
             };
         }
     }
