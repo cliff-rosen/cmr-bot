@@ -421,6 +421,21 @@ export default function VendorFinderWorkflowView({
     // Determine what to show based on current stage
     const showReviews = currentNodeId?.includes('final') || stepData.find_reviews;
 
+    // Check if workflow is actively running (not waiting, not completed)
+    const isRunning = instance.status === 'running';
+
+    // Get the most recent step output for display
+    const getLatestStepOutput = () => {
+        const orderedSteps = ['find_reviews', 'enrich_company_info', 'build_vendor_list', 'broad_search', 'define_criteria'];
+        for (const step of orderedSteps) {
+            if (stepData[step]) {
+                return { stepId: step, data: stepData[step] };
+            }
+        }
+        return null;
+    };
+    const latestStepOutput = getLatestStepOutput();
+
     return (
         <div className="h-full flex flex-col">
             {/* Header */}
@@ -431,7 +446,13 @@ export default function VendorFinderWorkflowView({
                             Vendor Finder
                         </h2>
                         <p className="text-sm text-gray-500">
-                            {vendors.length > 0 ? `${vendors.length} vendors found` : 'Finding vendors...'}
+                            {instance.status === 'completed'
+                                ? `Complete - ${vendors.length} vendors`
+                                : vendors.length > 0
+                                    ? `${vendors.length} vendors found`
+                                    : isRunning
+                                        ? 'Searching...'
+                                        : 'Ready'}
                         </p>
                     </div>
                     <div className="flex items-center gap-2">
@@ -456,24 +477,33 @@ export default function VendorFinderWorkflowView({
 
             {/* Content */}
             <div className="flex-1 overflow-y-auto p-6">
-                {/* Processing Indicator */}
-                {isProcessing && !isAtCheckpoint && (
-                    <div className="mb-6 p-4 bg-blue-50 dark:bg-blue-900/20 rounded-lg">
+                {/* Processing Indicator - show when running and not at checkpoint */}
+                {(isRunning || isProcessing) && !isAtCheckpoint && (
+                    <div className="mb-6 p-4 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800">
                         <div className="flex items-center gap-3">
-                            <ArrowPathIcon className="w-5 h-5 text-blue-600 animate-spin" />
-                            <div>
+                            <ArrowPathIcon className="w-5 h-5 text-blue-600 dark:text-blue-400 animate-spin flex-shrink-0" />
+                            <div className="flex-1 min-w-0">
                                 <div className="font-medium text-gray-900 dark:text-white">
-                                    {currentEvent?.node_name || 'Processing...'}
+                                    {currentEvent?.node_name || instance.current_node?.name || 'Processing...'}
                                 </div>
                                 {currentEvent?.data?.message && (
-                                    <div className="text-sm text-gray-500">
+                                    <div className="text-sm text-gray-600 dark:text-gray-400 truncate">
                                         {currentEvent.data.message}
+                                    </div>
+                                )}
+                                {!currentEvent?.data?.message && currentNodeId && (
+                                    <div className="text-sm text-gray-600 dark:text-gray-400">
+                                        {currentNodeId === 'define_criteria' && 'Analyzing your requirements...'}
+                                        {currentNodeId === 'broad_search' && 'Searching for vendors...'}
+                                        {currentNodeId === 'build_vendor_list' && 'Building vendor list...'}
+                                        {currentNodeId === 'enrich_company_info' && 'Researching company details...'}
+                                        {currentNodeId === 'find_reviews' && 'Finding reviews...'}
                                     </div>
                                 )}
                             </div>
                         </div>
                         {currentEvent?.data?.progress != null && (
-                            <div className="mt-2 h-1.5 bg-blue-200 dark:bg-blue-800 rounded-full overflow-hidden">
+                            <div className="mt-3 h-2 bg-blue-200 dark:bg-blue-800 rounded-full overflow-hidden">
                                 <div
                                     className="h-full bg-blue-500 transition-all duration-300"
                                     style={{ width: `${Math.round(currentEvent.data.progress * 100)}%` }}
@@ -513,11 +543,21 @@ export default function VendorFinderWorkflowView({
                     </div>
                 )}
 
-                {/* Criteria Display */}
-                {currentNodeId?.includes('criteria') && criteria && (
+                {/* Criteria Display - show after criteria is defined */}
+                {criteria && (
                     <div className="mb-6">
                         <h3 className="font-medium text-gray-900 dark:text-white mb-3">Search Criteria</h3>
                         <CriteriaView criteria={criteria} />
+                    </div>
+                )}
+
+                {/* Search Results Summary - show after broad_search completes */}
+                {stepData.broad_search && !vendors.length && (
+                    <div className="mb-6 p-4 bg-gray-50 dark:bg-gray-800 rounded-lg">
+                        <h3 className="font-medium text-gray-900 dark:text-white mb-2">Search Complete</h3>
+                        <p className="text-sm text-gray-600 dark:text-gray-400">
+                            Found {stepData.broad_search.search_results?.length || 0} search results. Building vendor list...
+                        </p>
                     </div>
                 )}
 
@@ -541,9 +581,17 @@ export default function VendorFinderWorkflowView({
                     </div>
                 )}
 
+                {/* Empty state - workflow just started */}
+                {!criteria && !vendors.length && isRunning && (
+                    <div className="text-center py-8 text-gray-500 dark:text-gray-400">
+                        <BuildingStorefrontIcon className="w-12 h-12 mx-auto mb-3 opacity-50" />
+                        <p>Starting vendor search...</p>
+                    </div>
+                )}
+
                 {/* Completed State */}
                 {instance.status === 'completed' && (
-                    <div className="mt-6 p-4 bg-green-50 dark:bg-green-900/20 rounded-lg">
+                    <div className="mt-6 p-4 bg-green-50 dark:bg-green-900/20 rounded-lg border border-green-200 dark:border-green-800">
                         <div className="flex items-center gap-2">
                             <CheckCircleIcon className="w-5 h-5 text-green-600" />
                             <span className="font-medium text-gray-900 dark:text-white">
