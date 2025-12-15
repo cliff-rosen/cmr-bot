@@ -18,6 +18,7 @@ import {
 import {
     WorkflowInstanceState,
     WorkflowHandlers,
+    WorkflowEvent,
     startWorkflowWithUI,
 } from '../lib/workflows';
 import { toast } from '../components/ui/use-toast';
@@ -102,6 +103,8 @@ export default function MainPage() {
     // Workflow engine state
     const [workflowInstance, setWorkflowInstance] = useState<WorkflowInstanceState | null>(null);
     const [workflowHandlers, setWorkflowHandlers] = useState<WorkflowHandlers | null>(null);
+    const [isWorkflowProcessing, setIsWorkflowProcessing] = useState(false);
+    const [currentWorkflowEvent, setCurrentWorkflowEvent] = useState<WorkflowEvent | null>(null);
 
     // Content state
     const [selectedToolHistory, setSelectedToolHistory] = useState<ToolCall[] | null>(null);
@@ -880,6 +883,8 @@ export default function MainPage() {
         try {
             const { handlers } = await startWorkflowWithUI(workflowId, initialInput, {
                 setWorkflowState: setWorkflowInstance,
+                setIsProcessing: setIsWorkflowProcessing,
+                setCurrentEvent: setCurrentWorkflowEvent,
                 showNotification: (message, type) => {
                     console.log(`[${type}] ${message}`);
                     // TODO: Add toast notification
@@ -892,12 +897,16 @@ export default function MainPage() {
             setSelectedToolHistory(null);
         } catch (err) {
             console.error('Failed to start workflow:', err);
+            setIsWorkflowProcessing(false);
+            setCurrentWorkflowEvent(null);
         }
     }, [conversationId]);
 
     const handleCloseWorkflowInstance = useCallback(() => {
         setWorkflowInstance(null);
         setWorkflowHandlers(null);
+        setIsWorkflowProcessing(false);
+        setCurrentWorkflowEvent(null);
     }, []);
 
     return (
@@ -1015,6 +1024,8 @@ export default function MainPage() {
                     onResearchComplete={handleResearchComplete}
                     workflowInstance={workflowInstance}
                     workflowHandlers={workflowHandlers}
+                    isWorkflowProcessing={isWorkflowProcessing}
+                    currentWorkflowEvent={currentWorkflowEvent}
                     onCloseWorkflowInstance={handleCloseWorkflowInstance}
                 />
             </div>

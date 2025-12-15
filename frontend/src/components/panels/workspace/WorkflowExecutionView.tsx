@@ -17,12 +17,14 @@ import {
     PencilIcon,
     ArrowPathIcon,
 } from '@heroicons/react/24/solid';
-import { WorkflowInstanceState, WorkflowHandlers } from '../../../lib/workflows';
+import { WorkflowInstanceState, WorkflowHandlers, WorkflowEvent } from '../../../lib/workflows';
 import { MarkdownRenderer } from '../../common/MarkdownRenderer';
 
 interface WorkflowExecutionViewProps {
     instanceState: WorkflowInstanceState;
     handlers: WorkflowHandlers;
+    isProcessing?: boolean;
+    currentEvent?: WorkflowEvent | null;
 }
 
 // Status badge component
@@ -141,6 +143,8 @@ function CheckpointPanel({
     checkpoint,
     stepData,
     handlers,
+    isLoading,
+    currentEvent,
 }: {
     checkpoint: {
         title: string;
@@ -150,6 +154,8 @@ function CheckpointPanel({
     };
     stepData: any;
     handlers: WorkflowHandlers;
+    isLoading?: boolean;
+    currentEvent?: WorkflowEvent | null;
 }) {
     const [isEditing, setIsEditing] = useState(false);
     const [editValues, setEditValues] = useState<Record<string, string>>({});
@@ -174,6 +180,128 @@ function CheckpointPanel({
         setEditValues({});
     };
 
+    // Render checklist items
+    const renderChecklistItems = (items: any[]) => (
+        <div className="space-y-2">
+            {items.map((item: any) => (
+                <div
+                    key={item.id}
+                    className="flex items-start gap-3 p-3 bg-gray-50 dark:bg-gray-800 rounded-lg"
+                >
+                    <span className={`w-2 h-2 mt-2 rounded-full flex-shrink-0 ${
+                        item.status === 'complete' ? 'bg-emerald-500' :
+                        item.status === 'partial' ? 'bg-amber-500' : 'bg-gray-300 dark:bg-gray-600'
+                    }`} />
+                    <div className="flex-1 min-w-0">
+                        <div className="font-medium text-gray-900 dark:text-white text-sm">
+                            {item.description}
+                        </div>
+                        {item.rationale && (
+                            <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                                {item.rationale}
+                            </div>
+                        )}
+                        <div className="flex items-center gap-2 mt-1">
+                            <span className={`text-xs px-1.5 py-0.5 rounded ${
+                                item.priority === 'high' ? 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400' :
+                                item.priority === 'medium' ? 'bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400' :
+                                'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400'
+                            }`}>
+                                {item.priority}
+                            </span>
+                        </div>
+                    </div>
+                </div>
+            ))}
+        </div>
+    );
+
+    // Render data based on its structure
+    const renderStepData = () => {
+        if (!stepData) return null;
+
+        if (typeof stepData === 'string') {
+            return <MarkdownRenderer content={stepData} />;
+        }
+
+        // Checklist items (from build_checklist step)
+        if (stepData.items && Array.isArray(stepData.items)) {
+            return (
+                <div className="text-gray-900 dark:text-gray-100">
+                    <p className="mb-3"><strong>Question:</strong> {stepData.refined_question}</p>
+                    <p className="font-medium text-sm text-gray-700 dark:text-gray-300 mb-2">
+                        Checklist Items ({stepData.items.length})
+                    </p>
+                    {renderChecklistItems(stepData.items)}
+                </div>
+            );
+        }
+
+        // Display content (markdown)
+        if (stepData.display_content) {
+            return <MarkdownRenderer content={stepData.display_content} />;
+        }
+
+        // Question/scope data
+        if (stepData.refined_question && !stepData.items) {
+            return (
+                <div className="text-gray-900 dark:text-gray-100">
+                    <p><strong>Question:</strong> {stepData.refined_question}</p>
+                    {stepData.scope && <p className="mt-2"><strong>Scope:</strong> {stepData.scope}</p>}
+                    {stepData.key_terms && stepData.key_terms.length > 0 && (
+                        <div className="mt-2">
+                            <strong>Key Terms:</strong>
+                            <div className="flex flex-wrap gap-1 mt-1">
+                                {stepData.key_terms.map((term: string, i: number) => (
+                                    <span key={i} className="px-2 py-0.5 bg-gray-100 dark:bg-gray-700 rounded text-sm">
+                                        {term}
+                                    </span>
+                                ))}
+                            </div>
+                        </div>
+                    )}
+                </div>
+            );
+        }
+
+        // Final answer
+        if (stepData.answer) {
+            return <MarkdownRenderer content={stepData.answer} />;
+        }
+
+        // Fallback: JSON
+        return (
+            <pre className="text-xs overflow-x-auto text-gray-900 dark:text-gray-100">
+                {JSON.stringify(stepData, null, 2)}
+            </pre>
+        );
+    };
+
+    // When loading, show a processing state instead of the checkpoint content
+    if (isLoading) {
+        const stepName = currentEvent?.node_name;
+        const eventType = currentEvent?.event_type;
+        const statusText = eventType === 'step_start' && stepName ? `Running: ${stepName}` :
+                          eventType === 'step_complete' && stepName ? `Completed: ${stepName}` :
+                          'Running next step';
+
+        return (
+            <div className="bg-gray-50 dark:bg-gray-800/50 border border-gray-200 dark:border-gray-700 rounded-xl p-4">
+                <div className="flex items-center gap-3">
+                    <ArrowPathIcon className="h-5 w-5 text-blue-600 dark:text-blue-400 animate-spin flex-shrink-0" />
+                    <div>
+                        <h3 className="font-semibold text-gray-900 dark:text-white">
+                            Processing...
+                        </h3>
+                        <p className="text-sm text-gray-600 dark:text-gray-400">
+                            {statusText}
+                        </p>
+                    </div>
+                </div>
+            </div>
+        );
+    }
+
     return (
         <div className="bg-gray-50 dark:bg-gray-800/50 border border-gray-200 dark:border-gray-700 rounded-xl p-4 space-y-4">
             <div>
@@ -189,20 +317,7 @@ function CheckpointPanel({
             {stepData && !isEditing && (
                 <div className="bg-white dark:bg-gray-900 rounded-lg p-4 border border-gray-200 dark:border-gray-700">
                     <div className="prose dark:prose-invert prose-sm max-w-none">
-                        {typeof stepData === 'string' ? (
-                            <MarkdownRenderer content={stepData} />
-                        ) : stepData.display_content ? (
-                            <MarkdownRenderer content={stepData.display_content} />
-                        ) : stepData.refined_question ? (
-                            <div className="text-gray-900 dark:text-gray-100">
-                                <p><strong>Question:</strong> {stepData.refined_question}</p>
-                                {stepData.scope && <p className="mt-2"><strong>Scope:</strong> {stepData.scope}</p>}
-                            </div>
-                        ) : (
-                            <pre className="text-xs overflow-x-auto text-gray-900 dark:text-gray-100">
-                                {JSON.stringify(stepData, null, 2)}
-                            </pre>
-                        )}
+                        {renderStepData()}
                     </div>
                 </div>
             )}
@@ -282,6 +397,8 @@ function CheckpointPanel({
 export default function WorkflowExecutionView({
     instanceState,
     handlers,
+    isProcessing = false,
+    currentEvent,
 }: WorkflowExecutionViewProps) {
     const [expandedSteps, setExpandedSteps] = useState<Set<string>>(new Set());
 
@@ -395,14 +512,35 @@ export default function WorkflowExecutionView({
                 </div>
             </div>
 
-            {/* Checkpoint panel (shown when waiting) */}
+            {/* Checkpoint panel (shown when waiting at checkpoint) */}
             {isAtCheckpoint && checkpointConfig && (
                 <div className="mb-6">
                     <CheckpointPanel
                         checkpoint={checkpointConfig}
                         stepData={checkpointStepData}
                         handlers={handlers}
+                        isLoading={isProcessing}
+                        currentEvent={currentEvent}
                     />
+                </div>
+            )}
+
+            {/* Processing indicator (shown when processing but not at checkpoint yet) */}
+            {isProcessing && !isAtCheckpoint && (
+                <div className="mb-6 bg-gray-50 dark:bg-gray-800/50 border border-gray-200 dark:border-gray-700 rounded-xl p-4">
+                    <div className="flex items-center gap-3">
+                        <ArrowPathIcon className="h-5 w-5 text-blue-600 dark:text-blue-400 animate-spin" />
+                        <div>
+                            <div className="font-medium text-gray-900 dark:text-white">Processing...</div>
+                            <div className="text-sm text-gray-500 dark:text-gray-400">
+                                {currentEvent?.event_type === 'step_start' && currentEvent?.node_name
+                                    ? `Running: ${currentEvent.node_name}`
+                                    : currentEvent?.event_type === 'step_complete' && currentEvent?.node_name
+                                        ? `Completed: ${currentEvent.node_name}`
+                                        : instanceState.current_node?.name || 'Running workflow'}
+                            </div>
+                        </div>
+                    </div>
                 </div>
             )}
 

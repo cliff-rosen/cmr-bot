@@ -1,7 +1,7 @@
 import { XMarkIcon } from '@heroicons/react/24/solid';
 import { ToolCall, WorkspacePayload, WorkflowStep, WorkflowPlan, ResearchWorkflow } from '../../types/chat';
 import { ToolCallRecord, ToolProgressUpdate } from '../../lib/api';
-import { WorkflowInstanceState, WorkflowHandlers } from '../../lib/workflows';
+import { WorkflowInstanceState, WorkflowHandlers, WorkflowEvent } from '../../lib/workflows';
 import {
     StepExecutingView,
     StandardPayloadView,
@@ -53,6 +53,8 @@ interface WorkspacePanelProps {
     // Workflow engine props
     workflowInstance?: WorkflowInstanceState | null;
     workflowHandlers?: WorkflowHandlers | null;
+    isWorkflowProcessing?: boolean;
+    currentWorkflowEvent?: WorkflowEvent | null;
     onCloseWorkflowInstance?: () => void;
 }
 
@@ -89,6 +91,8 @@ export default function WorkspacePanel({
     onResearchComplete,
     workflowInstance,
     workflowHandlers,
+    isWorkflowProcessing,
+    currentWorkflowEvent,
     onCloseWorkflowInstance: _onCloseWorkflowInstance
 }: WorkspacePanelProps) {
     void _onCloseWorkflowInstance; // Reserved for close button in workflow view
@@ -114,6 +118,32 @@ export default function WorkspacePanel({
     const showToolHistory = !showWorkflowEngine && selectedToolHistory && selectedToolHistory.length > 0 && !selectedTool && !showExecuting && !showWorkflowPipeline && !showResearchWorkflow && !showResearchResult;
     const showEmpty = !showPayload && !showToolHistory && !showToolResult && !showExecuting && !showWorkflowPipeline && !showResearchWorkflow && !showResearchResult && !showWorkflowEngine;
 
+    // Show initial loading state when workflow is starting but no instance yet
+    if (isWorkflowProcessing && !workflowInstance) {
+        const stepName = currentWorkflowEvent?.node_name || 'Initializing';
+        const eventType = currentWorkflowEvent?.event_type;
+        const statusText = eventType === 'step_start' ? `Running: ${stepName}` :
+                          eventType === 'step_complete' ? `Completed: ${stepName}` :
+                          stepName;
+
+        return (
+            <div className="flex flex-col h-full bg-gray-50 dark:bg-gray-950">
+                <div className="flex-1 flex items-center justify-center">
+                    <div className="text-center">
+                        <div className="inline-flex items-center justify-center w-12 h-12 bg-blue-100 dark:bg-blue-900/30 rounded-full mb-4">
+                            <svg className="w-6 h-6 text-blue-600 dark:text-blue-400 animate-spin" fill="none" viewBox="0 0 24 24">
+                                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                            </svg>
+                        </div>
+                        <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-1">Starting Workflow</h3>
+                        <p className="text-sm text-gray-500 dark:text-gray-400">{statusText}</p>
+                    </div>
+                </div>
+            </div>
+        );
+    }
+
     // For workflow engine, render with WorkflowExecutionView
     if (showWorkflowEngine && workflowInstance && workflowHandlers) {
         return (
@@ -121,6 +151,8 @@ export default function WorkspacePanel({
                 <WorkflowExecutionView
                     instanceState={workflowInstance}
                     handlers={workflowHandlers}
+                    isProcessing={isWorkflowProcessing}
+                    currentEvent={currentWorkflowEvent}
                 />
             </div>
         );

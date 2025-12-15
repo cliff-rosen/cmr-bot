@@ -15,6 +15,10 @@ export interface WorkflowDeps {
     setWorkflowState: (state: WorkflowInstanceState | null) => void;
     // Function to show a toast/notification
     showNotification?: (message: string, type: 'success' | 'error' | 'info') => void;
+    // Function to indicate processing state (for UX feedback)
+    setIsProcessing?: (isProcessing: boolean) => void;
+    // Function to receive live events as they occur
+    setCurrentEvent?: (event: WorkflowEvent | null) => void;
     // Conversation ID for association
     conversationId?: number;
 }
@@ -77,7 +81,7 @@ export function createWorkflowHandlers(
     instanceId: string,
     deps: WorkflowDeps
 ): WorkflowHandlers {
-    const { setWorkflowState, showNotification } = deps;
+    const { setWorkflowState, showNotification, setIsProcessing, setCurrentEvent } = deps;
 
     // Helper to process event stream and update state
     async function processEventStream(
@@ -86,8 +90,13 @@ export function createWorkflowHandlers(
         for await (const event of eventGenerator) {
             console.log('Workflow event:', event);
 
+            // Send all events to the UI for live display
+            setCurrentEvent?.(event);
+
             if (event.event_type === 'error') {
                 showNotification?.(event.error || 'Workflow error', 'error');
+                setIsProcessing?.(false);
+                setCurrentEvent?.(null);
                 // Refresh state to get error status
                 const state = await workflowApi.getWorkflowState(instanceId);
                 setWorkflowState(state);
@@ -96,6 +105,8 @@ export function createWorkflowHandlers(
 
             if (event.event_type === 'complete') {
                 showNotification?.('Workflow completed', 'success');
+                setIsProcessing?.(false);
+                setCurrentEvent?.(null);
                 const state = await workflowApi.getWorkflowState(instanceId);
                 setWorkflowState(state);
                 return;
@@ -103,50 +114,63 @@ export function createWorkflowHandlers(
 
             if (event.event_type === 'cancelled') {
                 showNotification?.('Workflow cancelled', 'info');
+                setIsProcessing?.(false);
+                setCurrentEvent?.(null);
                 setWorkflowState(null);
                 return;
             }
 
             if (event.event_type === 'checkpoint') {
                 // At checkpoint - refresh state to show checkpoint UI
+                setIsProcessing?.(false);
+                setCurrentEvent?.(null);
                 const state = await workflowApi.getWorkflowState(instanceId);
                 setWorkflowState(state);
                 return; // Stop processing, wait for user action
             }
 
-            // For step_start and step_complete, we could update progress
-            // but for now just continue processing
+            // For step_start and step_complete, continue processing
+            // The event has already been sent to setCurrentEvent
         }
 
         // Stream ended - refresh state
+        setIsProcessing?.(false);
+        setCurrentEvent?.(null);
         const state = await workflowApi.getWorkflowState(instanceId);
         setWorkflowState(state);
     }
 
     return {
         onApprove: async (userData?: Record<string, any>) => {
+            setIsProcessing?.(true);
             const events = workflowApi.resumeWorkflow(instanceId, 'approve', userData);
             await processEventStream(events);
         },
 
         onEdit: async (userData: Record<string, any>) => {
+            setIsProcessing?.(true);
             const events = workflowApi.resumeWorkflow(instanceId, 'edit', userData);
             await processEventStream(events);
         },
 
         onReject: async () => {
+            setIsProcessing?.(true);
             const events = workflowApi.resumeWorkflow(instanceId, 'reject');
             await processEventStream(events);
         },
 
         onCancel: async () => {
+            setIsProcessing?.(true);
             await workflowApi.cancelWorkflow(instanceId);
+            setIsProcessing?.(false);
             setWorkflowState(null);
             showNotification?.('Workflow cancelled', 'info');
         },
 
         onPause: async () => {
+            setIsProcessing?.(true);
             await workflowApi.pauseWorkflow(instanceId);
+            setIsProcessing?.(false);
             const state = await workflowApi.getWorkflowState(instanceId);
             setWorkflowState(state);
             showNotification?.('Workflow paused', 'info');
@@ -162,6 +186,9 @@ export async function startWorkflowWithUI(
     initialInput: Record<string, any>,
     deps: WorkflowDeps
 ): Promise<{ instanceId: string; handlers: WorkflowHandlers }> {
+    // Indicate processing has started
+    deps.setIsProcessing?.(true);
+
     // Create the instance
     const { instance_id } = await workflowApi.startWorkflow(
         workflowId,
@@ -180,8 +207,13 @@ export async function startWorkflowWithUI(
         for await (const event of events) {
             console.log('Workflow event:', event);
 
+            // Send all events to the UI for live display
+            deps.setCurrentEvent?.(event);
+
             if (event.event_type === 'error') {
                 deps.showNotification?.(event.error || 'Workflow error', 'error');
+                deps.setIsProcessing?.(false);
+                deps.setCurrentEvent?.(null);
                 const state = await workflowApi.getWorkflowState(instance_id);
                 deps.setWorkflowState(state);
                 return;
@@ -189,19 +221,27 @@ export async function startWorkflowWithUI(
 
             if (event.event_type === 'complete') {
                 deps.showNotification?.('Workflow completed', 'success');
+                deps.setIsProcessing?.(false);
+                deps.setCurrentEvent?.(null);
                 const state = await workflowApi.getWorkflowState(instance_id);
                 deps.setWorkflowState(state);
                 return;
             }
 
             if (event.event_type === 'checkpoint') {
+                deps.setIsProcessing?.(false);
+                deps.setCurrentEvent?.(null);
                 const state = await workflowApi.getWorkflowState(instance_id);
                 deps.setWorkflowState(state);
                 return;
             }
+
+            // For step_start and step_complete, continue processing
         }
 
         // Stream ended
+        deps.setIsProcessing?.(false);
+        deps.setCurrentEvent?.(null);
         const state = await workflowApi.getWorkflowState(instance_id);
         deps.setWorkflowState(state);
     })();
