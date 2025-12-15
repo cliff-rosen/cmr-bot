@@ -21,7 +21,7 @@ import { WorkflowInstanceState, WorkflowHandlers, WorkflowEvent } from '../../..
 import { MarkdownRenderer } from '../../common/MarkdownRenderer';
 
 interface WorkflowExecutionViewProps {
-    instanceState: WorkflowInstanceState;
+    instance: WorkflowInstanceState;
     handlers: WorkflowHandlers;
     isProcessing?: boolean;
     currentEvent?: WorkflowEvent | null;
@@ -560,7 +560,7 @@ function CheckpointPanel({
 }
 
 export default function WorkflowExecutionView({
-    instanceState,
+    instance,
     handlers,
     isProcessing = false,
     currentEvent,
@@ -582,8 +582,8 @@ export default function WorkflowExecutionView({
     const nodes = useMemo(() => {
         // Build node list from node_states and step_data
         const nodeIds = new Set([
-            ...Object.keys(instanceState.node_states || {}),
-            ...Object.keys(instanceState.step_data),
+            ...Object.keys(instance.node_states || {}),
+            ...Object.keys(instance.step_data),
         ]);
 
         return Array.from(nodeIds).map((id) => ({
@@ -591,16 +591,16 @@ export default function WorkflowExecutionView({
             name: id.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()),
             description: '',
         }));
-    }, [instanceState.node_states, instanceState.step_data]);
+    }, [instance.node_states, instance.step_data]);
 
     // Determine if we're at a checkpoint
-    const isAtCheckpoint = instanceState.status === 'waiting';
-    const currentNodeId = instanceState.current_node?.id;
+    const isAtCheckpoint = instance.status === 'waiting';
+    const currentNodeId = instance.current_node?.id;
 
     // Mock checkpoint config - in real implementation, this comes from the node definition
     const checkpointConfig = isAtCheckpoint
         ? {
-              title: instanceState.current_node?.name || 'Review',
+              title: instance.current_node?.name || 'Review',
               description: 'Please review and take action',
               allowed_actions: ['approve', 'edit', 'reject'] as string[],
               editable_fields: ['refined_question', 'scope'] as string[],
@@ -627,27 +627,27 @@ export default function WorkflowExecutionView({
 
         // If we have a mapping for this checkpoint, use it
         const dataNodeId = checkpointToDataMap[currentNodeId];
-        if (dataNodeId && instanceState.step_data[dataNodeId]) {
-            return instanceState.step_data[dataNodeId];
+        if (dataNodeId && instance.step_data[dataNodeId]) {
+            return instance.step_data[dataNodeId];
         }
 
         // Fallback: find the most recently completed node's data
-        const nodeStates = instanceState.node_states || {};
+        const nodeStates = instance.node_states || {};
         const completedNodes = Object.entries(nodeStates)
             .filter(([_, state]) => state.status === 'completed')
             .map(([id]) => id);
 
         if (completedNodes.length === 0) {
             // Last fallback: just get the last key in step_data
-            const stepDataKeys = Object.keys(instanceState.step_data);
+            const stepDataKeys = Object.keys(instance.step_data);
             if (stepDataKeys.length === 0) return null;
-            return instanceState.step_data[stepDataKeys[stepDataKeys.length - 1]];
+            return instance.step_data[stepDataKeys[stepDataKeys.length - 1]];
         }
 
         // Return data from the last completed node
         const lastCompleted = completedNodes[completedNodes.length - 1];
-        return instanceState.step_data[lastCompleted];
-    }, [isAtCheckpoint, currentNodeId, instanceState.step_data, instanceState.node_states]);
+        return instance.step_data[lastCompleted];
+    }, [isAtCheckpoint, currentNodeId, instance.step_data, instance.node_states]);
 
     return (
         <div className="h-full flex flex-col p-4">
@@ -658,12 +658,12 @@ export default function WorkflowExecutionView({
                         Workflow Execution
                     </h2>
                     <p className="text-sm text-gray-500 dark:text-gray-400">
-                        {instanceState.workflow_id}
+                        {instance.workflow_id}
                     </p>
                 </div>
                 <div className="flex items-center gap-2">
-                    <StatusBadge status={instanceState.status} />
-                    {instanceState.status === 'running' && (
+                    <StatusBadge status={instance.status} />
+                    {instance.status === 'running' && (
                         <button
                             onClick={() => handlers.onPause()}
                             className="px-3 py-1.5 text-sm text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200"
@@ -671,7 +671,7 @@ export default function WorkflowExecutionView({
                             Pause
                         </button>
                     )}
-                    {instanceState.status !== 'completed' && instanceState.status !== 'cancelled' && (
+                    {instance.status !== 'completed' && instance.status !== 'cancelled' && (
                         <button
                             onClick={() => handlers.onCancel()}
                             className="px-3 py-1.5 text-sm text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300"
@@ -709,7 +709,7 @@ export default function WorkflowExecutionView({
                                         ? `Running: ${currentEvent.node_name}`
                                         : currentEvent?.event_type === 'step_complete' && currentEvent?.node_name
                                             ? `Completed: ${currentEvent.node_name}`
-                                            : instanceState.current_node?.name || 'Running workflow'}
+                                            : instance.current_node?.name || 'Running workflow'}
                             </div>
                             {/* Progress bar if available */}
                             {currentEvent?.event_type === 'step_progress' && currentEvent?.data?.progress != null && (
@@ -731,17 +731,17 @@ export default function WorkflowExecutionView({
                     <StepItem
                         key={node.id}
                         step={node}
-                        stepState={instanceState.node_states?.[node.id]}
+                        stepState={instance.node_states?.[node.id]}
                         isCurrent={node.id === currentNodeId}
                         isExpanded={expandedSteps.has(node.id)}
                         onToggle={() => toggleStep(node.id)}
-                        stepData={instanceState.step_data[node.id]}
+                        stepData={instance.step_data[node.id]}
                     />
                 ))}
             </div>
 
             {/* Completed state */}
-            {instanceState.status === 'completed' && (
+            {instance.status === 'completed' && (
                 <div className="mt-4 p-4 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl">
                     <div className="flex items-center gap-2">
                         <CheckCircleIcon className="h-5 w-5 text-emerald-600 dark:text-emerald-400" />
@@ -751,7 +751,7 @@ export default function WorkflowExecutionView({
             )}
 
             {/* Failed state */}
-            {instanceState.status === 'failed' && (
+            {instance.status === 'failed' && (
                 <div className="mt-4 p-4 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl">
                     <div className="flex items-center gap-2">
                         <ExclamationTriangleIcon className="h-5 w-5 text-red-600 dark:text-red-400" />

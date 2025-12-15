@@ -38,12 +38,19 @@ import { MarkdownRenderer } from '../../common/MarkdownRenderer';
 
 interface ResearchWorkflowViewProps {
     payload: WorkspacePayload;
-    onUpdateWorkflow: (workflow: ResearchWorkflow) => void;
-    onProceedToNextStage: () => void;
-    onRunRetrieval: () => void;
-    onPauseRetrieval: () => void;
-    onCompileFinal: () => void;
-    onComplete: () => void;
+    // Unified PayloadViewProps interface
+    onSaveAsAsset?: (payload: WorkspacePayload, andClose?: boolean) => void;
+    isSaving?: boolean;
+    onPayloadEdit?: (payload: WorkspacePayload) => void;
+    onAccept?: (payload: WorkspacePayload) => void;
+    onReject?: () => void;
+    // Research workflow specific callbacks
+    onUpdateWorkflow?: (workflow: any) => void;
+    onProceed?: () => void;
+    onRunRetrieval?: () => void;
+    onPauseRetrieval?: () => void;
+    onCompile?: () => void;
+    onComplete?: () => void;
 }
 
 // Stage configuration
@@ -77,10 +84,10 @@ const CONFIDENCE_COLORS = {
 export default function ResearchWorkflowView({
     payload,
     onUpdateWorkflow,
-    onProceedToNextStage,
+    onProceed,
     onRunRetrieval,
     onPauseRetrieval,
-    onCompileFinal,
+    onCompile,
     onComplete
 }: ResearchWorkflowViewProps) {
     const workflow = payload.research_data;
@@ -143,24 +150,24 @@ export default function ResearchWorkflowView({
                 {workflow.stage === 'question' && (
                     <QuestionStageView
                         workflow={workflow}
-                        onUpdate={onUpdateWorkflow}
-                        onProceed={onProceedToNextStage}
+                        onUpdate={onUpdateWorkflow || (() => {})}
+                        onProceed={onProceed || (() => {})}
                     />
                 )}
                 {workflow.stage === 'checklist' && (
                     <ChecklistStageView
                         workflow={workflow}
-                        onUpdate={onUpdateWorkflow}
-                        onProceed={onProceedToNextStage}
+                        onUpdate={onUpdateWorkflow || (() => {})}
+                        onProceed={onProceed || (() => {})}
                     />
                 )}
                 {workflow.stage === 'retrieval' && (
                     <RetrievalStageView
                         workflow={workflow}
-                        onUpdate={onUpdateWorkflow}
-                        onRun={onRunRetrieval}
-                        onPause={onPauseRetrieval}
-                        onCompile={onCompileFinal}
+                        onUpdate={onUpdateWorkflow || (() => {})}
+                        onRun={onRunRetrieval || (() => {})}
+                        onPause={onPauseRetrieval || (() => {})}
+                        onCompile={onCompile || (() => {})}
                     />
                 )}
                 {workflow.stage === 'compiling' && (
@@ -169,8 +176,8 @@ export default function ResearchWorkflowView({
                 {workflow.stage === 'complete' && (
                     <FinalStageView
                         workflow={workflow}
-                        onUpdate={onUpdateWorkflow}
-                        onComplete={onComplete}
+                        onUpdate={onUpdateWorkflow || (() => {})}
+                        onComplete={onComplete || (() => {})}
                     />
                 )}
             </div>

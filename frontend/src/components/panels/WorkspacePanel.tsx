@@ -2,15 +2,12 @@ import { XMarkIcon } from '@heroicons/react/24/solid';
 import { ToolCall, WorkspacePayload, ResearchWorkflow } from '../../types/chat';
 import { WorkflowInstanceState, WorkflowHandlers, WorkflowEvent } from '../../lib/workflows';
 import {
-    StandardPayloadView,
     ToolHistoryView,
     ToolResultView,
-    AgentPayloadView,
-    TablePayloadView,
-    ResearchWorkflowView,
-    ResearchResultView,
-    WorkflowExecutionView,
-    payloadTypeConfig
+    payloadTypeConfig,
+    getWorkspaceMode,
+    getPayloadView,
+    getWorkflowView,
 } from './workspace';
 
 interface WorkspacePanelProps {
@@ -25,7 +22,7 @@ interface WorkspacePanelProps {
     // Agent callbacks
     onAcceptAgent?: (payload: WorkspacePayload) => void;
     onRejectAgent?: () => void;
-    // Research workflow callbacks
+    // Research workflow callbacks (for LLM-orchestrated research)
     onUpdateResearchWorkflow?: (workflow: ResearchWorkflow) => void;
     onResearchProceed?: () => void;
     onResearchRunRetrieval?: () => void;
@@ -59,200 +56,194 @@ export default function WorkspacePanel({
     onResearchComplete,
     workflowInstance,
     workflowHandlers,
-    isWorkflowProcessing,
+    isWorkflowProcessing = false,
     currentWorkflowEvent,
     onCloseWorkflowInstance: _onCloseWorkflowInstance
 }: WorkspacePanelProps) {
     void _onCloseWorkflowInstance; // Reserved for close button in workflow view
-    const config = activePayload ? payloadTypeConfig[activePayload.type] : null;
 
-    // Check if we're in workflow engine mode
-    const isWorkflowEngineMode = workflowInstance && workflowHandlers;
+    // Determine workspace mode using single function
+    const mode = getWorkspaceMode({
+        workflowInstance: workflowInstance || null,
+        workflowHandlers: workflowHandlers || null,
+        isWorkflowProcessing,
+        currentWorkflowEvent: currentWorkflowEvent || null,
+        selectedTool,
+        selectedToolHistory,
+        activePayload,
+    });
 
-    const isResearchWorkflow = activePayload?.type === 'research';
-    const isResearchResult = activePayload?.type === 'research_result';
+    // Render based on mode
+    switch (mode.mode) {
+        case 'workflow_loading':
+            return <WorkflowLoadingView mode={mode} />;
 
-    // Determine what to show
-    const showWorkflowEngine = isWorkflowEngineMode && !selectedToolHistory && !selectedTool;
-    const showResearchWorkflow = !showWorkflowEngine && isResearchWorkflow && !selectedToolHistory && !selectedTool;
-    const showResearchResult = !showWorkflowEngine && isResearchResult && !selectedToolHistory && !selectedTool;
-    const showPayload = !showWorkflowEngine && activePayload && !selectedToolHistory && !selectedTool && !showResearchWorkflow && !showResearchResult;
-    const showToolResult = !showWorkflowEngine && selectedTool && !showResearchWorkflow && !showResearchResult;
-    const showToolHistory = !showWorkflowEngine && selectedToolHistory && selectedToolHistory.length > 0 && !selectedTool && !showResearchWorkflow && !showResearchResult;
-    const showEmpty = !showPayload && !showToolHistory && !showToolResult && !showResearchWorkflow && !showResearchResult && !showWorkflowEngine;
-
-    // Show initial loading state when workflow is starting but no instance yet
-    if (isWorkflowProcessing && !workflowInstance) {
-        const stepName = currentWorkflowEvent?.node_name || 'Initializing';
-        const eventType = currentWorkflowEvent?.event_type;
-        const statusText = eventType === 'step_start' ? `Running: ${stepName}` :
-                          eventType === 'step_complete' ? `Completed: ${stepName}` :
-                          stepName;
-
-        return (
-            <div className="flex flex-col h-full bg-gray-50 dark:bg-gray-950">
-                <div className="flex-1 flex items-center justify-center">
-                    <div className="text-center">
-                        <div className="inline-flex items-center justify-center w-12 h-12 bg-blue-100 dark:bg-blue-900/30 rounded-full mb-4">
-                            <svg className="w-6 h-6 text-blue-600 dark:text-blue-400 animate-spin" fill="none" viewBox="0 0 24 24">
-                                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-                            </svg>
-                        </div>
-                        <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-1">Starting Workflow</h3>
-                        <p className="text-sm text-gray-500 dark:text-gray-400">{statusText}</p>
-                        {/* Cancel button during startup */}
-                        {workflowHandlers && (
-                            <button
-                                onClick={() => workflowHandlers.onCancel()}
-                                className="mt-4 px-4 py-2 text-sm text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
-                            >
-                                Cancel
-                            </button>
-                        )}
-                    </div>
-                </div>
-            </div>
-        );
-    }
-
-    // For workflow engine, render with WorkflowExecutionView
-    if (showWorkflowEngine && workflowInstance && workflowHandlers) {
-        return (
-            <div className="flex flex-col h-full bg-gray-50 dark:bg-gray-950">
-                <WorkflowExecutionView
-                    instanceState={workflowInstance}
-                    handlers={workflowHandlers}
-                    isProcessing={isWorkflowProcessing}
-                    currentEvent={currentWorkflowEvent}
-                />
-            </div>
-        );
-    }
-
-    // For research workflow, render with the ResearchWorkflowView
-    if (showResearchWorkflow && activePayload) {
-        return (
-            <div className="flex flex-col h-full bg-gray-50 dark:bg-gray-950">
-                <ResearchWorkflowView
-                    payload={activePayload}
-                    onUpdateWorkflow={onUpdateResearchWorkflow || (() => {})}
-                    onProceedToNextStage={onResearchProceed || (() => {})}
-                    onRunRetrieval={onResearchRunRetrieval || (() => {})}
-                    onPauseRetrieval={onResearchPauseRetrieval || (() => {})}
-                    onCompileFinal={onResearchCompile || (() => {})}
-                    onComplete={onResearchComplete || (() => {})}
-                />
-            </div>
-        );
-    }
-
-    // For research result (from deep_research tool), render with ResearchResultView
-    if (showResearchResult && activePayload) {
-        return (
-            <div className="flex flex-col h-full bg-gray-50 dark:bg-gray-950">
-                <ResearchResultView
-                    payload={activePayload}
-                    onSaveAsAsset={onSavePayloadAsAsset}
-                    isSaving={isSavingAsset}
-                />
-            </div>
-        );
-    }
-
-    return (
-        <div className="flex flex-col h-full bg-gray-50 dark:bg-gray-950">
-            {/* Workspace Header */}
-            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 dark:border-gray-700">
-                <div>
-                    <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
-                        {showToolResult
-                            ? 'Tool Result'
-                            : showToolHistory
-                                ? 'Tool History'
-                                : showPayload
-                                    ? activePayload.title
-                                    : 'Workspace'}
-                    </h2>
-                    <p className="text-sm text-gray-500 dark:text-gray-400">
-                        {showToolResult
-                            ? selectedTool.tool_name.replace(/_/g, ' ')
-                            : showToolHistory
-                                ? `${selectedToolHistory.length} tool call(s)`
-                                : showPayload
-                                    ? config?.label
-                                    : 'Collaborative space'}
-                    </p>
-                </div>
-                {(showToolResult || showToolHistory || showPayload) && (
-                    <button
-                        onClick={onClose}
-                        className="p-2 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
-                    >
-                        <XMarkIcon className="h-5 w-5" />
-                    </button>
-                )}
-            </div>
-
-            {/* Workspace Content */}
-            <div className={`flex-1 ${(showPayload && (activePayload?.type === 'agent_create' || activePayload?.type === 'agent_update' || activePayload?.type === 'table')) ? 'overflow-hidden flex flex-col' : 'overflow-y-auto p-4'}`}>
-                {/* Agent Payload View (create/update) */}
-                {showPayload && (activePayload.type === 'agent_create' || activePayload.type === 'agent_update') && (
-                    <AgentPayloadView
-                        payload={activePayload}
-                        onAccept={onAcceptAgent || (() => {})}
-                        onReject={onRejectAgent || (() => {})}
+        case 'workflow': {
+            const WorkflowView = getWorkflowView(mode.instance.workflow_id);
+            return (
+                <div className="flex flex-col h-full bg-gray-50 dark:bg-gray-950">
+                    <WorkflowView
+                        instance={mode.instance}
+                        handlers={mode.handlers}
+                        isProcessing={mode.isProcessing}
+                        currentEvent={mode.currentEvent}
                     />
-                )}
+                </div>
+            );
+        }
 
-                {/* Table Payload View (TABILIZER) */}
-                {showPayload && activePayload.type === 'table' && (
-                    <TablePayloadView
-                        payload={activePayload}
-                        onSaveAsAsset={onSavePayloadAsAsset}
-                        isSaving={isSavingAsset}
+        case 'tool':
+            return (
+                <WorkspaceContainer
+                    title="Tool Result"
+                    subtitle={mode.tool.tool_name.replace(/_/g, ' ')}
+                    onClose={onClose}
+                >
+                    <ToolResultView
+                        toolCall={mode.tool}
+                        onSaveAsAsset={onSaveAsAsset}
                     />
-                )}
+                </WorkspaceContainer>
+            );
 
-                {/* Standard Payload View (draft, summary, data, code) */}
-                {showPayload && activePayload.type !== 'agent_create' && activePayload.type !== 'agent_update' && activePayload.type !== 'table' && (
-                    <StandardPayloadView
-                        payload={activePayload}
+        case 'tool_history':
+            return (
+                <WorkspaceContainer
+                    title="Tool History"
+                    subtitle={`${mode.history.length} tool call(s)`}
+                    onClose={onClose}
+                >
+                    <ToolHistoryView
+                        toolCalls={mode.history}
+                        onSaveAsAsset={onSaveAsAsset}
+                    />
+                </WorkspaceContainer>
+            );
+
+        case 'payload': {
+            const PayloadView = getPayloadView(mode.payload.type);
+            const config = payloadTypeConfig[mode.payload.type];
+            const needsFlexLayout = ['agent_create', 'agent_update', 'table'].includes(mode.payload.type);
+
+            return (
+                <WorkspaceContainer
+                    title={mode.payload.title}
+                    subtitle={config?.label}
+                    onClose={onClose}
+                    flexContent={needsFlexLayout}
+                >
+                    <PayloadView
+                        payload={mode.payload}
                         onSaveAsAsset={onSavePayloadAsAsset}
                         isSaving={isSavingAsset}
                         onPayloadEdit={onPayloadEdit}
+                        onAccept={onAcceptAgent}
+                        onReject={onRejectAgent}
+                        // Research workflow callbacks
+                        onUpdateWorkflow={onUpdateResearchWorkflow}
+                        onProceed={onResearchProceed}
+                        onRunRetrieval={onResearchRunRetrieval}
+                        onPauseRetrieval={onResearchPauseRetrieval}
+                        onCompile={onResearchCompile}
+                        onComplete={onResearchComplete}
                     />
-                )}
+                </WorkspaceContainer>
+            );
+        }
 
-                {/* Single Tool Result View */}
-                {showToolResult && selectedTool && (
-                    <ToolResultView
-                        toolCall={selectedTool}
-                        onSaveAsAsset={onSaveAsAsset}
-                    />
-                )}
+        case 'empty':
+            return <EmptyWorkspace />;
+    }
+}
 
-                {/* Tool History View */}
-                {showToolHistory && (
-                    <ToolHistoryView
-                        toolCalls={selectedToolHistory}
-                        onSaveAsAsset={onSaveAsAsset}
-                    />
-                )}
+// =============================================================================
+// Helper Components
+// =============================================================================
 
-                {/* Empty State */}
-                {showEmpty && (
-                    <div className="flex items-center justify-center h-full">
-                        <div className="text-center text-gray-400 dark:text-gray-500">
-                            <div className="text-6xl mb-4">Workspace</div>
-                            <h3 className="text-xl font-medium mb-2">Collaborative Space</h3>
-                            <p className="text-sm max-w-md">
-                                When the AI generates drafts, summaries, or other structured content,
-                                it will appear here. You can edit, save, or iterate on the content.
-                            </p>
-                        </div>
+function WorkflowLoadingView({ mode }: { mode: { handlers?: WorkflowHandlers | null; currentEvent?: WorkflowEvent | null } }) {
+    const stepName = mode.currentEvent?.node_name || 'Initializing';
+    const eventType = mode.currentEvent?.event_type;
+    const statusText = eventType === 'step_start' ? `Running: ${stepName}` :
+                      eventType === 'step_complete' ? `Completed: ${stepName}` :
+                      stepName;
+
+    return (
+        <div className="flex flex-col h-full bg-gray-50 dark:bg-gray-950">
+            <div className="flex-1 flex items-center justify-center">
+                <div className="text-center">
+                    <div className="inline-flex items-center justify-center w-12 h-12 bg-blue-100 dark:bg-blue-900/30 rounded-full mb-4">
+                        <svg className="w-6 h-6 text-blue-600 dark:text-blue-400 animate-spin" fill="none" viewBox="0 0 24 24">
+                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                        </svg>
                     </div>
-                )}
+                    <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-1">Starting Workflow</h3>
+                    <p className="text-sm text-gray-500 dark:text-gray-400">{statusText}</p>
+                    {mode.handlers && (
+                        <button
+                            onClick={() => mode.handlers!.onCancel()}
+                            className="mt-4 px-4 py-2 text-sm text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+                        >
+                            Cancel
+                        </button>
+                    )}
+                </div>
+            </div>
+        </div>
+    );
+}
+
+interface WorkspaceContainerProps {
+    title: string;
+    subtitle?: string;
+    onClose: () => void;
+    flexContent?: boolean;
+    children: React.ReactNode;
+}
+
+function WorkspaceContainer({ title, subtitle, onClose, flexContent = false, children }: WorkspaceContainerProps) {
+    return (
+        <div className="flex flex-col h-full bg-gray-50 dark:bg-gray-950">
+            {/* Header */}
+            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 dark:border-gray-700">
+                <div>
+                    <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
+                        {title}
+                    </h2>
+                    {subtitle && (
+                        <p className="text-sm text-gray-500 dark:text-gray-400">
+                            {subtitle}
+                        </p>
+                    )}
+                </div>
+                <button
+                    onClick={onClose}
+                    className="p-2 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+                >
+                    <XMarkIcon className="h-5 w-5" />
+                </button>
+            </div>
+
+            {/* Content */}
+            <div className={`flex-1 ${flexContent ? 'overflow-hidden flex flex-col' : 'overflow-y-auto p-4'}`}>
+                {children}
+            </div>
+        </div>
+    );
+}
+
+function EmptyWorkspace() {
+    return (
+        <div className="flex flex-col h-full bg-gray-50 dark:bg-gray-950">
+            <div className="flex-1 flex items-center justify-center p-4">
+                <div className="text-center text-gray-400 dark:text-gray-500">
+                    <div className="text-6xl mb-4">Workspace</div>
+                    <h3 className="text-xl font-medium mb-2">Collaborative Space</h3>
+                    <p className="text-sm max-w-md">
+                        When the AI generates drafts, summaries, or other structured content,
+                        it will appear here. You can edit, save, or iterate on the content.
+                    </p>
+                </div>
             </div>
         </div>
     );
