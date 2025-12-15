@@ -138,6 +138,15 @@ export default function WorkspacePanel({
                         </div>
                         <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-1">Starting Workflow</h3>
                         <p className="text-sm text-gray-500 dark:text-gray-400">{statusText}</p>
+                        {/* Cancel button during startup */}
+                        {workflowHandlers && (
+                            <button
+                                onClick={() => workflowHandlers.onCancel()}
+                                className="mt-4 px-4 py-2 text-sm text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+                            >
+                                Cancel
+                            </button>
+                        )}
                     </div>
                 </div>
             </div>

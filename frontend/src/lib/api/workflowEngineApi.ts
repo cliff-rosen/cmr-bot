@@ -81,15 +81,39 @@ export async function startWorkflow(
 
 /**
  * Run a workflow instance and stream events.
+ * Returns an async generator and an abort function.
  */
-export async function* runWorkflow(instanceId: string): AsyncGenerator<WorkflowEvent> {
-    const response = await fetch(`${WORKFLOWS_API}/instances/${instanceId}/run`, {
-        method: 'POST',
-        headers: { 'Accept': 'text/event-stream', ...getAuthHeaders() },
+export function runWorkflow(instanceId: string, signal?: AbortSignal): AsyncGenerator<WorkflowEvent> {
+    return createEventStream(`${WORKFLOWS_API}/instances/${instanceId}/run`, 'POST', undefined, signal);
+}
+
+/**
+ * Helper to create an SSE event stream with abort support.
+ */
+async function* createEventStream(
+    url: string,
+    method: string,
+    body?: Record<string, any>,
+    signal?: AbortSignal
+): AsyncGenerator<WorkflowEvent> {
+    const headers: Record<string, string> = {
+        'Accept': 'text/event-stream',
+        ...getAuthHeaders(),
+    };
+
+    if (body) {
+        headers['Content-Type'] = 'application/json';
+    }
+
+    const response = await fetch(url, {
+        method,
+        headers,
+        body: body ? JSON.stringify(body) : undefined,
+        signal,
     });
 
     if (!response.ok) {
-        throw new Error(`Failed to run workflow: ${response.statusText}`);
+        throw new Error(`Request failed: ${response.statusText}`);
     }
 
     const reader = response.body?.getReader();
@@ -100,75 +124,47 @@ export async function* runWorkflow(instanceId: string): AsyncGenerator<WorkflowE
     const decoder = new TextDecoder();
     let buffer = '';
 
-    while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
+    try {
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
 
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('\n');
-        buffer = lines.pop() || '';
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split('\n');
+            buffer = lines.pop() || '';
 
-        for (const line of lines) {
-            if (line.startsWith('data: ')) {
-                try {
-                    const event = JSON.parse(line.slice(6)) as WorkflowEvent;
-                    yield event;
-                } catch (e) {
-                    console.error('Failed to parse workflow event:', e);
+            for (const line of lines) {
+                if (line.startsWith('data: ')) {
+                    try {
+                        const event = JSON.parse(line.slice(6)) as WorkflowEvent;
+                        yield event;
+                    } catch (e) {
+                        console.error('Failed to parse workflow event:', e);
+                    }
                 }
             }
         }
+    } finally {
+        // Ensure reader is released
+        reader.releaseLock();
     }
 }
 
 /**
  * Resume a workflow from a checkpoint.
  */
-export async function* resumeWorkflow(
+export function resumeWorkflow(
     instanceId: string,
     action: CheckpointAction,
-    userData?: Record<string, any>
+    userData?: Record<string, any>,
+    signal?: AbortSignal
 ): AsyncGenerator<WorkflowEvent> {
-    const response = await fetch(`${WORKFLOWS_API}/instances/${instanceId}/resume`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Accept': 'text/event-stream', ...getAuthHeaders() },
-        body: JSON.stringify({
-            action,
-            user_data: userData,
-        }),
-    });
-
-    if (!response.ok) {
-        throw new Error(`Failed to resume workflow: ${response.statusText}`);
-    }
-
-    const reader = response.body?.getReader();
-    if (!reader) {
-        throw new Error('No response body');
-    }
-
-    const decoder = new TextDecoder();
-    let buffer = '';
-
-    while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('\n');
-        buffer = lines.pop() || '';
-
-        for (const line of lines) {
-            if (line.startsWith('data: ')) {
-                try {
-                    const event = JSON.parse(line.slice(6)) as WorkflowEvent;
-                    yield event;
-                } catch (e) {
-                    console.error('Failed to parse workflow event:', e);
-                }
-            }
-        }
-    }
+    return createEventStream(
+        `${WORKFLOWS_API}/instances/${instanceId}/resume`,
+        'POST',
+        { action, user_data: userData },
+        signal
+    );
 }
 
 /**
