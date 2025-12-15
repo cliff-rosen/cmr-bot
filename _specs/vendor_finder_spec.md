@@ -234,27 +234,87 @@ Interactive table with:
 
 ---
 
-## Questions to Discuss
+## Adaptive Behavior: Handling Different Result Sizes
 
-1. **How many vendors to research deeply?**
-   - Current: All of them
-   - Proposal: Top 10, or let user select at checkpoint
+The number of vendors we find varies wildly by search. The workflow should adapt:
 
-2. **How to handle vendors with no reviews?**
-   - Skip them? Note "no reviews found"? Research harder?
+### Bucket A: Very Few Results (0-3 vendors)
 
-3. **Should we try to get pricing info?**
-   - Often not available online for services like medical
-   - Note when we can't find it
+**Situation:** Niche service, small market, or overly restrictive search.
 
-4. **What if search finds no good candidates?**
-   - Expand search radius?
-   - Suggest alternative search terms?
-   - Just report "couldn't find much"?
+**Behavior:**
+1. Research ALL found vendors thoroughly
+2. Investigate WHY results are sparse:
+   - Is the search too narrow? (suggest broadening)
+   - Is this a niche market? (explain to user)
+   - Are we missing vendors? (try alternative search terms)
+3. Consider expanding search:
+   - Widen geographic radius
+   - Try related service types
+   - Search without location constraint to show what exists elsewhere
+4. Report transparently: "Only found 2 endodontists in Cambridge. Here's why..."
 
-5. **Parallel vs sequential research?**
-   - Current: Sequential (slow but predictable)
-   - Parallel: Faster but harder to show progress
+**Checkpoint message:** "I only found 2 candidates. Should I expand the search radius or continue with these?"
+
+### Bucket B: Moderate Results (4-12 vendors)
+
+**Situation:** Healthy market with a manageable number of options.
+
+**Behavior:**
+1. Research ALL vendors - this is the ideal scenario
+2. Full deep-dive on each
+3. Provide complete comparison
+
+**Checkpoint message:** "Found 8 candidates. Ready to research all of them."
+
+### Bucket C: Many Results (13-25 vendors)
+
+**Situation:** Competitive market, lots of options.
+
+**Behavior:**
+1. At checkpoint, present the full list with basic info
+2. Let user SELECT which ones to research (checkboxes)
+3. Suggest a strategy: "I can research all 18, or you can select your top picks"
+4. If user says "just do it", use heuristics to prioritize:
+   - Vendors with existing reviews visible in search
+   - Vendors whose websites look established
+   - Geographic proximity to user's specified location
+
+**Checkpoint message:** "Found 18 candidates. Select which ones to research deeply, or I can prioritize based on initial signals."
+
+### Bucket D: Too Many Results (25+ vendors)
+
+**Situation:** Very broad search, or common service type.
+
+**Behavior:**
+1. Acknowledge the volume
+2. Suggest narrowing criteria:
+   - More specific location?
+   - Specific specialty within the field?
+   - Specific requirement that would filter?
+3. Or offer to take top N by some heuristic (proximity, review visibility)
+
+**Checkpoint message:** "Found 40+ candidates - that's too many to research thoroughly. Can you narrow it down? Or I can focus on the top 15 closest to [location]."
+
+---
+
+## Handling Sparse Data
+
+### Vendors with no reviews
+- Still include them in the list
+- Note: "No reviews found on Yelp/Google"
+- Research their website more thoroughly to compensate
+- Flag this in the analysis: "Limited review data - recommend calling to ask for references"
+
+### Vendors with minimal web presence
+- Include with caveat
+- May indicate: new business, word-of-mouth only, or low quality
+- Note in analysis: "Minimal online presence - could be new or established through referrals"
+
+### Conflicting information
+- Present both sides
+- Note the conflict explicitly
+- Let user decide what matters
 
 ---
 
@@ -264,8 +324,74 @@ Interactive table with:
 
 2. **Fix review collection** - Actually visit review sites instead of parsing search snippets.
 
-3. **Improve checkpoint UX** - Let user select/deselect vendors before deep research.
+3. **Implement adaptive bucket logic** - Different behavior for different result sizes.
 
-4. **Better final output** - Clear recommendation, comparison table, proper formatting.
+4. **Improve checkpoint UX** - Let user select/deselect vendors, show bucket-appropriate options.
 
-5. **Asset saving** - Save both report and table.
+5. **Better final output** - Clear recommendation, comparison table, proper formatting.
+
+6. **Asset saving** - Save both report and table.
+
+---
+
+## Deferred (Not Now)
+
+- **Pricing info** - Often unavailable, skip for now
+- **Parallel research** - Keep sequential for simpler progress display
+
+---
+
+## Future: Review Collection Strategy (v2)
+
+Reviews deserve their own adaptive logic, similar to vendor counts. This is complex and deferred, but noting the considerations here:
+
+### The Problem with Reviews
+
+1. **Groomed reviews** - Many businesses actively manage their reviews (incentivized positive reviews, fake reviews, burying negative ones)
+2. **Recency bias** - Recent reviews may not reflect long-term quality
+3. **Volume varies wildly** - Local endodontist might have 20 reviews; chain restaurant has 2,000
+4. **Platform differences** - Yelp crowd differs from Google crowd differs from Reddit
+
+### Review Bucket Logic (Future)
+
+| Bucket | Count | Strategy |
+|--------|-------|----------|
+| **None** | 0 | Note "no reviews found", flag as unknown quantity |
+| **Few** | 1-10 | Read ALL of them, every one matters |
+| **Moderate** | 11-50 | Sample strategy: best, worst, and recent |
+| **Many** | 50+ | Statistical approach: distribution, trends, outlier analysis |
+
+### What to Look For (Future)
+
+**Don't just average the stars.** A smart review analysis should:
+
+1. **Look at distribution**
+   - All 5-stars? Suspicious.
+   - Bimodal (lots of 5s and 1s)? Polarizing - dig into why.
+   - Normal distribution around 4? Probably legitimate.
+
+2. **Sample strategically**
+   - Sort by BEST: What do happy customers love?
+   - Sort by WORST: What makes people angry? (Often more informative)
+   - Sort by RECENT: Has quality changed?
+   - Sort by OLDEST: What was the original reputation?
+
+3. **Detect manipulation signals**
+   - Many reviews posted in short time window
+   - Generic/vague language ("Great service!")
+   - Reviewer has only reviewed this one business
+   - Sudden spike in positive reviews (reputation repair campaign?)
+
+4. **Weight appropriately**
+   - Detailed reviews > short reviews
+   - Verified purchase/visit > anonymous
+   - Consistent themes across platforms > single-platform praise
+
+5. **Look for patterns**
+   - Same complaint repeated = real issue
+   - One-off complaint = maybe a bad day
+   - "Used to be great, now terrible" = ownership/staff change?
+
+### For Now (v1)
+
+Current implementation just searches for reviews and summarizes snippets. That's a start, but we know it's superficial. The analysis step should caveat: "Review data is limited to search snippets - recommend checking Yelp/Google directly for full picture."
