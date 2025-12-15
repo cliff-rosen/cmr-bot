@@ -329,14 +329,38 @@ export default function WorkflowExecutionView({
     const checkpointStepData = useMemo(() => {
         if (!isAtCheckpoint || !currentNodeId) return null;
 
-        // Find the most recent step that has data
-        const stepDataKeys = Object.keys(instanceState.step_data);
-        if (stepDataKeys.length === 0) return null;
+        // Map checkpoint nodes to their preceding execute nodes
+        // This is based on the research workflow graph structure
+        const checkpointToDataMap: Record<string, string> = {
+            'question_checkpoint': 'formulate_question',
+            'checklist_checkpoint': 'build_checklist',
+            'retrieval_checkpoint': 'run_retrieval',
+            'final_checkpoint': 'compile_final',
+        };
 
-        // Return the last step's data
-        const lastKey = stepDataKeys[stepDataKeys.length - 1];
-        return instanceState.step_data[lastKey];
-    }, [isAtCheckpoint, currentNodeId, instanceState.step_data]);
+        // If we have a mapping for this checkpoint, use it
+        const dataNodeId = checkpointToDataMap[currentNodeId];
+        if (dataNodeId && instanceState.step_data[dataNodeId]) {
+            return instanceState.step_data[dataNodeId];
+        }
+
+        // Fallback: find the most recently completed node's data
+        const nodeStates = instanceState.node_states || {};
+        const completedNodes = Object.entries(nodeStates)
+            .filter(([_, state]) => state.status === 'completed')
+            .map(([id]) => id);
+
+        if (completedNodes.length === 0) {
+            // Last fallback: just get the last key in step_data
+            const stepDataKeys = Object.keys(instanceState.step_data);
+            if (stepDataKeys.length === 0) return null;
+            return instanceState.step_data[stepDataKeys[stepDataKeys.length - 1]];
+        }
+
+        // Return data from the last completed node
+        const lastCompleted = completedNodes[completedNodes.length - 1];
+        return instanceState.step_data[lastCompleted];
+    }, [isAtCheckpoint, currentNodeId, instanceState.step_data, instanceState.node_states]);
 
     return (
         <div className="h-full flex flex-col p-4">

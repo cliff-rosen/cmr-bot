@@ -167,18 +167,18 @@ export default function WorkflowSelectorModal({
                                     Workflow Steps
                                 </h3>
                                 <div className="flex flex-wrap gap-2">
-                                    {selectedWorkflow.steps
-                                        .filter(s => s.step_type === 'execute' || s.step_type === 'checkpoint')
-                                        .map((step, i) => (
+                                    {Object.values(selectedWorkflow.nodes || {})
+                                        .filter(n => n.node_type === 'execute' || n.node_type === 'checkpoint')
+                                        .map((node, i) => (
                                             <div
-                                                key={step.id}
+                                                key={node.id}
                                                 className="flex items-center gap-2 px-3 py-1.5 bg-gray-100 dark:bg-gray-800 rounded-full text-sm"
                                             >
                                                 <span className="w-5 h-5 flex items-center justify-center bg-gray-200 dark:bg-gray-700 rounded-full text-xs">
                                                     {i + 1}
                                                 </span>
                                                 <span className="text-gray-700 dark:text-gray-300">
-                                                    {step.name}
+                                                    {node.name}
                                                 </span>
                                             </div>
                                         ))}
