@@ -3,16 +3,11 @@
  * Export all workspace-related components from this barrel file
  */
 
-export { default as StepExecutingView } from './StepExecutingView';
-export { default as PlanPayloadView } from './PlanPayloadView';
-export { default as WipPayloadView } from './WipPayloadView';
-export { default as FinalPayloadView } from './FinalPayloadView';
 export { default as StandardPayloadView } from './StandardPayloadView';
 export { default as ToolHistoryView } from './ToolHistoryView';
 export { default as ToolResultView } from './ToolResultView';
 export { default as AgentPayloadView } from './AgentPayloadView';
 export { default as TablePayloadView } from './TablePayloadView';
-export { default as WorkflowPipelineView } from './WorkflowPipelineView';
 export { default as ResearchWorkflowView } from './ResearchWorkflowView';
 export { default as ResearchResultView } from './ResearchResultView';
 export { default as WorkflowExecutionView } from './WorkflowExecutionView';

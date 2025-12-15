@@ -3,8 +3,8 @@ import { useNavigate } from 'react-router-dom';
 import { ChevronLeftIcon, ChevronRightIcon, PlusIcon } from '@heroicons/react/24/solid';
 import { useGeneralChat } from '../hooks/useGeneralChat';
 import { useProfile } from '../context/ProfileContext';
-import { InteractionType, ToolCall, GeneralChatMessage, WorkspacePayload, WorkflowPlan, WorkflowStep, WorkflowStepDefinition, ResearchWorkflow } from '../types/chat';
-import { memoryApi, Memory, assetApi, Asset, AssetUpdate, workflowApi, StepStatusUpdate, ToolCallRecord, ToolInfo, ToolProgressUpdate, agentApi } from '../lib/api';
+import { InteractionType, ToolCall, GeneralChatMessage, WorkspacePayload, ResearchWorkflow } from '../types/chat';
+import { memoryApi, Memory, assetApi, Asset, AssetUpdate, ToolInfo, toolsApi, agentApi } from '../lib/api';
 import {
     ConversationSidebar,
     ChatPanel,
@@ -112,9 +112,6 @@ export default function MainPage() {
     const [activePayload, setActivePayload] = useState<WorkspacePayload | null>(null);
     const [isSavingAsset, setIsSavingAsset] = useState(false);
 
-    // Workflow state
-    const [activeWorkflow, setActiveWorkflow] = useState<WorkflowPlan | null>(null);
-
     const containerRef = useRef<HTMLDivElement>(null);
 
     // Handle divider drag
@@ -158,14 +155,14 @@ export default function MainPage() {
     useEffect(() => {
         const loadData = async () => {
             try {
-                const [tools, mems, assts] = await Promise.all([
-                    workflowApi.getTools(),
+                const [toolsResponse, mems, assts] = await Promise.all([
+                    toolsApi.listTools(),
                     memoryApi.list(),
                     assetApi.list()
                 ]);
-                setAvailableTools(tools);
+                setAvailableTools(toolsResponse.tools);
                 // Enable all tools by default
-                setEnabledTools(new Set(tools.map(t => t.name)));
+                setEnabledTools(new Set(toolsResponse.tools.map(t => t.name)));
                 setMemories(mems);
                 setAssets(assts);
             } catch (err) {
@@ -254,8 +251,6 @@ export default function MainPage() {
         setActivePayload(null);
         setSelectedToolHistory(null);
         setSelectedTool(null);
-        setActiveWorkflow(null);
-        setExecutingStep(null);
     };
 
     // Memory handlers
@@ -469,263 +464,6 @@ export default function MainPage() {
         setSelectedTool(toolCall);
     };
 
-    // Step execution state
-    const [executingStep, setExecutingStep] = useState<WorkflowStep | null>(null);
-    const [stepStatus, setStepStatus] = useState<string>('');
-    const [stepToolCalls, setStepToolCalls] = useState<ToolCallRecord[]>([]);
-    const [currentToolProgress, setCurrentToolProgress] = useState<ToolProgressUpdate[]>([]);
-    const [currentToolName, setCurrentToolName] = useState<string | null>(null);
-
-    // Helper to build input data object from multiple sources
-    // Returns structured input with content and optional data for each source
-    const buildInputData = useCallback((
-        workflow: WorkflowPlan,
-        step: WorkflowStep
-    ): Record<string, { content: string; data?: any }> => {
-        const inputData: Record<string, { content: string; data?: any }> = {};
-        // Handle both old (input_source) and new (input_sources) formats
-        const sources = step.input_sources || [(step as any).input_source || 'user'];
-        for (const source of sources) {
-            if (source === 'user') {
-                inputData['user_input'] = { content: workflow.initial_input };
-            } else {
-                const sourceStep = workflow.steps.find(s => s.step_number === source);
-                inputData[`step_${source}`] = {
-                    content: sourceStep?.wip_output?.content || '',
-                    data: sourceStep?.wip_output?.data  // Include structured data if available
-                };
-            }
-        }
-        return inputData;
-    }, []);
-
-    // Helper to execute a step via dedicated step agent with streaming
-    const executeStep = useCallback(async (
-        workflow: WorkflowPlan,
-        step: WorkflowStep
-    ) => {
-        setExecutingStep(step);
-        setStepStatus('Starting...');
-        setStepToolCalls([]);
-        setCurrentToolProgress([]);
-        setCurrentToolName(null);
-        setActivePayload(null);
-
-        // Build input data from all sources
-        const inputData = buildInputData(workflow, step);
-
-        try {
-            let finalResult: StepStatusUpdate['result'] | null = null;
-
-            for await (const update of workflowApi.executeStepStreaming({
-                step_number: step.step_number,
-                description: step.description,
-                input_data: inputData,
-                output_format: step.output_description,
-                available_tools: step.method.tools
-            })) {
-                // Update status message
-                setStepStatus(update.message);
-
-                // Track tool start - reset progress for new tool
-                if (update.status === 'tool_start' && update.tool_name) {
-                    setCurrentToolName(update.tool_name);
-                    setCurrentToolProgress([]);
-                }
-
-                // Track tool progress updates
-                if (update.status === 'tool_progress' && update.tool_progress) {
-                    setCurrentToolProgress(prev => [...prev, update.tool_progress!]);
-                }
-
-                // Track tool completion - add to tool calls list with accumulated progress
-                if (update.status === 'tool_complete' && update.tool_name) {
-                    setStepToolCalls(prev => [...prev, {
-                        tool_name: update.tool_name!,
-                        input: update.tool_input || {},
-                        output: update.tool_output || ''
-                    }]);
-                    // Keep progress visible briefly, then clear
-                    setCurrentToolName(null);
-                }
-
-                // Capture final result
-                if (update.status === 'complete' || update.status === 'error') {
-                    finalResult = update.result || null;
-                }
-            }
-
-            setExecutingStep(null);
-            setStepStatus('');
-
-            if (finalResult?.success) {
-                // Show the output as a WIP payload for user review
-                setActivePayload({
-                    type: 'wip',
-                    title: `Step ${step.step_number}: ${step.description}`,
-                    content: finalResult.output,
-                    step_number: step.step_number,
-                    content_type: finalResult.content_type,
-                    data: finalResult.data  // Include structured data if available
-                });
-            } else {
-                sendMessage(
-                    `Step ${step.step_number} failed: ${finalResult?.error || 'Unknown error'}. Would you like me to retry?`,
-                    InteractionType.TEXT_INPUT
-                );
-            }
-        } catch (err) {
-            console.error('Step execution error:', err);
-            setExecutingStep(null);
-            setStepStatus('');
-            sendMessage(
-                `Error executing step ${step.step_number}. Please try again.`,
-                InteractionType.TEXT_INPUT
-            );
-        }
-    }, [sendMessage, buildInputData]);
-
-    // Workflow handlers
-    const handleAcceptPlan = useCallback((payload: WorkspacePayload) => {
-        if (payload.type !== 'plan' || !payload.steps) return;
-
-        // Convert payload steps to workflow steps with status
-        // Handle both old (input_source) and new (input_sources) formats from LLM
-        const workflowSteps: WorkflowStep[] = payload.steps.map((step: WorkflowStepDefinition, idx: number) => ({
-            step_number: idx + 1,
-            description: step.description,
-            input_description: step.input_description,
-            input_sources: step.input_sources || [(step as any).input_source || 'user'],
-            output_description: step.output_description,
-            method: step.method,
-            status: idx === 0 ? 'in_progress' : 'pending'
-        }));
-
-        // Create the workflow plan
-        const workflow: WorkflowPlan = {
-            id: `workflow_${Date.now()}`,
-            title: payload.title,
-            goal: payload.goal || '',
-            initial_input: payload.initial_input || '',
-            status: 'active',
-            steps: workflowSteps,
-            created_at: new Date().toISOString()
-        };
-
-        setActiveWorkflow(workflow);
-        setActivePayload(null);
-
-        // Execute the first step via dedicated step agent
-        const firstStep = workflowSteps[0];
-        executeStep(workflow, firstStep);
-    }, [executeStep]);
-
-    const handleRejectPlan = useCallback(() => {
-        setActivePayload(null);
-        sendMessage(
-            'I\'d like to revise this plan. Let\'s discuss adjustments.',
-            InteractionType.TEXT_INPUT
-        );
-    }, [sendMessage]);
-
-    const handleAcceptWip = useCallback((payload: WorkspacePayload) => {
-        if (!activeWorkflow || payload.step_number === undefined) return;
-
-        const stepNumber = payload.step_number;
-        const updatedSteps = activeWorkflow.steps.map(step => {
-            if (step.step_number === stepNumber) {
-                return {
-                    ...step,
-                    status: 'completed' as const,
-                    wip_output: {
-                        title: payload.title,
-                        content: payload.content,
-                        content_type: payload.content_type || 'document',
-                        data: payload.data  // Include structured data if available
-                    }
-                };
-            } else if (step.step_number === stepNumber + 1) {
-                return { ...step, status: 'in_progress' as const };
-            }
-            return step;
-        });
-
-        const allCompleted = updatedSteps.every(s => s.status === 'completed');
-
-        const updatedWorkflow = {
-            ...activeWorkflow,
-            steps: updatedSteps,
-            status: allCompleted ? 'completed' as const : 'active' as const
-        };
-        setActiveWorkflow(updatedWorkflow);
-        setActivePayload(null);
-
-        if (allCompleted) {
-            // Workflow complete - show final output for user review
-            const lastStep = updatedSteps[updatedSteps.length - 1];
-            if (lastStep.wip_output) {
-                setActivePayload({
-                    type: 'final',
-                    title: lastStep.wip_output.title,
-                    content: lastStep.wip_output.content,
-                    content_type: lastStep.wip_output.content_type as 'document' | 'data' | 'code',
-                    workflow_title: activeWorkflow.title,
-                    steps_completed: updatedSteps.length
-                });
-            }
-            // Keep workflow in state until user accepts/dismisses final output
-        } else {
-            // Execute next step via dedicated step agent
-            const nextStep = updatedSteps.find(s => s.status === 'in_progress');
-            if (nextStep) {
-                // Execute with multi-source input gathering
-                executeStep(updatedWorkflow, nextStep);
-            }
-        }
-    }, [activeWorkflow, executeStep, handleSavePayloadAsAsset]);
-
-    const handleEditWip = useCallback((payload: WorkspacePayload) => {
-        // For now, just ask the main agent for feedback - TODO: could have step agent revise
-        sendMessage(
-            `I'd like to request changes to step ${payload.step_number} output. Here's my feedback:`,
-            InteractionType.TEXT_INPUT
-        );
-    }, [sendMessage]);
-
-    const handleRejectWip = useCallback(() => {
-        if (!activeWorkflow) return;
-
-        const currentStep = activeWorkflow.steps.find(s => s.status === 'in_progress');
-        if (currentStep) {
-            // Re-execute the step with multi-source input gathering
-            executeStep(activeWorkflow, currentStep);
-        }
-        setActivePayload(null);
-    }, [activeWorkflow, executeStep]);
-
-    const handleAbandonWorkflow = useCallback(() => {
-        setActiveWorkflow(null);
-        setActivePayload(null);
-    }, []);
-
-    const handleAcceptFinal = useCallback((payload: WorkspacePayload) => {
-        // Save the final output as an asset
-        handleSavePayloadAsAsset({
-            type: payload.content_type === 'code' ? 'code' : 'draft',
-            title: payload.title,
-            content: payload.content
-        }, false);
-        // Clear workflow and payload
-        setActiveWorkflow(null);
-        setActivePayload(null);
-    }, [handleSavePayloadAsAsset]);
-
-    const handleDismissFinal = useCallback(() => {
-        // Just clear the workflow without saving
-        setActiveWorkflow(null);
-        setActivePayload(null);
-    }, []);
-
     // Agent payload handlers
     const handleAcceptAgent = useCallback(async (payload: WorkspacePayload) => {
         if (!payload.agent_data) return;
@@ -866,18 +604,6 @@ export default function MainPage() {
         setActivePayload(null);
     }, [activePayload, handleSavePayloadAsAsset]);
 
-    const handleViewStepOutput = useCallback((stepNumber: number) => {
-        if (!activeWorkflow) return;
-        const step = activeWorkflow.steps.find(s => s.step_number === stepNumber);
-        if (step?.wip_output) {
-            setActivePayload({
-                type: step.wip_output.content_type === 'code' ? 'code' : 'draft',
-                title: step.wip_output.title,
-                content: step.wip_output.content
-            });
-        }
-    }, [activeWorkflow]);
-
     // Workflow engine handlers
     const handleStartWorkflow = useCallback(async (workflowId: string, initialInput: Record<string, any>) => {
         try {
@@ -995,25 +721,11 @@ export default function MainPage() {
                     selectedToolHistory={selectedToolHistory}
                     selectedTool={selectedTool}
                     activePayload={activePayload}
-                    executingStep={executingStep}
-                    stepStatus={stepStatus}
-                    stepToolCalls={stepToolCalls}
-                    currentToolName={currentToolName}
-                    currentToolProgress={currentToolProgress}
                     onClose={handleWorkspaceClose}
                     onSaveAsAsset={handleSaveToolOutputAsAsset}
                     onSavePayloadAsAsset={handleSavePayloadAsAsset}
                     isSavingAsset={isSavingAsset}
                     onPayloadEdit={handlePayloadEdit}
-                    activeWorkflow={activeWorkflow}
-                    onAcceptPlan={handleAcceptPlan}
-                    onRejectPlan={handleRejectPlan}
-                    onAcceptWip={handleAcceptWip}
-                    onEditWip={handleEditWip}
-                    onRejectWip={handleRejectWip}
-                    onAcceptFinal={handleAcceptFinal}
-                    onDismissFinal={handleDismissFinal}
-                    onAbandonWorkflow={handleAbandonWorkflow}
                     onAcceptAgent={handleAcceptAgent}
                     onRejectAgent={handleRejectAgent}
                     onUpdateResearchWorkflow={handleUpdateResearchWorkflow}
@@ -1056,7 +768,6 @@ export default function MainPage() {
                     profile={userProfile}
                     enabledTools={enabledTools}
                     includeProfile={includeProfile}
-                    workflow={activeWorkflow}
                     onAddWorkingMemory={handleAddWorkingMemory}
                     onToggleMemoryPinned={handleToggleMemoryPinned}
                     onToggleAssetContext={handleToggleAssetContext}
@@ -1067,8 +778,6 @@ export default function MainPage() {
                     onExpandAssets={() => setIsAssetModalOpen(true)}
                     onExpandTools={() => setIsToolModalOpen(true)}
                     onEditProfile={handleEditProfile}
-                    onAbandonWorkflow={handleAbandonWorkflow}
-                    onViewStepOutput={handleViewStepOutput}
                     onOpenWorkflows={() => setIsWorkflowModalOpen(true)}
                 />
             </div>

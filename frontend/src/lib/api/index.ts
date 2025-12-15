@@ -106,11 +106,8 @@ export type { Asset, AssetCreate, AssetUpdate, AssetType } from './assetApi';
 export { profileApi } from './profileApi';
 export type { Profile, ProfileUpdate } from './profileApi';
 
-export { workflowApi } from './workflowApi';
-export type { StepExecutionRequest, StepExecutionResult, StepStatusUpdate, ToolCallRecord, ToolInfo, ToolProgressUpdate } from './workflowApi';
-
 export { toolsApi } from './toolsApi';
-export type { PubMedSearchRequest, PubMedArticle, PubMedSearchResponse } from './toolsApi';
+export type { PubMedSearchRequest, PubMedArticle, PubMedSearchResponse, ToolInfo } from './toolsApi';
 
 export { oauthApi } from './oauthApi';
 export type { OAuthConnectionStatus, OAuthConnections, GoogleAuthResponse } from './oauthApi';
@@ -119,3 +116,6 @@ export { agentApi } from './agentApi';
 export type { Agent, AgentRun, AgentRunEvent, AgentDetail, AgentLifecycle, AgentStatus, AgentRunStatus, AgentRunEventType, CreateAgentRequest, UpdateAgentRequest, AgentAsset } from './agentApi';
 
 export * as workflowEngineApi from './workflowEngineApi';
+
+export { generalChatApi } from './generalChatApi';
+export type { ToolProgressEvent as ToolProgressUpdate } from './generalChatApi';

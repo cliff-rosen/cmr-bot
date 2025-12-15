@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { PlusIcon, PlayIcon, PauseIcon, TrashIcon, ArrowPathIcon, ChevronDownIcon, ChevronUpIcon, DocumentTextIcon, PencilIcon } from '@heroicons/react/24/outline';
-import { agentApi, Agent, AgentDetail, AgentRun, AgentRunEvent, AgentAsset, AgentLifecycle, AgentStatus, AgentRunEventType, CreateAgentRequest, UpdateAgentRequest, workflowApi, ToolInfo } from '../lib/api';
+import { agentApi, Agent, AgentDetail, AgentRun, AgentRunEvent, AgentAsset, AgentLifecycle, AgentStatus, AgentRunEventType, CreateAgentRequest, UpdateAgentRequest, toolsApi, ToolInfo } from '../lib/api';
 
 /**
  * Agents Dashboard
@@ -22,12 +22,12 @@ export default function AgentsPage() {
     useEffect(() => {
         const loadData = async () => {
             try {
-                const [agentList, tools] = await Promise.all([
+                const [agentList, toolsResponse] = await Promise.all([
                     agentApi.list(),
-                    workflowApi.getTools()
+                    toolsApi.listTools()
                 ]);
                 setAgents(agentList);
-                setAvailableTools(tools);
+                setAvailableTools(toolsResponse.tools);
             } catch (err) {
                 setError('Failed to load agents');
                 console.error(err);

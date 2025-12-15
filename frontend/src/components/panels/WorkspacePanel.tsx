@@ -1,15 +1,12 @@
 import { XMarkIcon } from '@heroicons/react/24/solid';
-import { ToolCall, WorkspacePayload, WorkflowStep, WorkflowPlan, ResearchWorkflow } from '../../types/chat';
-import { ToolCallRecord, ToolProgressUpdate } from '../../lib/api';
+import { ToolCall, WorkspacePayload, ResearchWorkflow } from '../../types/chat';
 import { WorkflowInstanceState, WorkflowHandlers, WorkflowEvent } from '../../lib/workflows';
 import {
-    StepExecutingView,
     StandardPayloadView,
     ToolHistoryView,
     ToolResultView,
     AgentPayloadView,
     TablePayloadView,
-    WorkflowPipelineView,
     ResearchWorkflowView,
     ResearchResultView,
     WorkflowExecutionView,
@@ -20,26 +17,11 @@ interface WorkspacePanelProps {
     selectedToolHistory: ToolCall[] | null;
     selectedTool: ToolCall | null;
     activePayload: WorkspacePayload | null;
-    executingStep: WorkflowStep | null;
-    stepStatus: string;
-    stepToolCalls: ToolCallRecord[];
-    currentToolName: string | null;
-    currentToolProgress: ToolProgressUpdate[];
     onClose: () => void;
     onSaveAsAsset: (toolCall: ToolCall) => void;
     onSavePayloadAsAsset: (payload: WorkspacePayload, andClose?: boolean) => void;
     isSavingAsset?: boolean;
     onPayloadEdit: (payload: WorkspacePayload) => void;
-    // Workflow state and callbacks
-    activeWorkflow?: WorkflowPlan | null;
-    onAcceptPlan?: (payload: WorkspacePayload) => void;
-    onRejectPlan?: () => void;
-    onAcceptWip?: (payload: WorkspacePayload) => void;
-    onEditWip?: (payload: WorkspacePayload) => void;
-    onRejectWip?: () => void;
-    onAcceptFinal?: (payload: WorkspacePayload) => void;
-    onDismissFinal?: () => void;
-    onAbandonWorkflow?: () => void;
     // Agent callbacks
     onAcceptAgent?: (payload: WorkspacePayload) => void;
     onRejectAgent?: () => void;
@@ -62,25 +44,11 @@ export default function WorkspacePanel({
     selectedToolHistory,
     selectedTool,
     activePayload,
-    executingStep,
-    stepStatus,
-    stepToolCalls,
-    currentToolName,
-    currentToolProgress,
     onClose,
     onSaveAsAsset,
     onSavePayloadAsAsset,
     isSavingAsset = false,
     onPayloadEdit,
-    activeWorkflow,
-    onAcceptPlan,
-    onRejectPlan,
-    onAcceptWip,
-    onEditWip,
-    onRejectWip,
-    onAcceptFinal,
-    onDismissFinal,
-    onAbandonWorkflow,
     onAcceptAgent,
     onRejectAgent,
     onUpdateResearchWorkflow,
@@ -101,22 +69,17 @@ export default function WorkspacePanel({
     // Check if we're in workflow engine mode
     const isWorkflowEngineMode = workflowInstance && workflowHandlers;
 
-    // Check if we're in workflow mode (active workflow OR proposed plan)
-    const isWorkflowMode = activeWorkflow || (activePayload?.type === 'plan');
-    const isWorkflowRelatedPayload = activePayload?.type === 'plan' || activePayload?.type === 'wip' || activePayload?.type === 'final';
     const isResearchWorkflow = activePayload?.type === 'research';
     const isResearchResult = activePayload?.type === 'research_result';
 
     // Determine what to show
     const showWorkflowEngine = isWorkflowEngineMode && !selectedToolHistory && !selectedTool;
-    const showWorkflowPipeline = !showWorkflowEngine && (isWorkflowMode || (isWorkflowRelatedPayload && !selectedToolHistory && !selectedTool));
     const showResearchWorkflow = !showWorkflowEngine && isResearchWorkflow && !selectedToolHistory && !selectedTool;
     const showResearchResult = !showWorkflowEngine && isResearchResult && !selectedToolHistory && !selectedTool;
-    const showExecuting = !showWorkflowEngine && executingStep !== null && !showWorkflowPipeline && !showResearchWorkflow && !showResearchResult;
-    const showPayload = !showWorkflowEngine && activePayload && !selectedToolHistory && !selectedTool && !showExecuting && !showWorkflowPipeline && !showResearchWorkflow && !showResearchResult;
-    const showToolResult = !showWorkflowEngine && selectedTool && !showExecuting && !showWorkflowPipeline && !showResearchWorkflow && !showResearchResult;
-    const showToolHistory = !showWorkflowEngine && selectedToolHistory && selectedToolHistory.length > 0 && !selectedTool && !showExecuting && !showWorkflowPipeline && !showResearchWorkflow && !showResearchResult;
-    const showEmpty = !showPayload && !showToolHistory && !showToolResult && !showExecuting && !showWorkflowPipeline && !showResearchWorkflow && !showResearchResult && !showWorkflowEngine;
+    const showPayload = !showWorkflowEngine && activePayload && !selectedToolHistory && !selectedTool && !showResearchWorkflow && !showResearchResult;
+    const showToolResult = !showWorkflowEngine && selectedTool && !showResearchWorkflow && !showResearchResult;
+    const showToolHistory = !showWorkflowEngine && selectedToolHistory && selectedToolHistory.length > 0 && !selectedTool && !showResearchWorkflow && !showResearchResult;
+    const showEmpty = !showPayload && !showToolHistory && !showToolResult && !showResearchWorkflow && !showResearchResult && !showWorkflowEngine;
 
     // Show initial loading state when workflow is starting but no instance yet
     if (isWorkflowProcessing && !workflowInstance) {
@@ -197,64 +160,28 @@ export default function WorkspacePanel({
         );
     }
 
-    // For workflow pipeline, render without the standard header (it has its own)
-    if (showWorkflowPipeline) {
-        return (
-            <div className="flex flex-col h-full bg-gray-50 dark:bg-gray-950 p-4">
-                <WorkflowPipelineView
-                    // Proposed plan props
-                    proposedPlan={activePayload?.type === 'plan' ? activePayload : undefined}
-                    onAcceptPlan={onAcceptPlan}
-                    onRejectPlan={onRejectPlan}
-                    // Active workflow props
-                    workflow={activeWorkflow}
-                    executingStep={executingStep}
-                    stepStatus={stepStatus}
-                    stepToolCalls={stepToolCalls}
-                    currentToolName={currentToolName}
-                    currentToolProgress={currentToolProgress}
-                    // Step output review props
-                    stepOutput={activePayload?.type === 'wip' || activePayload?.type === 'final' ? activePayload : null}
-                    onAcceptStep={onAcceptWip}
-                    onEditStep={onEditWip}
-                    onRejectStep={onRejectWip}
-                    onPayloadEdit={onPayloadEdit}
-                    // Final workflow props
-                    onAcceptFinal={onAcceptFinal}
-                    onDismissFinal={onDismissFinal}
-                    // Abandon
-                    onAbandon={onAbandonWorkflow}
-                />
-            </div>
-        );
-    }
-
     return (
         <div className="flex flex-col h-full bg-gray-50 dark:bg-gray-950">
             {/* Workspace Header */}
             <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 dark:border-gray-700">
                 <div>
                     <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
-                        {showExecuting
-                            ? `Executing Step ${executingStep.step_number}`
-                            : showToolResult
-                                ? 'Tool Result'
-                                : showToolHistory
-                                    ? 'Tool History'
-                                    : showPayload
-                                        ? activePayload.title
-                                        : 'Workspace'}
+                        {showToolResult
+                            ? 'Tool Result'
+                            : showToolHistory
+                                ? 'Tool History'
+                                : showPayload
+                                    ? activePayload.title
+                                    : 'Workspace'}
                     </h2>
                     <p className="text-sm text-gray-500 dark:text-gray-400">
-                        {showExecuting
-                            ? 'Please wait...'
-                            : showToolResult
-                                ? selectedTool.tool_name.replace(/_/g, ' ')
-                                : showToolHistory
-                                    ? `${selectedToolHistory.length} tool call(s)`
-                                    : showPayload
-                                        ? config?.label
-                                        : 'Collaborative space'}
+                        {showToolResult
+                            ? selectedTool.tool_name.replace(/_/g, ' ')
+                            : showToolHistory
+                                ? `${selectedToolHistory.length} tool call(s)`
+                                : showPayload
+                                    ? config?.label
+                                    : 'Collaborative space'}
                     </p>
                 </div>
                 {(showToolResult || showToolHistory || showPayload) && (
@@ -268,18 +195,7 @@ export default function WorkspacePanel({
             </div>
 
             {/* Workspace Content */}
-            <div className={`flex-1 ${showExecuting || (showPayload && (activePayload?.type === 'agent_create' || activePayload?.type === 'agent_update' || activePayload?.type === 'table')) ? 'overflow-hidden flex flex-col' : 'overflow-y-auto p-4'}`}>
-                {/* Step Executing View */}
-                {showExecuting && (
-                    <StepExecutingView
-                        executingStep={executingStep}
-                        stepStatus={stepStatus}
-                        stepToolCalls={stepToolCalls}
-                        currentToolName={currentToolName}
-                        currentToolProgress={currentToolProgress}
-                    />
-                )}
-
+            <div className={`flex-1 ${(showPayload && (activePayload?.type === 'agent_create' || activePayload?.type === 'agent_update' || activePayload?.type === 'table')) ? 'overflow-hidden flex flex-col' : 'overflow-y-auto p-4'}`}>
                 {/* Agent Payload View (create/update) */}
                 {showPayload && (activePayload.type === 'agent_create' || activePayload.type === 'agent_update') && (
                     <AgentPayloadView
@@ -299,7 +215,7 @@ export default function WorkspacePanel({
                 )}
 
                 {/* Standard Payload View (draft, summary, data, code) */}
-                {showPayload && activePayload.type !== 'plan' && activePayload.type !== 'wip' && activePayload.type !== 'final' && activePayload.type !== 'agent_create' && activePayload.type !== 'agent_update' && activePayload.type !== 'table' && (
+                {showPayload && activePayload.type !== 'agent_create' && activePayload.type !== 'agent_update' && activePayload.type !== 'table' && (
                     <StandardPayloadView
                         payload={activePayload}
                         onSaveAsAsset={onSavePayloadAsAsset}

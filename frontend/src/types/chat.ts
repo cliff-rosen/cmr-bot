@@ -43,7 +43,7 @@ export interface ToolCall {
     workspace_payload?: WorkspacePayload;  // Payload to display in workspace panel
 }
 
-export type WorkspacePayloadType = 'draft' | 'summary' | 'data' | 'code' | 'plan' | 'wip' | 'final' | 'agent_create' | 'agent_update' | 'table' | 'research' | 'research_result';
+export type WorkspacePayloadType = 'draft' | 'summary' | 'data' | 'code' | 'agent_create' | 'agent_update' | 'table' | 'research' | 'research_result';
 
 // Table payload types for TABILIZER functionality
 export interface TableColumn {
@@ -96,17 +96,8 @@ export interface WorkspacePayload {
     type: WorkspacePayloadType;
     title: string;
     content: string;
-    // Extended fields for plan payloads
-    goal?: string;
-    initial_input?: string;
-    steps?: WorkflowStepDefinition[];
-    // Extended fields for wip payloads
-    step_number?: number;
-    content_type?: 'document' | 'data' | 'code';
-    data?: any;  // Structured data when content_type is 'data'
-    // Extended fields for final workflow output
-    workflow_title?: string;
-    steps_completed?: number;
+    // Extended fields for data payloads
+    data?: any;  // Structured data when type is 'data'
     // Extended fields for agent payloads
     agent_data?: AgentPayloadData;
     // Extended fields for table payloads (TABILIZER)
@@ -115,52 +106,6 @@ export interface WorkspacePayload {
     research_data?: ResearchWorkflow;
     // Extended fields for research result (from deep_research tool)
     research_result_data?: ResearchResultData;
-}
-
-// ============================================================================
-// Workflow Types
-// ============================================================================
-
-export interface WorkflowPlan {
-    id: string;
-    title: string;
-    goal: string;
-    initial_input: string;
-    status: 'proposed' | 'active' | 'completed' | 'abandoned';
-    steps: WorkflowStep[];
-    created_at: string;
-}
-
-export interface WorkflowStep {
-    step_number: number;
-    description: string;
-    input_description: string;
-    input_sources: ('user' | number)[];   // Array of sources: 'user' and/or step numbers
-    output_description: string;
-    method: StepMethod;
-    status: 'pending' | 'in_progress' | 'completed' | 'skipped';
-    wip_output?: WipOutput;
-}
-
-export interface WorkflowStepDefinition {
-    description: string;
-    input_description: string;
-    input_sources: ('user' | number)[];   // Array of sources
-    output_description: string;
-    method: StepMethod;
-}
-
-export interface StepMethod {
-    approach: string;
-    tools: string[];
-    reasoning: string;
-}
-
-export interface WipOutput {
-    title: string;
-    content: string;
-    content_type: 'document' | 'data' | 'code';
-    data?: any;  // Structured data when content_type is 'data'
 }
 
 // ============================================================================
@@ -269,7 +214,7 @@ export interface ResearchSource {
     contribution: string;       // How this source contributed
 }
 
-const VALID_PAYLOAD_TYPES = ['draft', 'summary', 'data', 'code', 'plan', 'wip', 'agent_create', 'agent_update', 'table', 'research', 'research_result'];
+const VALID_PAYLOAD_TYPES = ['draft', 'summary', 'data', 'code', 'agent_create', 'agent_update', 'table', 'research', 'research_result'];
 
 /**
  * Parse a workspace payload from message content.
@@ -281,7 +226,7 @@ export function parseWorkspacePayload(content: string): { text: string; payload:
     const patterns = [
         /```payload\s*\n([\s\S]*?)\n```/,      // ```payload\n...\n```
         /```payload\s+([\s\S]*?)```/,           // ```payload {...}```
-        /```json\s*\n(\{[\s\S]*?"type"\s*:\s*"(?:draft|summary|data|code|plan|wip|agent_create|agent_update)"[\s\S]*?\})\n```/, // ```json with type field
+        /```json\s*\n(\{[\s\S]*?"type"\s*:\s*"(?:draft|summary|data|code|agent_create|agent_update)"[\s\S]*?\})\n```/, // ```json with type field
     ];
 
     for (const regex of patterns) {
@@ -298,17 +243,7 @@ export function parseWorkspacePayload(content: string): { text: string; payload:
             }
 
             // Validate required fields based on type
-            if (payload.type === 'plan') {
-                // Plan requires goal and steps
-                if (!payload.title || !payload.goal || !payload.steps) {
-                    continue;
-                }
-            } else if (payload.type === 'wip') {
-                // WIP requires step_number and content
-                if (!payload.title || !payload.content || payload.step_number === undefined) {
-                    continue;
-                }
-            } else if (payload.type === 'agent_create' || payload.type === 'agent_update') {
+            if (payload.type === 'agent_create' || payload.type === 'agent_update') {
                 // Agent payloads require agent_data with name and instructions
                 if (!payload.title || !payload.agent_data?.name || !payload.agent_data?.instructions) {
                     continue;
