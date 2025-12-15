@@ -108,58 +108,60 @@ export const generalChatApi = {
         try {
             const rawStream = makeStreamRequest('/api/chat/stream', request, 'POST', signal);
 
-            // Buffer for accumulating partial SSE messages across chunks
+            // Buffer for accumulating partial SSE data lines across chunks
             let buffer = '';
 
             for await (const update of rawStream) {
                 // Append new data to buffer
                 buffer += update.data;
 
-                // Process complete SSE messages (delimited by double newline)
-                // SSE format: "data: {...}\n\n"
-                let delimiterIndex: number;
-                while ((delimiterIndex = buffer.indexOf('\n\n')) !== -1) {
-                    const message = buffer.slice(0, delimiterIndex);
-                    buffer = buffer.slice(delimiterIndex + 2);
+                // Process complete lines from the buffer
+                // SSE messages end with \n\n, but we process line by line
+                // looking for complete "data: {...}" lines
+                let newlineIndex: number;
+                while ((newlineIndex = buffer.indexOf('\n')) !== -1) {
+                    const line = buffer.slice(0, newlineIndex);
+                    buffer = buffer.slice(newlineIndex + 1);
 
-                    // Process each line in the message
-                    const lines = message.split('\n');
-                    for (const line of lines) {
-                        if (!line.trim()) continue;
+                    // Skip empty lines and non-data lines (event:, id:, retry:, comments)
+                    if (!line.trim() || !line.startsWith('data: ')) {
+                        continue;
+                    }
 
-                        if (line.startsWith('data: ')) {
-                            const jsonStr = line.slice(6);
-                            try {
-                                const data = JSON.parse(jsonStr) as StreamEvent;
-                                // Log non-text events for debugging
-                                if (data.type !== 'text_delta') {
-                                    console.log('[SSE] Event:', data.type);
-                                }
-                                yield data;
-                            } catch (e) {
-                                console.error('Failed to parse stream data:', jsonStr.slice(0, 200) + '...', e);
-                            }
+                    const jsonStr = line.slice(6); // Remove "data: " prefix
+
+                    // Skip ping/keepalive messages
+                    if (jsonStr === '' || jsonStr === 'ping') {
+                        continue;
+                    }
+
+                    try {
+                        const data = JSON.parse(jsonStr) as StreamEvent;
+                        // Log non-text events for debugging
+                        if (data.type !== 'text_delta') {
+                            console.log('[SSE] Event:', data.type);
                         }
+                        yield data;
+                    } catch (e) {
+                        // JSON parse failed - this line might be incomplete
+                        // Put it back in the buffer and wait for more data
+                        buffer = line + '\n' + buffer;
+                        break;
                     }
                 }
             }
 
-            // Process any remaining buffered data (shouldn't happen with well-formed SSE)
-            if (buffer.trim()) {
-                const lines = buffer.split('\n');
-                for (const line of lines) {
-                    if (line.startsWith('data: ')) {
-                        const jsonStr = line.slice(6);
-                        try {
-                            const data = JSON.parse(jsonStr) as StreamEvent;
-                            if (data.type !== 'text_delta') {
-                                console.log('[SSE] Event (final):', data.type);
-                            }
-                            yield data;
-                        } catch (e) {
-                            console.error('Failed to parse final stream data:', jsonStr.slice(0, 200) + '...', e);
-                        }
+            // Process any remaining buffered data
+            if (buffer.trim() && buffer.startsWith('data: ')) {
+                const jsonStr = buffer.slice(6);
+                try {
+                    const data = JSON.parse(jsonStr) as StreamEvent;
+                    if (data.type !== 'text_delta') {
+                        console.log('[SSE] Event (final):', data.type);
                     }
+                    yield data;
+                } catch (e) {
+                    console.error('Failed to parse final stream data:', jsonStr.slice(0, 200) + '...', e);
                 }
             }
         } catch (error) {
