@@ -22,6 +22,7 @@ import {
     ClipboardDocumentListIcon,
     SparklesIcon,
     DocumentArrowDownIcon,
+    LightBulbIcon,
 } from '@heroicons/react/24/solid';
 import { WorkflowViewProps } from '../../../lib/workspace';
 import { WorkspacePayload, TableColumn } from '../../../types/chat';
@@ -74,6 +75,7 @@ const STAGES = [
     { id: 'build_vendor_list', name: 'Build List', icon: BuildingStorefrontIcon },
     { id: 'enrich_company_info', name: 'Enrich', icon: SparklesIcon },
     { id: 'find_reviews', name: 'Reviews', icon: StarIcon },
+    { id: 'analyze_and_recommend', name: 'Analyze', icon: LightBulbIcon },
     { id: 'final_checkpoint', name: 'Complete', icon: CheckCircleIcon },
 ];
 
@@ -81,7 +83,7 @@ const STAGES = [
 const CHECKPOINT_DATA_MAP: Record<string, string> = {
     'criteria_checkpoint': 'define_criteria',
     'vendor_list_checkpoint': 'build_vendor_list',
-    'final_checkpoint': 'find_reviews',
+    'final_checkpoint': 'analyze_and_recommend',
 };
 
 // =============================================================================
@@ -552,6 +554,7 @@ export default function VendorFinderWorkflowView({
                                         currentNodeId === 'build_vendor_list' ? 'Building vendor list...' :
                                         currentNodeId === 'enrich_company_info' ? 'Researching company details...' :
                                         currentNodeId === 'find_reviews' ? 'Finding reviews...' :
+                                        currentNodeId === 'analyze_and_recommend' ? 'Analyzing findings and building recommendations...' :
                                         'Working...'
                                     )}
                                 </p>

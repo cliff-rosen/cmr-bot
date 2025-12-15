@@ -293,9 +293,49 @@ async def broad_search(context: WorkflowContext) -> AsyncGenerator[Union[StepPro
         yield StepOutput(success=False, error=str(e))
 
 
+def _get_vendor_bucket(count: int) -> Dict[str, Any]:
+    """Determine the bucket and appropriate messaging based on vendor count."""
+    if count == 0:
+        return {
+            "bucket": "none",
+            "message": "No vendors found. Consider broadening your search.",
+            "action_hint": "expand_search",
+            "research_all": True,
+        }
+    elif count <= 3:
+        return {
+            "bucket": "sparse",
+            "message": f"Only found {count} candidate(s). This is a limited selection - I'll research all of them thoroughly.",
+            "action_hint": "research_all_and_explain",
+            "research_all": True,
+        }
+    elif count <= 12:
+        return {
+            "bucket": "healthy",
+            "message": f"Found {count} candidates - a good number to research thoroughly.",
+            "action_hint": "research_all",
+            "research_all": True,
+        }
+    elif count <= 25:
+        return {
+            "bucket": "many",
+            "message": f"Found {count} candidates. I can research all of them, or you can select specific ones to focus on.",
+            "action_hint": "select_or_all",
+            "research_all": False,  # User should choose
+        }
+    else:
+        return {
+            "bucket": "overflow",
+            "message": f"Found {count}+ candidates - that's a lot! Consider narrowing your criteria, or I can focus on the top prospects.",
+            "action_hint": "narrow_or_prioritize",
+            "research_all": False,
+        }
+
+
 async def build_vendor_list(context: WorkflowContext) -> StepOutput:
     """
     Step 3: Parse search results into structured vendor list.
+    Implements adaptive bucket logic based on result count.
     """
     search_data = context.get_step_output("broad_search")
     if not search_data:
@@ -305,68 +345,80 @@ async def build_vendor_list(context: WorkflowContext) -> StepOutput:
     criteria = search_data.get("criteria", {})
 
     if not results:
+        bucket_info = _get_vendor_bucket(0)
         return StepOutput(
             success=True,
-            data={**search_data, "vendors": []},
+            data={
+                **search_data,
+                "vendors": [],
+                "vendor_count": 0,
+                "bucket_info": bucket_info
+            },
             display_title="No Vendors Found",
-            display_content="No search results to build vendor list from."
+            display_content=f"No vendors found matching your criteria.\n\n**Suggestions:**\n- Try broadening the location\n- Use alternative terms for the vendor type\n- Remove some requirements"
         )
 
     try:
         client = get_llm_client()
 
         # Have LLM extract vendor info from search results
+        # Process more results for larger searches
+        max_results = min(len(results), 40)
         results_text = ""
-        for i, r in enumerate(results[:20], 1):
+        for i, r in enumerate(results[:max_results], 1):
             results_text += f"{i}. {r['title']}\n   URL: {r['url']}\n   {r['snippet']}\n\n"
 
         response = client.messages.create(
             model=MODEL,
-            max_tokens=2048,
+            max_tokens=4096,
             messages=[{
                 "role": "user",
                 "content": f"""Extract vendor information from these search results.
 
-We're looking for: {criteria.get('vendor_type', 'vendors')}
-Location: {criteria.get('location', 'any')}
+                We're looking for: {criteria.get('vendor_type', 'vendors')}
+                Location: {criteria.get('location', 'any')}
 
-Search results:
-{results_text}
+                Search results:
+                {results_text}
 
-For each distinct vendor/company found, extract:
-- name: company name
-- website: their main website URL (if identifiable)
-- description: what they do (brief)
-- location: where they're based (if mentioned)
+                For each distinct vendor/company found, extract:
+                - name: company name
+                - website: their main website URL (if identifiable)
+                - description: what they do (brief)
+                - location: where they're based (if mentioned)
+                - initial_signal: "strong", "moderate", or "weak" based on how clearly this is a relevant vendor
 
-Filter out:
-- Aggregator/directory sites (just list vendors, not actual vendors)
-- Irrelevant results (not the type of vendor we're looking for)
-- Duplicate entries
+                Filter out:
+                - Aggregator/directory sites (these just list vendors, they're not actual vendors)
+                - Irrelevant results (not the type of vendor we're looking for)
+                - Duplicate entries
 
-Return JSON:
-{{
-    "vendors": [
-        {{
-            "name": "Company Name",
-            "website": "https://...",
-            "description": "What they do",
-            "location": "City, State"
-        }}
-    ]
-}}
+                Return JSON:
+                {{
+                    "vendors": [
+                        {{
+                            "name": "Company Name",
+                            "website": "https://...",
+                            "description": "What they do",
+                            "location": "City, State",
+                            "initial_signal": "strong/moderate/weak"
+                        }}
+                    ],
+                    "filtered_out_count": 5,
+                    "filter_reasons": ["3 aggregator sites", "2 irrelevant results"]
+                }}
 
-JSON:"""
+                JSON:"""
             }]
         )
 
         data = _parse_json(response.content[0].text)
         if not data or not data.get("vendors"):
-            data = {"vendors": []}
+            data = {"vendors": [], "filtered_out_count": 0, "filter_reasons": []}
 
-        # Convert to Vendor objects
+        # Convert to Vendor objects (no artificial limit now - bucket logic handles it)
         vendors = []
-        for i, v in enumerate(data.get("vendors", [])[:15]):  # Max 15 vendors
+        for i, v in enumerate(data.get("vendors", [])):
             vendor = Vendor(
                 id=f"vendor_{i+1}",
                 name=v.get("name", f"Vendor {i+1}"),
@@ -375,25 +427,52 @@ JSON:"""
                 location=v.get("location"),
                 status="pending"
             )
-            vendors.append(vendor.to_dict())
+            vendor_dict = vendor.to_dict()
+            vendor_dict["initial_signal"] = v.get("initial_signal", "moderate")
+            vendors.append(vendor_dict)
 
-        display = f"## Vendor List ({len(vendors)} found)\n\n"
-        for v in vendors:
-            display += f"### {v['name']}\n"
-            if v.get('website'):
-                display += f"Website: {v['website']}\n"
+        # Sort by initial signal strength
+        signal_order = {"strong": 0, "moderate": 1, "weak": 2}
+        vendors.sort(key=lambda x: signal_order.get(x.get("initial_signal", "moderate"), 1))
+
+        # Determine bucket
+        bucket_info = _get_vendor_bucket(len(vendors))
+
+        # Build display based on bucket
+        display = f"## {bucket_info['message']}\n\n"
+
+        if data.get("filter_reasons"):
+            display += f"*Filtered out: {', '.join(data['filter_reasons'])}*\n\n"
+
+        # Show vendor list
+        for i, v in enumerate(vendors, 1):
+            signal_indicator = {"strong": "🟢", "moderate": "🟡", "weak": "🔴"}.get(v.get("initial_signal"), "⚪")
+            display += f"### {i}. {v['name']} {signal_indicator}\n"
+            if v.get('location'):
+                display += f"📍 {v['location']}\n"
             if v.get('description'):
                 display += f"{v['description']}\n"
-            if v.get('location'):
-                display += f"Location: {v['location']}\n"
+            if v.get('website'):
+                display += f"🔗 {v['website']}\n"
             display += "\n"
+
+        # Add bucket-specific guidance
+        if bucket_info["bucket"] == "sparse":
+            display += "\n---\n*⚠️ Limited results. I'll research all candidates thoroughly and explain why selection is limited.*\n"
+        elif bucket_info["bucket"] == "many":
+            display += "\n---\n*💡 Many candidates found. You can proceed to research all, or deselect any you're not interested in.*\n"
+        elif bucket_info["bucket"] == "overflow":
+            display += "\n---\n*⚠️ Many candidates found. Recommend narrowing search or focusing on top-signal vendors.*\n"
 
         return StepOutput(
             success=True,
             data={
                 **search_data,
                 "vendors": vendors,
-                "vendor_count": len(vendors)
+                "vendor_count": len(vendors),
+                "bucket_info": bucket_info,
+                "filtered_out_count": data.get("filtered_out_count", 0),
+                "filter_reasons": data.get("filter_reasons", [])
             },
             display_title=f"Found {len(vendors)} Vendors",
             display_content=display,
@@ -462,21 +541,21 @@ async def enrich_company_info(context: WorkflowContext) -> AsyncGenerator[Union[
                     "role": "user",
                     "content": f"""Extract company information from this website content:
 
-Company: {vendor['name']}
-URL: {website}
+                    Company: {vendor['name']}
+                    URL: {website}
 
-Content:
-{content}
+                    Content:
+                    {content}
 
-Extract and return JSON:
-{{
-    "description": "updated description of what they do",
-    "services": ["service 1", "service 2"],
-    "contact": {{"phone": "...", "email": "...", "address": "..."}},
-    "price_tier": "$/$$/$$$/$$$$" or null
-}}
+                    Extract and return JSON:
+                    {{
+                        "description": "updated description of what they do",
+                        "services": ["service 1", "service 2"],
+                        "contact": {{"phone": "...", "email": "...", "address": "..."}},
+                        "price_tier": "$/$$/$$$/$$$$" or null
+                    }}
 
-Only include fields you can actually find. JSON:"""
+                    Only include fields you can actually find. JSON:"""
                 }]
             )
 
@@ -576,11 +655,11 @@ async def find_reviews(context: WorkflowContext) -> AsyncGenerator[Union[StepPro
                         "role": "user",
                         "content": f"""Summarize Yelp reviews for {vendor_name}:
 
-{yelp_snippets}
+                        {yelp_snippets}
 
-Return JSON:
-{{"rating": 4.5, "sentiment": "positive/mixed/negative", "highlights": ["good point"], "concerns": ["issue"]}}
-JSON:"""
+                        Return JSON:
+                        {{"rating": 4.5, "sentiment": "positive/mixed/negative", "highlights": ["good point"], "concerns": ["issue"]}}
+                        JSON:"""
                     }]
                 )
                 yelp_data = _parse_json(response.content[0].text) or {}
@@ -618,11 +697,11 @@ JSON:"""
                         "role": "user",
                         "content": f"""Summarize Google/general reviews for {vendor_name}:
 
-{google_snippets}
+                        {google_snippets}
 
-Return JSON:
-{{"rating": 4.5, "sentiment": "positive/mixed/negative", "highlights": ["good point"], "concerns": ["issue"]}}
-JSON:"""
+                        Return JSON:
+                        {{"rating": 4.5, "sentiment": "positive/mixed/negative", "highlights": ["good point"], "concerns": ["issue"]}}
+                        JSON:"""
                     }]
                 )
                 google_data = _parse_json(response.content[0].text) or {}
@@ -660,11 +739,11 @@ JSON:"""
                         "role": "user",
                         "content": f"""Summarize Reddit mentions for {vendor_name}:
 
-{reddit_snippets}
+                        {reddit_snippets}
 
-Return JSON:
-{{"sentiment": "positive/mixed/negative", "highlights": ["good point"], "concerns": ["issue"]}}
-JSON:"""
+                        Return JSON:
+                        {{"sentiment": "positive/mixed/negative", "highlights": ["good point"], "concerns": ["issue"]}}
+                        JSON:"""
                     }]
                 )
                 reddit_data = _parse_json(response.content[0].text) or {}
@@ -734,6 +813,212 @@ JSON:"""
         display_content=display,
         content_type="markdown"
     )
+
+
+async def analyze_and_recommend(context: WorkflowContext) -> StepOutput:
+    """
+    Step 6: Synthesize all findings into recommendations and comparison.
+    """
+    review_data = context.get_step_output("find_reviews")
+    if not review_data:
+        return StepOutput(success=False, error="No review data")
+
+    vendors = review_data.get("vendors", [])
+    criteria = review_data.get("criteria", {})
+    original_query = review_data.get("original_query", "vendors")
+
+    if not vendors:
+        return StepOutput(
+            success=True,
+            data={**review_data, "analysis": None, "recommendations": []},
+            display_title="No Vendors to Analyze",
+            display_content="No vendors were found to analyze."
+        )
+
+    try:
+        client = get_llm_client()
+
+        # Build vendor summaries for LLM
+        vendor_summaries = []
+        for v in vendors:
+            summary = f"""
+            **{v['name']}**
+            - Location: {v.get('location', 'Unknown')}
+            - Services: {', '.join(v.get('services', [])) or 'Not specified'}
+            - Overall Rating: {v.get('overall_rating', 'No rating')}/5
+            - Overall Sentiment: {v.get('overall_sentiment', 'Unknown')}
+            - Price Tier: {v.get('price_tier', 'Unknown')}
+            """
+            # Add review highlights
+            for review in v.get('reviews', []):
+                summary += f"- {review['source'].title()}: {review.get('sentiment', 'unknown')}"
+                if review.get('rating'):
+                    summary += f" ({review['rating']}/5)"
+                summary += "\n"
+                if review.get('highlights'):
+                    summary += f"  Positives: {', '.join(review['highlights'][:3])}\n"
+                if review.get('concerns'):
+                    summary += f"  Concerns: {', '.join(review['concerns'][:3])}\n"
+
+            vendor_summaries.append(summary)
+
+        vendors_text = "\n---\n".join(vendor_summaries)
+
+        # Get LLM analysis
+        response = client.messages.create(
+            model=MODEL,
+            max_tokens=2048,
+            messages=[{
+                "role": "user",
+                "content": f"""Analyze these vendors and provide recommendations.
+
+                **Search Context:**
+                - Looking for: {criteria.get('vendor_type', original_query)}
+                - Location: {criteria.get('location', 'Not specified')}
+                - Must have: {', '.join(criteria.get('must_have', [])) or 'None specified'}
+                - Nice to have: {', '.join(criteria.get('nice_to_have', [])) or 'None specified'}
+
+                **Vendors Found ({len(vendors)}):**
+                {vendors_text}
+
+                Provide your analysis as JSON:
+                {{
+                    "summary": "Brief overview of what you found (2-3 sentences)",
+                    "top_recommendation": {{
+                        "vendor_name": "Name of top pick",
+                        "why": "Clear reason why this is the top pick (1-2 sentences)",
+                        "caveat": "Any important caveat or consideration (or null)"
+                    }},
+                    "alternative": {{
+                        "vendor_name": "Name of strong alternative",
+                        "why": "When/why someone might prefer this one",
+                        "caveat": "Any caveat (or null)"
+                    }},
+                    "avoid": {{
+                        "vendor_name": "Name to avoid (or null if none)",
+                        "why": "Reason to avoid (or null)"
+                    }},
+                    "key_findings": [
+                        "Important pattern or insight 1",
+                        "Important pattern or insight 2"
+                    ],
+                    "data_limitations": "Any caveats about the data quality or completeness"
+                }}
+
+                Be specific and actionable. If the data is insufficient to make strong recommendations, say so.
+
+                JSON:"""
+            }]
+        )
+
+        analysis = _parse_json(response.content[0].text)
+        if not analysis:
+            analysis = {
+                "summary": f"Found {len(vendors)} vendors but could not generate detailed analysis.",
+                "top_recommendation": None,
+                "alternative": None,
+                "avoid": None,
+                "key_findings": [],
+                "data_limitations": "Analysis could not be completed."
+            }
+
+        # Build comparison table data
+        comparison_table = []
+        for v in vendors:
+            comparison_table.append({
+                "name": v['name'],
+                "rating": v.get('overall_rating'),
+                "sentiment": v.get('overall_sentiment', 'unknown'),
+                "location": v.get('location', ''),
+                "price": v.get('price_tier', ''),
+                "reviews_count": sum(r.get('review_count', 0) for r in v.get('reviews', [])),
+                "top_highlight": next(
+                    (h for r in v.get('reviews', []) for h in r.get('highlights', [])),
+                    None
+                ),
+                "top_concern": next(
+                    (c for r in v.get('reviews', []) for c in r.get('concerns', [])),
+                    None
+                ),
+            })
+
+        # Sort by rating (highest first), then by sentiment
+        sentiment_order = {'positive': 0, 'mixed': 1, 'negative': 2, 'unknown': 3}
+        comparison_table.sort(
+            key=lambda x: (
+                -(x['rating'] or 0),
+                sentiment_order.get(x['sentiment'], 3)
+            )
+        )
+
+        # Build display markdown
+        display = f"""## Analysis & Recommendations
+
+        ### Summary
+        {analysis.get('summary', 'No summary available.')}
+
+        """
+
+        if analysis.get('top_recommendation'):
+            rec = analysis['top_recommendation']
+            display += f"""### Top Recommendation: {rec.get('vendor_name', 'N/A')}
+            **Why:** {rec.get('why', 'N/A')}
+            """
+            if rec.get('caveat'):
+                display += f"**Note:** {rec['caveat']}\n"
+            display += "\n"
+
+        if analysis.get('alternative'):
+            alt = analysis['alternative']
+            display += f"""### Strong Alternative: {alt.get('vendor_name', 'N/A')}
+            **Why:** {alt.get('why', 'N/A')}
+            """
+            if alt.get('caveat'):
+                display += f"**Note:** {alt['caveat']}\n"
+            display += "\n"
+
+        if analysis.get('avoid') and analysis['avoid'].get('vendor_name'):
+            avoid = analysis['avoid']
+            display += f"""### Consider Avoiding: {avoid.get('vendor_name', 'N/A')}
+            **Why:** {avoid.get('why', 'N/A')}
+
+            """
+
+        if analysis.get('key_findings'):
+            display += "### Key Findings\n"
+            for finding in analysis['key_findings']:
+                display += f"- {finding}\n"
+            display += "\n"
+
+        # Add comparison table
+        display += "### Comparison Table\n\n"
+        display += "| Vendor | Rating | Sentiment | Location | Price |\n"
+        display += "|--------|--------|-----------|----------|-------|\n"
+        for row in comparison_table:
+            rating_str = f"{row['rating']}/5" if row['rating'] else "N/A"
+            sentiment_emoji = {'positive': '👍', 'mixed': '😐', 'negative': '👎'}.get(row['sentiment'], '❓')
+            display += f"| {row['name']} | {rating_str} | {sentiment_emoji} | {row['location'] or 'N/A'} | {row['price'] or 'N/A'} |\n"
+
+        display += "\n"
+
+        if analysis.get('data_limitations'):
+            display += f"### Data Limitations\n{analysis['data_limitations']}\n"
+
+        return StepOutput(
+            success=True,
+            data={
+                **review_data,
+                "analysis": analysis,
+                "comparison_table": comparison_table
+            },
+            display_title="Analysis Complete",
+            display_content=display,
+            content_type="markdown"
+        )
+
+    except Exception as e:
+        logger.exception("Error in analyze_and_recommend")
+        return StepOutput(success=False, error=str(e))
 
 
 # =============================================================================
@@ -852,14 +1137,23 @@ vendor_finder_workflow = WorkflowGraph(
             ui_component="reviews_stage"
         ),
 
+        "analyze_and_recommend": StepNode(
+            id="analyze_and_recommend",
+            name="Analyze & Recommend",
+            description="Synthesize findings into recommendations",
+            node_type="execute",
+            execute_fn=analyze_and_recommend,
+            ui_component="analysis_stage"
+        ),
+
         "final_checkpoint": StepNode(
             id="final_checkpoint",
             name="Final Review",
-            description="Review complete vendor profiles",
+            description="Review recommendations and comparison",
             node_type="checkpoint",
             checkpoint_config=CheckpointConfig(
-                title="Review Vendor Research",
-                description="Review the complete vendor profiles with reviews and ratings.",
+                title="Review Recommendations",
+                description="Review the analysis, recommendations, and comparison table.",
                 allowed_actions=[CheckpointAction.APPROVE, CheckpointAction.REJECT],
                 editable_fields=[]
             ),
@@ -874,7 +1168,8 @@ vendor_finder_workflow = WorkflowGraph(
         Edge(from_node="build_vendor_list", to_node="vendor_list_checkpoint"),
         Edge(from_node="vendor_list_checkpoint", to_node="enrich_company_info"),
         Edge(from_node="enrich_company_info", to_node="find_reviews"),
-        Edge(from_node="find_reviews", to_node="final_checkpoint"),
+        Edge(from_node="find_reviews", to_node="analyze_and_recommend"),
+        Edge(from_node="analyze_and_recommend", to_node="final_checkpoint"),
         # final_checkpoint has no outgoing edges = workflow complete
     ]
 )
