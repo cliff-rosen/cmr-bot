@@ -26,6 +26,7 @@ import { WorkspacePayload, ResearchChecklistItem } from '../../../types/chat';
 interface ResearchResultViewProps {
     payload: WorkspacePayload;
     onSaveAsAsset: (payload: WorkspacePayload, andClose?: boolean) => void;
+    isSaving?: boolean;
 }
 
 // Status colors and icons for checklist items
@@ -55,7 +56,8 @@ const STATUS_CONFIG = {
 
 export default function ResearchResultView({
     payload,
-    onSaveAsAsset
+    onSaveAsAsset,
+    isSaving = false
 }: ResearchResultViewProps) {
     const [showChecklist, setShowChecklist] = useState(false);
     const [showSources, setShowSources] = useState(false);
@@ -112,11 +114,19 @@ export default function ResearchResultView({
                     <div className="flex items-center gap-2">
                         <button
                             onClick={() => onSaveAsAsset(payload, false)}
-                            className="flex items-center gap-1 px-3 py-1.5 text-sm text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-lg transition-colors"
+                            disabled={isSaving}
+                            className="flex items-center gap-1 px-3 py-1.5 text-sm text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                             title="Save as asset"
                         >
-                            <ArchiveBoxArrowDownIcon className="h-4 w-4" />
-                            Save
+                            {isSaving ? (
+                                <svg className="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                </svg>
+                            ) : (
+                                <ArchiveBoxArrowDownIcon className="h-4 w-4" />
+                            )}
+                            {isSaving ? 'Saving...' : 'Save as Asset'}
                         </button>
                     </div>
                 </div>

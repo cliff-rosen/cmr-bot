@@ -20,6 +20,7 @@ import {
     WorkflowHandlers,
     startWorkflowWithUI,
 } from '../lib/workflows';
+import { toast } from '../components/ui/use-toast';
 
 const SIDEBAR_WIDTH = 256;
 const CONTEXT_PANEL_WIDTH = 280;
@@ -106,6 +107,7 @@ export default function MainPage() {
     const [selectedToolHistory, setSelectedToolHistory] = useState<ToolCall[] | null>(null);
     const [selectedTool, setSelectedTool] = useState<ToolCall | null>(null);
     const [activePayload, setActivePayload] = useState<WorkspacePayload | null>(null);
+    const [isSavingAsset, setIsSavingAsset] = useState(false);
 
     // Workflow state
     const [activeWorkflow, setActiveWorkflow] = useState<WorkflowPlan | null>(null);
@@ -396,6 +398,7 @@ export default function MainPage() {
     };
 
     const handleSavePayloadAsAsset = async (payload: WorkspacePayload, andClose?: boolean) => {
+        setIsSavingAsset(true);
         try {
             let assetType: 'document' | 'code' | 'data' | 'file' | 'link' | 'list';
             let content: string;
@@ -406,6 +409,11 @@ export default function MainPage() {
                 assetType = 'data';
                 content = JSON.stringify(payload.table_data, null, 2);
                 description = `Table data from ${payload.table_data.source || 'search'}: ${payload.content || ''}`;
+            } else if (payload.type === 'research_result') {
+                // For research results, save the synthesis as document
+                assetType = 'document';
+                content = payload.content || (payload as any).synthesis || '';
+                description = `Research results: ${payload.title}`;
             } else if (payload.type === 'code') {
                 assetType = 'code';
                 content = payload.content;
@@ -424,11 +432,24 @@ export default function MainPage() {
                 source_conversation_id: conversationId || undefined
             });
             setAssets(prev => [newAsset, ...prev]);
+
+            toast({
+                title: "Saved to Assets",
+                description: `"${payload.title}" has been saved.`,
+            });
+
             if (andClose) {
                 setActivePayload(null);
             }
         } catch (err) {
             console.error('Failed to save payload as asset:', err);
+            toast({
+                title: "Save Failed",
+                description: "Could not save the asset. Please try again.",
+                variant: "destructive",
+            });
+        } finally {
+            setIsSavingAsset(false);
         }
     };
 
@@ -973,6 +994,7 @@ export default function MainPage() {
                     onClose={handleWorkspaceClose}
                     onSaveAsAsset={handleSaveToolOutputAsAsset}
                     onSavePayloadAsAsset={handleSavePayloadAsAsset}
+                    isSavingAsset={isSavingAsset}
                     onPayloadEdit={handlePayloadEdit}
                     activeWorkflow={activeWorkflow}
                     onAcceptPlan={handleAcceptPlan}

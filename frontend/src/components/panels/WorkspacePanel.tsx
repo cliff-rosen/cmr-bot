@@ -28,6 +28,7 @@ interface WorkspacePanelProps {
     onClose: () => void;
     onSaveAsAsset: (toolCall: ToolCall) => void;
     onSavePayloadAsAsset: (payload: WorkspacePayload, andClose?: boolean) => void;
+    isSavingAsset?: boolean;
     onPayloadEdit: (payload: WorkspacePayload) => void;
     // Workflow state and callbacks
     activeWorkflow?: WorkflowPlan | null;
@@ -67,6 +68,7 @@ export default function WorkspacePanel({
     onClose,
     onSaveAsAsset,
     onSavePayloadAsAsset,
+    isSavingAsset = false,
     onPayloadEdit,
     activeWorkflow,
     onAcceptPlan,
@@ -148,6 +150,7 @@ export default function WorkspacePanel({
                 <ResearchResultView
                     payload={activePayload}
                     onSaveAsAsset={onSavePayloadAsAsset}
+                    isSaving={isSavingAsset}
                 />
             </div>
         );
@@ -250,6 +253,7 @@ export default function WorkspacePanel({
                     <TablePayloadView
                         payload={activePayload}
                         onSaveAsAsset={onSavePayloadAsAsset}
+                        isSaving={isSavingAsset}
                     />
                 )}
 
@@ -258,6 +262,7 @@ export default function WorkspacePanel({
                     <StandardPayloadView
                         payload={activePayload}
                         onSaveAsAsset={onSavePayloadAsAsset}
+                        isSaving={isSavingAsset}
                         onPayloadEdit={onPayloadEdit}
                     />
                 )}
