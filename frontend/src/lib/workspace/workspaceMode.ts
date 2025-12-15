@@ -120,6 +120,9 @@ export interface WorkflowViewProps {
     handlers: WorkflowHandlers;
     isProcessing?: boolean;
     currentEvent?: WorkflowEvent | null;
+    // Asset saving
+    onSaveAsAsset?: (payload: WorkspacePayload) => void;
+    isSavingAsset?: boolean;
 }
 
 /**

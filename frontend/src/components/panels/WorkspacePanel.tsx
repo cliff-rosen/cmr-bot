@@ -87,6 +87,8 @@ export default function WorkspacePanel({
                         handlers={mode.handlers}
                         isProcessing={mode.isProcessing}
                         currentEvent={mode.currentEvent}
+                        onSaveAsAsset={onSavePayloadAsAsset}
+                        isSavingAsset={isSavingAsset}
                     />
                 </div>
             );

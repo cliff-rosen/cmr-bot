@@ -21,8 +21,10 @@ import {
     MagnifyingGlassIcon,
     ClipboardDocumentListIcon,
     SparklesIcon,
+    DocumentArrowDownIcon,
 } from '@heroicons/react/24/solid';
 import { WorkflowViewProps } from '../../../lib/workspace';
+import { WorkspacePayload, TableColumn } from '../../../types/chat';
 
 // =============================================================================
 // Types
@@ -382,6 +384,8 @@ export default function VendorFinderWorkflowView({
     handlers,
     isProcessing = false,
     currentEvent,
+    onSaveAsAsset,
+    isSavingAsset = false,
 }: WorkflowViewProps) {
     const [expandedVendors, setExpandedVendors] = useState<Set<string>>(new Set());
     const [isTransitioning, setIsTransitioning] = useState(false);
@@ -437,6 +441,48 @@ export default function VendorFinderWorkflowView({
 
     // Get criteria
     const criteria = stepData.define_criteria?.criteria as Criteria | undefined;
+
+    // Convert vendors to table format for saving as asset
+    const convertVendorsToTablePayload = (): WorkspacePayload => {
+        const columns: TableColumn[] = [
+            { key: 'name', label: 'Name', type: 'text', sortable: true, filterable: true },
+            { key: 'description', label: 'Description', type: 'text', sortable: false, filterable: true },
+            { key: 'location', label: 'Location', type: 'text', sortable: true, filterable: true },
+            { key: 'website', label: 'Website', type: 'link', sortable: false, filterable: false },
+            { key: 'overall_rating', label: 'Rating', type: 'number', sortable: true, filterable: false },
+            { key: 'overall_sentiment', label: 'Sentiment', type: 'text', sortable: true, filterable: true },
+            { key: 'price_tier', label: 'Price', type: 'text', sortable: true, filterable: true },
+            { key: 'services', label: 'Services', type: 'text', sortable: false, filterable: true },
+        ];
+
+        const rows = vendors.map(vendor => ({
+            name: vendor.name,
+            description: vendor.description || '',
+            location: vendor.location || '',
+            website: vendor.website || '',
+            overall_rating: vendor.overall_rating || null,
+            overall_sentiment: vendor.overall_sentiment || '',
+            price_tier: vendor.price_tier || '',
+            services: vendor.services?.join(', ') || '',
+        }));
+
+        return {
+            type: 'table',
+            title: `Vendor Search: ${criteria?.vendor_type || 'Vendors'}`,
+            content: `${vendors.length} vendors found for ${criteria?.vendor_type || 'search'} in ${criteria?.location || 'location'}`,
+            table_data: {
+                columns,
+                rows,
+                source: 'vendor_finder',
+            },
+        };
+    };
+
+    const handleSaveAsAsset = () => {
+        if (!onSaveAsAsset) return;
+        const tablePayload = convertVendorsToTablePayload();
+        onSaveAsAsset(tablePayload);
+    };
 
     return (
         <div className="h-full flex flex-col">
@@ -600,13 +646,32 @@ export default function VendorFinderWorkflowView({
                     if (isComplete) {
                         return (
                             <div>
-                                {/* Success banner */}
+                                {/* Success banner with save button */}
                                 <div className="mb-6 p-4 bg-green-50 dark:bg-green-900/20 rounded-lg border border-green-200 dark:border-green-800">
-                                    <div className="flex items-center gap-2">
-                                        <CheckCircleIcon className="w-5 h-5 text-green-600" />
-                                        <span className="font-medium text-gray-900 dark:text-white">
-                                            Vendor research complete
-                                        </span>
+                                    <div className="flex items-center justify-between">
+                                        <div className="flex items-center gap-2">
+                                            <CheckCircleIcon className="w-5 h-5 text-green-600" />
+                                            <span className="font-medium text-gray-900 dark:text-white">
+                                                Vendor research complete
+                                            </span>
+                                            <span className="text-sm text-gray-500">
+                                                ({vendors.length} vendors)
+                                            </span>
+                                        </div>
+                                        {onSaveAsAsset && vendors.length > 0 && (
+                                            <button
+                                                onClick={handleSaveAsAsset}
+                                                disabled={isSavingAsset}
+                                                className="flex items-center gap-2 px-4 py-2 bg-green-600 hover:bg-green-700 disabled:bg-green-400 text-white rounded-lg transition-colors"
+                                            >
+                                                {isSavingAsset ? (
+                                                    <ArrowPathIcon className="w-4 h-4 animate-spin" />
+                                                ) : (
+                                                    <DocumentArrowDownIcon className="w-4 h-4" />
+                                                )}
+                                                {isSavingAsset ? 'Saving...' : 'Save as Asset'}
+                                            </button>
+                                        )}
                                     </div>
                                 </div>
 

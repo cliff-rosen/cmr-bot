@@ -1,13 +1,14 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import {
     XMarkIcon, DocumentIcon, TrashIcon,
     MagnifyingGlassIcon, DocumentTextIcon, CodeBracketIcon,
     LinkIcon, TableCellsIcon, PhotoIcon, PencilIcon,
-    CheckIcon, ArrowsPointingOutIcon
+    CheckIcon, ArrowsPointingOutIcon, ChevronUpIcon, ChevronDownIcon, FunnelIcon
 } from '@heroicons/react/24/solid';
 import { CheckCircleIcon as CheckCircleOutlineIcon } from '@heroicons/react/24/outline';
 import { Asset, AssetType, AssetUpdate } from '../../lib/api';
 import { MarkdownRenderer } from '../common/MarkdownRenderer';
+import { TableColumn } from '../../types/chat';
 
 interface AssetBrowserModalProps {
     isOpen: boolean;
@@ -37,6 +38,181 @@ const getAssetTypeInfo = (type: AssetType) => {
 };
 
 type FilterType = 'all' | 'in_context' | AssetType;
+
+// Table data structure
+interface TableData {
+    columns: TableColumn[];
+    rows: Record<string, any>[];
+    source?: string;
+}
+
+// Try to parse asset content as table data
+function parseTableData(content: string | undefined): TableData | null {
+    if (!content) return null;
+    try {
+        const parsed = JSON.parse(content);
+        if (parsed.columns && Array.isArray(parsed.columns) &&
+            parsed.rows && Array.isArray(parsed.rows)) {
+            return parsed as TableData;
+        }
+    } catch {
+        // Not valid JSON or not table data
+    }
+    return null;
+}
+
+// Simple table viewer component for asset browser
+function AssetTableViewer({ tableData }: { tableData: TableData }) {
+    const [sortColumn, setSortColumn] = useState<string | null>(null);
+    const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
+    const [filters, setFilters] = useState<Record<string, string>>({});
+    const [showFilters, setShowFilters] = useState(false);
+
+    const handleSort = (columnKey: string) => {
+        if (sortColumn === columnKey) {
+            setSortDirection(prev => prev === 'asc' ? 'desc' : 'asc');
+        } else {
+            setSortColumn(columnKey);
+            setSortDirection('asc');
+        }
+    };
+
+    const processedRows = useMemo(() => {
+        let result = [...tableData.rows];
+
+        // Apply filters
+        Object.entries(filters).forEach(([key, value]) => {
+            if (value) {
+                result = result.filter(row => {
+                    const cellValue = row[key];
+                    if (cellValue === null || cellValue === undefined) return false;
+                    return String(cellValue).toLowerCase().includes(value.toLowerCase());
+                });
+            }
+        });
+
+        // Apply sorting
+        if (sortColumn) {
+            const column = tableData.columns.find(c => c.key === sortColumn);
+            result.sort((a, b) => {
+                const aVal = a[sortColumn];
+                const bVal = b[sortColumn];
+                if (aVal === null || aVal === undefined) return 1;
+                if (bVal === null || bVal === undefined) return -1;
+
+                let comparison = 0;
+                if (column?.type === 'number') {
+                    comparison = Number(aVal) - Number(bVal);
+                } else {
+                    comparison = String(aVal).localeCompare(String(bVal));
+                }
+                return sortDirection === 'desc' ? -comparison : comparison;
+            });
+        }
+
+        return result;
+    }, [tableData.rows, tableData.columns, filters, sortColumn, sortDirection]);
+
+    const activeFilterCount = Object.values(filters).filter(v => v).length;
+
+    return (
+        <div className="flex flex-col h-full">
+            {/* Toolbar */}
+            <div className="flex items-center justify-between px-4 py-2 bg-purple-50 dark:bg-purple-900/20 border-b border-purple-200 dark:border-purple-800">
+                <span className="text-sm text-purple-700 dark:text-purple-300">
+                    {processedRows.length} of {tableData.rows.length} rows
+                </span>
+                <button
+                    onClick={() => setShowFilters(!showFilters)}
+                    className={`p-2 rounded-lg transition-colors ${
+                        showFilters || activeFilterCount > 0
+                            ? 'bg-purple-100 dark:bg-purple-800 text-purple-600 dark:text-purple-300'
+                            : 'hover:bg-purple-100 dark:hover:bg-purple-800 text-gray-500'
+                    }`}
+                >
+                    <FunnelIcon className="h-4 w-4" />
+                    {activeFilterCount > 0 && <span className="ml-1 text-xs">{activeFilterCount}</span>}
+                </button>
+            </div>
+
+            {/* Filter bar */}
+            {showFilters && (
+                <div className="px-4 py-2 bg-gray-50 dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 flex flex-wrap gap-3">
+                    {tableData.columns.filter(col => col.filterable !== false).map(col => (
+                        <div key={col.key} className="flex items-center gap-2">
+                            <label className="text-xs text-gray-500">{col.label}:</label>
+                            <input
+                                type="text"
+                                value={filters[col.key] || ''}
+                                onChange={e => setFilters(prev => ({ ...prev, [col.key]: e.target.value }))}
+                                placeholder="Filter..."
+                                className="text-sm px-2 py-1 rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 w-28"
+                            />
+                        </div>
+                    ))}
+                    {activeFilterCount > 0 && (
+                        <button
+                            onClick={() => setFilters({})}
+                            className="text-xs text-red-600 hover:underline"
+                        >
+                            Clear all
+                        </button>
+                    )}
+                </div>
+            )}
+
+            {/* Table */}
+            <div className="flex-1 overflow-auto">
+                <table className="w-full text-sm">
+                    <thead className="bg-gray-100 dark:bg-gray-800 sticky top-0">
+                        <tr>
+                            {tableData.columns.map(col => (
+                                <th
+                                    key={col.key}
+                                    onClick={() => col.sortable !== false && handleSort(col.key)}
+                                    className={`px-4 py-2 text-left font-medium text-gray-700 dark:text-gray-300 ${
+                                        col.sortable !== false ? 'cursor-pointer hover:bg-gray-200 dark:hover:bg-gray-700' : ''
+                                    }`}
+                                >
+                                    <div className="flex items-center gap-1">
+                                        {col.label}
+                                        {sortColumn === col.key && (
+                                            sortDirection === 'asc'
+                                                ? <ChevronUpIcon className="h-4 w-4 text-purple-500" />
+                                                : <ChevronDownIcon className="h-4 w-4 text-purple-500" />
+                                        )}
+                                    </div>
+                                </th>
+                            ))}
+                        </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
+                        {processedRows.map((row, idx) => (
+                            <tr key={idx} className="hover:bg-gray-50 dark:hover:bg-gray-900/50">
+                                {tableData.columns.map(col => (
+                                    <td key={col.key} className="px-4 py-2 text-gray-900 dark:text-gray-100">
+                                        {col.type === 'link' && row[col.key] ? (
+                                            <a
+                                                href={row[col.key]}
+                                                target="_blank"
+                                                rel="noopener noreferrer"
+                                                className="text-blue-600 hover:underline"
+                                            >
+                                                Link
+                                            </a>
+                                        ) : col.type === 'boolean' ? (
+                                            row[col.key] ? <span className="text-green-600">Yes</span> : <span className="text-red-600">No</span>
+                                        ) : row[col.key] ?? <span className="text-gray-400">-</span>}
+                                    </td>
+                                ))}
+                            </tr>
+                        ))}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    );
+}
 
 export default function AssetBrowserModal({
     isOpen,
@@ -236,21 +412,42 @@ export default function AssetBrowserModal({
 
                     {/* Content */}
                     <div className="flex-1 overflow-y-auto p-6">
-                        {isEditing ? (
-                            <textarea
-                                value={editContent}
-                                onChange={(e) => setEditContent(e.target.value)}
-                                className="w-full h-full min-h-[60vh] p-4 text-sm font-mono bg-gray-50 dark:bg-gray-950 border border-gray-300 dark:border-gray-600 rounded-lg resize-none focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900 dark:text-white"
-                            />
-                        ) : viewingAsset.asset_type === 'code' ? (
-                            <pre className="p-4 bg-gray-900 dark:bg-black rounded-lg text-sm text-gray-100 overflow-x-auto whitespace-pre-wrap min-h-[60vh]">
-                                {viewingAsset.content || 'No content'}
-                            </pre>
-                        ) : (
-                            <div className="p-4 bg-gray-50 dark:bg-gray-950 rounded-lg min-h-[60vh]">
-                                <MarkdownRenderer content={viewingAsset.content || 'No content'} />
-                            </div>
-                        )}
+                        {(() => {
+                            // Check if this is table data
+                            const tableData = viewingAsset.asset_type === 'data' ? parseTableData(viewingAsset.content || undefined) : null;
+
+                            if (isEditing) {
+                                return (
+                                    <textarea
+                                        value={editContent}
+                                        onChange={(e) => setEditContent(e.target.value)}
+                                        className="w-full h-full min-h-[60vh] p-4 text-sm font-mono bg-gray-50 dark:bg-gray-950 border border-gray-300 dark:border-gray-600 rounded-lg resize-none focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900 dark:text-white"
+                                    />
+                                );
+                            }
+
+                            if (tableData) {
+                                return (
+                                    <div className="h-[60vh] border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
+                                        <AssetTableViewer tableData={tableData} />
+                                    </div>
+                                );
+                            }
+
+                            if (viewingAsset.asset_type === 'code') {
+                                return (
+                                    <pre className="p-4 bg-gray-900 dark:bg-black rounded-lg text-sm text-gray-100 overflow-x-auto whitespace-pre-wrap min-h-[60vh]">
+                                        {viewingAsset.content || 'No content'}
+                                    </pre>
+                                );
+                            }
+
+                            return (
+                                <div className="p-4 bg-gray-50 dark:bg-gray-950 rounded-lg min-h-[60vh]">
+                                    <MarkdownRenderer content={viewingAsset.content || 'No content'} />
+                                </div>
+                            );
+                        })()}
                     </div>
                 </div>
             </div>

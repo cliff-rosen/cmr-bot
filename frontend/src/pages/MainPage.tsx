@@ -351,37 +351,63 @@ export default function MainPage() {
     };
 
     const handleSaveMessageAsAsset = async (message: GeneralChatMessage) => {
+        setIsSavingAsset(true);
         try {
+            const assetName = `${message.role === 'user' ? 'User' : 'Assistant'} message - ${new Date(message.timestamp).toLocaleString()}`;
             const newAsset = await assetApi.create({
-                name: `${message.role === 'user' ? 'User' : 'Assistant'} message - ${new Date(message.timestamp).toLocaleString()}`,
+                name: assetName,
                 asset_type: 'document',
                 content: message.content,
                 description: `Chat message from ${message.role}`,
                 source_conversation_id: conversationId || undefined
             });
             setAssets(prev => [newAsset, ...prev]);
+            toast({
+                title: "Saved to Assets",
+                description: `"${assetName}" has been saved.`,
+            });
         } catch (err) {
             console.error('Failed to save message as asset:', err);
+            toast({
+                title: "Save Failed",
+                description: "Could not save the message. Please try again.",
+                variant: "destructive",
+            });
+        } finally {
+            setIsSavingAsset(false);
         }
     };
 
     // Workspace handlers
     const handleSaveToolOutputAsAsset = async (toolCall: ToolCall) => {
+        setIsSavingAsset(true);
         try {
             const content = typeof toolCall.output === 'string'
                 ? toolCall.output
                 : JSON.stringify(toolCall.output, null, 2);
 
+            const assetName = `${toolCall.tool_name} result`;
             const newAsset = await assetApi.create({
-                name: `${toolCall.tool_name} result`,
+                name: assetName,
                 asset_type: 'data',
                 content,
                 description: `Output from ${toolCall.tool_name} tool call`,
                 source_conversation_id: conversationId || undefined
             });
             setAssets(prev => [newAsset, ...prev]);
+            toast({
+                title: "Saved to Assets",
+                description: `"${assetName}" has been saved.`,
+            });
         } catch (err) {
             console.error('Failed to save as asset:', err);
+            toast({
+                title: "Save Failed",
+                description: "Could not save the tool output. Please try again.",
+                variant: "destructive",
+            });
+        } finally {
+            setIsSavingAsset(false);
         }
     };
 
