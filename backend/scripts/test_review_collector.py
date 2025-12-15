@@ -16,12 +16,12 @@ class MockDB:
     pass
 
 
-def test_business(name: str, location: str):
-    print(f"\n{'='*60}")
-    print(f"TESTING: {name} ({location})")
-    print(f"{'='*60}")
+def test_collection(name: str, location: str, source: str):
+    print(f"\n{'='*70}")
+    print(f"COLLECTING: {source.upper()} reviews for {name} ({location})")
+    print(f"{'='*70}")
 
-    params = {"business_name": name, "location": location}
+    params = {"business_name": name, "location": location, "source": source}
     context = {}
 
     generator = execute_review_collector(params, MockDB(), 1, context)
@@ -36,21 +36,34 @@ def test_business(name: str, location: str):
         result = e.value
 
     if result:
-        print(f"\n{'='*40}")
+        print(f"\n{'='*50}")
         print("RESULT:")
-        print(f"{'='*40}")
+        print(f"{'='*50}")
         print(result.text)
+        print(f"\n{'='*50}")
+        print("DATA:")
+        print(f"{'='*50}")
+        import json
+        print(json.dumps(result.data, indent=2, default=str))
 
     return result
 
 
 def main():
     print("Review Collector Agent Test")
-    print("="*60)
-    print("Using existing agent_loop infrastructure")
-    print("="*60)
+    print("="*70)
+    print("Testing single-source collection with entity verification")
+    print("="*70)
 
-    test_business("Cambridge Endodontics", "Cambridge, MA")
+    # Test 1: Yelp with a specific, identifiable business
+    test_collection("Cambridge Endodontics", "Cambridge, MA", "yelp")
+
+    # Uncomment to test other sources:
+    # test_collection("Cambridge Endodontics", "Cambridge, MA", "google")
+    # test_collection("Cambridge Endodontics", "Cambridge, MA", "reddit")
+
+    # Test with an ambiguous name to verify entity resolution failure
+    # test_collection("Eye Care Center", "Boulder, CO", "yelp")
 
 
 if __name__ == "__main__":
