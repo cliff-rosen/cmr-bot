@@ -378,6 +378,17 @@ The asset will be available to the user in their asset library.""",
         },
         "required": ["name", "content"]
     },
+    output_schema={
+        "type": "object",
+        "properties": {
+            "success": {"type": "boolean", "description": "Whether the save operation succeeded"},
+            "asset_id": {"type": "integer", "description": "ID of the created asset"},
+            "name": {"type": "string", "description": "Name of the saved asset"},
+            "type": {"type": "string", "description": "Asset type (document, data, code, list)"},
+            "content_size": {"type": "integer", "description": "Size of saved content in characters"}
+        },
+        "required": ["success", "asset_id", "name", "type", "content_size"]
+    },
     executor=execute_save_asset,
     category="assets"
 )
@@ -401,6 +412,30 @@ LIST_ASSETS_TOOL = ToolConfig(
                 "description": "Only show assets currently in context"
             }
         }
+    },
+    output_schema={
+        "type": "object",
+        "properties": {
+            "assets": {
+                "type": "array",
+                "description": "List of available assets",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "asset_id": {"type": "integer", "description": "Unique asset ID"},
+                        "name": {"type": "string", "description": "Asset name"},
+                        "type": {"type": "string", "description": "Asset type"},
+                        "description": {"type": ["string", "null"], "description": "Asset description"},
+                        "content_size": {"type": "integer", "description": "Content size in characters"},
+                        "is_in_context": {"type": "boolean", "description": "Whether asset is in current context"},
+                        "has_summary": {"type": "boolean", "description": "Whether asset has a summary"}
+                    },
+                    "required": ["asset_id", "name", "type", "content_size", "is_in_context"]
+                }
+            },
+            "count": {"type": "integer", "description": "Total number of assets returned"}
+        },
+        "required": ["assets", "count"]
     },
     executor=execute_list_assets,
     category="assets"
@@ -442,6 +477,26 @@ Use this to read the actual content of an asset.""",
             }
         }
     },
+    output_schema={
+        "type": "object",
+        "properties": {
+            "success": {"type": "boolean", "description": "Whether the retrieval succeeded"},
+            "asset_id": {"type": "integer", "description": "Asset ID"},
+            "name": {"type": "string", "description": "Asset name"},
+            "type": {"type": "string", "description": "Asset type"},
+            "description": {"type": ["string", "null"], "description": "Asset description"},
+            "content_size": {"type": "integer", "description": "Total content size in characters"},
+            "is_in_context": {"type": "boolean", "description": "Whether asset is in current context"},
+            "content": {"type": "string", "description": "Asset content (full or chunk)"},
+            "is_complete": {"type": "boolean", "description": "Whether full content was returned"},
+            "offset": {"type": "integer", "description": "Current offset for paginated content"},
+            "remaining": {"type": "integer", "description": "Remaining characters not yet returned"},
+            "next_offset": {"type": ["integer", "null"], "description": "Offset to use for next chunk"},
+            "summary": {"type": "string", "description": "Asset summary if available"},
+            "error": {"type": "string", "description": "Error code if retrieval failed"}
+        },
+        "required": ["success"]
+    },
     executor=execute_get_asset,
     category="assets"
 )
@@ -479,6 +534,31 @@ when you need to find specific information without reading the entire content.""
             }
         },
         "required": ["query"]
+    },
+    output_schema={
+        "type": "object",
+        "properties": {
+            "success": {"type": "boolean", "description": "Whether search succeeded"},
+            "asset_id": {"type": "integer", "description": "ID of searched asset"},
+            "asset_name": {"type": "string", "description": "Name of searched asset"},
+            "query": {"type": "string", "description": "The search query"},
+            "matches": {
+                "type": "array",
+                "description": "List of matching snippets",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "position": {"type": "integer", "description": "Character position of match"},
+                        "snippet": {"type": "string", "description": "Text snippet with surrounding context"},
+                        "line_number": {"type": "integer", "description": "Line number of match"}
+                    },
+                    "required": ["position", "snippet", "line_number"]
+                }
+            },
+            "total_matches": {"type": "integer", "description": "Total number of matches found"},
+            "error": {"type": "string", "description": "Error code if search failed"}
+        },
+        "required": ["success"]
     },
     executor=execute_search_asset,
     category="assets"

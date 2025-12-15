@@ -10,10 +10,11 @@ import logging
 import os
 import time
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass
-from typing import Any, Dict, Generator, List, Optional, Tuple
+from dataclasses import dataclass, field
+from typing import Any, Dict, Generator, List, Optional, Tuple, Union
 
 import anthropic
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from models import Asset, AssetType
@@ -32,28 +33,66 @@ DEFAULT_MAX_CONCURRENCY = 5
 DEFAULT_SEQUENTIAL_DELAY = 0.1  # Small delay between items in sequential mode
 
 
-@dataclass
-class IteratorOperation:
+# =============================================================================
+# Typed Parameter Models
+# =============================================================================
+
+class IteratorOperationParams(BaseModel):
     """Defines the operation to perform on each item."""
-    type: str  # 'llm' or 'tool'
-    prompt: Optional[str] = None  # For LLM operations
+    type: str  # 'llm', 'tool', or 'agent'
+    prompt: Optional[str] = None  # For LLM and agent operations
     tool_name: Optional[str] = None  # For tool operations
     tool_params_template: Optional[Dict[str, Any]] = None  # For tool operations
+    tools: Optional[List[str]] = None  # For agent operations
+    max_iterations: int = AGENT_MAX_ITERATIONS  # For agent operations
+
+
+class IteratorParams(BaseModel):
+    """Typed parameters for the iterate tool."""
+    items: Optional[List[Any]] = None  # Can be any type - strings, objects, numbers, etc.
+    asset_id: Optional[int] = None
+    operation: IteratorOperationParams
+    max_concurrency: int = DEFAULT_MAX_CONCURRENCY
+    sequential: bool = False
+    delay_between_items: float = DEFAULT_SEQUENTIAL_DELAY
 
 
 @dataclass
 class ItemResult:
     """Result of processing a single item."""
-    item: str
+    item: Any  # Original item (can be any type)
+    item_str: str  # String representation for display
     result: str
     success: bool
     error: Optional[str] = None
 
 
-def _substitute_item(template: Any, item: str) -> Any:
-    """Recursively substitute {item} placeholder in a template."""
+def _item_to_string(item: Any) -> str:
+    """Convert any item to a string representation for use in prompts/templates."""
+    if isinstance(item, str):
+        return item
+    elif isinstance(item, (dict, list)):
+        return json.dumps(item, indent=2)
+    else:
+        return str(item)
+
+
+def _substitute_item(template: Any, item: Any) -> Any:
+    """
+    Recursively substitute {item} placeholder in a template.
+
+    For string templates, replaces {item} with the string representation.
+    For dict/list templates, can also use {item.key} syntax for object items.
+    """
+    item_str = _item_to_string(item)
+
     if isinstance(template, str):
-        return template.replace("{item}", item)
+        result = template.replace("{item}", item_str)
+        # Also support {item.key} syntax for dict items
+        if isinstance(item, dict):
+            for key, value in item.items():
+                result = result.replace(f"{{item.{key}}}", _item_to_string(value))
+        return result
     elif isinstance(template, dict):
         return {k: _substitute_item(v, item) for k, v in template.items()}
     elif isinstance(template, list):
@@ -62,13 +101,14 @@ def _substitute_item(template: Any, item: str) -> Any:
         return template
 
 
-def _process_item_llm(item: str, prompt: str) -> ItemResult:
+def _process_item_llm(item: Any, prompt: str) -> ItemResult:
     """Process a single item using LLM."""
+    item_str = _item_to_string(item)
     try:
         client = anthropic.Anthropic(api_key=os.getenv('ANTHROPIC_API_KEY'))
 
         # Substitute {item} in the prompt
-        full_prompt = prompt.replace("{item}", item)
+        full_prompt = _substitute_item(prompt, item)
 
         response = client.messages.create(
             model=ITERATOR_MODEL,
@@ -77,24 +117,25 @@ def _process_item_llm(item: str, prompt: str) -> ItemResult:
         )
 
         result_text = response.content[0].text if response.content else ""
-        return ItemResult(item=item, result=result_text, success=True)
+        return ItemResult(item=item, item_str=item_str, result=result_text, success=True)
 
     except Exception as e:
-        logger.error(f"LLM processing error for item '{item}': {e}")
-        return ItemResult(item=item, result="", success=False, error=str(e))
+        logger.error(f"LLM processing error for item '{item_str}': {e}")
+        return ItemResult(item=item, item_str=item_str, result="", success=False, error=str(e))
 
 
 def _process_item_tool(
-    item: str,
+    item: Any,
     tool_name: str,
     params_template: Dict[str, Any],
     db: Session,
     user_id: int
 ) -> ItemResult:
     """Process a single item using a tool."""
+    item_str = _item_to_string(item)
     tool_config = get_tool(tool_name)
     if not tool_config:
-        return ItemResult(item=item, result="", success=False, error=f"Tool '{tool_name}' not found")
+        return ItemResult(item=item, item_str=item_str, result="", success=False, error=f"Tool '{tool_name}' not found")
 
     # Substitute {item} in the params template
     params = _substitute_item(params_template, item)
@@ -104,6 +145,7 @@ def _process_item_tool(
 
     return ItemResult(
         item=item,
+        item_str=item_str,
         result=result.text,
         success=result.success,
         error=result.error
@@ -111,7 +153,7 @@ def _process_item_tool(
 
 
 def _process_item_agent(
-    item: str,
+    item: Any,
     prompt: str,
     tool_names: List[str],
     max_iterations: int,
@@ -126,6 +168,8 @@ def _process_item_agent(
     # Lazy import to avoid circular dependency
     from services.agent_loop import run_agent_loop_sync
 
+    item_str = _item_to_string(item)
+
     try:
         # Build tool configs for allowed tools
         tool_configs = {}
@@ -137,25 +181,26 @@ def _process_item_agent(
         if not tool_configs:
             return ItemResult(
                 item=item,
+                item_str=item_str,
                 result="",
                 success=False,
                 error=f"No valid tools found from: {tool_names}"
             )
 
         # Substitute {item} in the prompt
-        full_prompt = prompt.replace("{item}", item)
+        full_prompt = _substitute_item(prompt, item)
 
         # Build system prompt for the agent
         system_prompt = f"""You are a focused task agent. Complete the task for the given item.
 
-## Task
-{full_prompt}
+        ## Task
+        {full_prompt}
 
-## Rules
-1. Use the available tools to complete the task
-2. Return your final answer as text when done
-3. Be concise and focused
-"""
+        ## Rules
+        1. Use the available tools to complete the task
+        2. Return your final answer as text when done
+        3. Be concise and focused
+        """
 
         # Initialize conversation
         messages = [{"role": "user", "content": "Execute the task now."}]
@@ -176,20 +221,20 @@ def _process_item_agent(
         )
 
         if error and error != "cancelled":
-            return ItemResult(item=item, result="", success=False, error=error)
+            return ItemResult(item=item, item_str=item_str, result="", success=False, error=error)
 
         if error == "cancelled":
-            return ItemResult(item=item, result=final_text, success=False, error="Cancelled")
+            return ItemResult(item=item, item_str=item_str, result=final_text, success=False, error="Cancelled")
 
-        return ItemResult(item=item, result=final_text, success=True)
+        return ItemResult(item=item, item_str=item_str, result=final_text, success=True)
 
     except Exception as e:
-        logger.error(f"Agent processing error for item '{item}': {e}")
-        return ItemResult(item=item, result="", success=False, error=str(e))
+        logger.error(f"Agent processing error for item '{item_str}': {e}")
+        return ItemResult(item=item, item_str=item_str, result="", success=False, error=str(e))
 
 
-def _load_items_from_asset(db: Session, user_id: int, asset_id: int) -> List[str]:
-    """Load items from a LIST asset."""
+def _load_items_from_asset(db: Session, user_id: int, asset_id: int) -> List[Any]:
+    """Load items from a LIST asset. Items can be any JSON-serializable type."""
     asset = db.query(Asset).filter(
         Asset.asset_id == asset_id,
         Asset.user_id == user_id
@@ -208,7 +253,7 @@ def _load_items_from_asset(db: Session, user_id: int, asset_id: int) -> List[str
         items = json.loads(asset.content)
         if not isinstance(items, list):
             raise ValueError(f"Asset {asset_id} content is not a JSON array")
-        return [str(item) for item in items]
+        return items  # Return items as-is, preserving their types
     except json.JSONDecodeError as e:
         raise ValueError(f"Asset {asset_id} content is not valid JSON: {e}")
 
@@ -224,43 +269,37 @@ def execute_iterate(
 
     This is a streaming tool that yields progress updates as items are processed.
     """
+    # Parse and validate parameters using typed model
+    try:
+        typed_params = IteratorParams(**params)
+    except Exception as e:
+        return ToolResult(text=f"Invalid parameters: {e}")
+
     # Get cancellation token if available
     cancellation_token = context.get("cancellation_token")
 
-    # Extract parameters
-    items = params.get("items", [])
-    asset_id = params.get("asset_id")
-    operation = params.get("operation", {})
-    max_concurrency = params.get("max_concurrency", DEFAULT_MAX_CONCURRENCY)
-    sequential = params.get("sequential", False)
-    delay_between_items = params.get("delay_between_items", DEFAULT_SEQUENTIAL_DELAY)
+    # Extract validated parameters
+    items: List[Any] = typed_params.items or []
+    operation = typed_params.operation
 
     # Load items from asset if asset_id is provided
-    if asset_id:
+    if typed_params.asset_id:
         try:
-            items = _load_items_from_asset(db, user_id, asset_id)
+            items = _load_items_from_asset(db, user_id, typed_params.asset_id)
         except ValueError as e:
             return ToolResult(text=f"Error loading items from asset: {e}")
 
     if not items:
         return ToolResult(text="No items to process")
 
-    # Parse operation
-    op_type = operation.get("type", "llm")
-    op_prompt = operation.get("prompt")
-    op_tool_name = operation.get("tool_name")
-    op_tool_params = operation.get("tool_params_template", {})
-    op_tools = operation.get("tools", [])
-    op_max_iterations = operation.get("max_iterations", AGENT_MAX_ITERATIONS)
-
     # Validate operation
-    if op_type == "llm" and not op_prompt:
+    if operation.type == "llm" and not operation.prompt:
         return ToolResult(text="LLM operation requires a 'prompt' field")
-    if op_type == "tool" and not op_tool_name:
+    if operation.type == "tool" and not operation.tool_name:
         return ToolResult(text="Tool operation requires a 'tool_name' field")
-    if op_type == "agent" and not op_prompt:
+    if operation.type == "agent" and not operation.prompt:
         return ToolResult(text="Agent operation requires a 'prompt' field")
-    if op_type == "agent" and not op_tools:
+    if operation.type == "agent" and not operation.tools:
         return ToolResult(text="Agent operation requires a 'tools' field with at least one tool")
 
     total = len(items)
@@ -269,34 +308,35 @@ def execute_iterate(
     results: List[Optional[ItemResult]] = [None] * total
 
     # Send starting event with full items list for UI rendering
-    mode_str = "sequentially" if sequential else f"in parallel (max {max_concurrency})"
+    mode_str = "sequentially" if typed_params.sequential else f"in parallel (max {typed_params.max_concurrency})"
     yield ToolProgress(
         stage="starting",
         message=f"Processing {total} items {mode_str}",
         data={
             "total": total,
-            "max_concurrency": max_concurrency,
-            "sequential": sequential,
-            "items": items  # Full list for UI to render
+            "max_concurrency": typed_params.max_concurrency,
+            "sequential": typed_params.sequential,
+            "items": items  # Full list for UI to render (can be any type)
         },
         progress=0.0
     )
 
     # Process items
-    def process_item_with_index(index: int, item: str) -> Tuple[int, ItemResult]:
-        if op_type == "llm":
-            return index, _process_item_llm(item, op_prompt)
-        elif op_type == "tool":
-            return index, _process_item_tool(item, op_tool_name, op_tool_params, db, user_id)
-        elif op_type == "agent":
+    def process_item_with_index(index: int, item: Any) -> Tuple[int, ItemResult]:
+        item_str = _item_to_string(item)
+        if operation.type == "llm":
+            return index, _process_item_llm(item, operation.prompt)
+        elif operation.type == "tool":
+            return index, _process_item_tool(item, operation.tool_name, operation.tool_params_template or {}, db, user_id)
+        elif operation.type == "agent":
             return index, _process_item_agent(
-                item, op_prompt, op_tools, op_max_iterations, db, user_id, cancellation_token
+                item, operation.prompt, operation.tools or [], operation.max_iterations, db, user_id, cancellation_token
             )
         else:
-            return index, ItemResult(item=item, result="", success=False, error=f"Unknown operation type: {op_type}")
+            return index, ItemResult(item=item, item_str=item_str, result="", success=False, error=f"Unknown operation type: {operation.type}")
 
     # Sequential processing for rate-limited APIs
-    if sequential:
+    if typed_params.sequential:
         for idx, item in enumerate(items):
             # Check for cancellation
             if cancellation_token and cancellation_token.is_cancelled:
@@ -311,7 +351,7 @@ def execute_iterate(
                     text=f"Iterator cancelled after processing {completed}/{total} items",
                     data={
                         "partial": True,
-                        "results": [{"item": r.item, "result": r.result, "success": r.success, "error": r.error} for r in final_results]
+                        "results": [{"item": r.item, "item_str": r.item_str, "result": r.result, "success": r.success, "error": r.error} for r in final_results]
                     }
                 )
 
@@ -322,10 +362,11 @@ def execute_iterate(
 
                 yield ToolProgress(
                     stage="item_complete",
-                    message=f"Completed: {result.item[:50]}..." if len(result.item) > 50 else f"Completed: {result.item}",
+                    message=f"Completed: {result.item_str[:50]}..." if len(result.item_str) > 50 else f"Completed: {result.item_str}",
                     data={
                         "index": idx,
                         "item": result.item,
+                        "item_str": result.item_str,
                         "result": result.result[:500] if result.result else "",
                         "success": result.success,
                         "error": result.error,
@@ -337,20 +378,22 @@ def execute_iterate(
 
                 # Delay before next item (except after last item)
                 if idx < len(items) - 1:
-                    time.sleep(delay_between_items)
+                    time.sleep(typed_params.delay_between_items)
 
             except Exception as e:
-                logger.error(f"Error processing item {item}: {e}")
-                error_result = ItemResult(item=item, result="", success=False, error=str(e))
+                item_str = _item_to_string(item)
+                logger.error(f"Error processing item {item_str}: {e}")
+                error_result = ItemResult(item=item, item_str=item_str, result="", success=False, error=str(e))
                 results[idx] = error_result
                 completed += 1
 
                 yield ToolProgress(
                     stage="item_complete",
-                    message=f"Failed: {item[:50]}..." if len(item) > 50 else f"Failed: {item}",
+                    message=f"Failed: {item_str[:50]}..." if len(item_str) > 50 else f"Failed: {item_str}",
                     data={
                         "index": idx,
                         "item": item,
+                        "item_str": item_str,
                         "result": "",
                         "success": False,
                         "error": str(e),
@@ -362,13 +405,13 @@ def execute_iterate(
 
                 # Still delay after failures to respect rate limits
                 if idx < len(items) - 1:
-                    time.sleep(delay_between_items)
+                    time.sleep(typed_params.delay_between_items)
 
     else:
         # Parallel processing with ThreadPoolExecutor
         from concurrent.futures import as_completed
 
-        with ThreadPoolExecutor(max_workers=max_concurrency) as executor:
+        with ThreadPoolExecutor(max_workers=typed_params.max_concurrency) as executor:
             # Submit all tasks with their indices
             futures = {
                 executor.submit(process_item_with_index, idx, item): idx
@@ -392,7 +435,7 @@ def execute_iterate(
                         text=f"Iterator cancelled after processing {completed}/{total} items",
                         data={
                             "partial": True,
-                            "results": [{"item": r.item, "result": r.result, "success": r.success, "error": r.error} for r in final_results]
+                            "results": [{"item": r.item, "item_str": r.item_str, "result": r.result, "success": r.success, "error": r.error} for r in final_results]
                         }
                     )
 
@@ -404,10 +447,11 @@ def execute_iterate(
                     # Send per-item completion event for live UI update
                     yield ToolProgress(
                         stage="item_complete",
-                        message=f"Completed: {result.item[:50]}..." if len(result.item) > 50 else f"Completed: {result.item}",
+                        message=f"Completed: {result.item_str[:50]}..." if len(result.item_str) > 50 else f"Completed: {result.item_str}",
                         data={
                             "index": index,
                             "item": result.item,
+                            "item_str": result.item_str,
                             "result": result.result[:500] if result.result else "",  # Truncate for progress
                             "success": result.success,
                             "error": result.error,
@@ -419,16 +463,18 @@ def execute_iterate(
                 except Exception as e:
                     logger.error(f"Error processing item: {e}")
                     idx = futures[future]
-                    error_result = ItemResult(item=items[idx], result="", success=False, error=str(e))
+                    item_str = _item_to_string(items[idx])
+                    error_result = ItemResult(item=items[idx], item_str=item_str, result="", success=False, error=str(e))
                     results[idx] = error_result
                     completed += 1
 
                     yield ToolProgress(
                         stage="item_complete",
-                        message=f"Failed: {items[idx][:50]}..." if len(items[idx]) > 50 else f"Failed: {items[idx]}",
+                        message=f"Failed: {item_str[:50]}..." if len(item_str) > 50 else f"Failed: {item_str}",
                         data={
                             "index": idx,
                             "item": items[idx],
+                            "item_str": item_str,
                             "result": "",
                             "success": False,
                             "error": str(e),
@@ -443,13 +489,13 @@ def execute_iterate(
     successful = sum(1 for r in final_results if r.success)
     failed = len(final_results) - successful
 
-    # Build output text
+    # Build output text (use item_str for display)
     output_lines = [f"Processed {total} items ({successful} successful, {failed} failed):\n"]
     for r in final_results:
         if r.success:
-            output_lines.append(f"- **{r.item}**: {r.result}")
+            output_lines.append(f"- **{r.item_str}**: {r.result}")
         else:
-            output_lines.append(f"- **{r.item}**: [ERROR] {r.error}")
+            output_lines.append(f"- **{r.item_str}**: [ERROR] {r.error}")
 
     return ToolResult(
         text="\n".join(output_lines),
@@ -459,7 +505,8 @@ def execute_iterate(
             "failed": failed,
             "results": [
                 {
-                    "item": r.item,
+                    "item": r.item,  # Original item (can be any type)
+                    "item_str": r.item_str,  # String representation for display
                     "result": r.result,
                     "success": r.success,
                     "error": r.error
@@ -472,14 +519,13 @@ def execute_iterate(
 
 ITERATE_TOOL = ToolConfig(
     name="iterate",
-    description="Process each item in a list with an operation (LLM prompt, tool call, or agentic loop). Use this to apply the same operation to multiple items. Items can be provided directly or loaded from a LIST asset. Use sequential=true when calling rate-limited APIs like PubMed. For complex per-item tasks requiring multiple tool calls, use type='agent' with a list of tools.",
+    description="Process each item in a list with an operation (LLM prompt, tool call, or agentic loop). Use this to apply the same operation to multiple items. Items can be any type (strings, objects, numbers) - use {item} in prompts/templates to reference each item, or {item.key} for object properties. Items can be provided directly or loaded from a LIST asset. Use sequential=true when calling rate-limited APIs like PubMed. For complex per-item tasks requiring multiple tool calls, use type='agent' with a list of tools.",
     input_schema={
         "type": "object",
         "properties": {
             "items": {
                 "type": "array",
-                "items": {"type": "string"},
-                "description": "List of items to process. Either provide this or asset_id."
+                "description": "List of items to process. Items can be strings, objects, numbers, or any JSON type. Either provide this or asset_id."
             },
             "asset_id": {
                 "type": "integer",
@@ -536,6 +582,31 @@ ITERATE_TOOL = ToolConfig(
             }
         },
         "required": ["operation"]
+    },
+    output_schema={
+        "type": "object",
+        "properties": {
+            "total": {"type": "integer", "description": "Total number of items processed"},
+            "successful": {"type": "integer", "description": "Number of successfully processed items"},
+            "failed": {"type": "integer", "description": "Number of failed items"},
+            "partial": {"type": "boolean", "description": "True if operation was cancelled before completion"},
+            "results": {
+                "type": "array",
+                "description": "Results for each item in order",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "item": {"description": "The original item (can be any JSON type)"},
+                        "item_str": {"type": "string", "description": "String representation of the item for display"},
+                        "result": {"type": "string", "description": "The result of processing"},
+                        "success": {"type": "boolean", "description": "Whether processing succeeded"},
+                        "error": {"type": ["string", "null"], "description": "Error message if failed"}
+                    },
+                    "required": ["item", "item_str", "result", "success"]
+                }
+            }
+        },
+        "required": ["total", "successful", "failed", "results"]
     },
     executor=execute_iterate,
     category="processing",

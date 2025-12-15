@@ -440,6 +440,46 @@ It will design an efficient workflow plan that can then be executed step by step
         },
         "required": ["goal"]
     },
+    output_schema={
+        "type": "object",
+        "properties": {
+            "type": {"type": "string", "const": "workflow_plan"},
+            "workflow": {
+                "type": "object",
+                "description": "The designed workflow",
+                "properties": {
+                    "title": {"type": "string", "description": "Workflow title"},
+                    "goal": {"type": "string", "description": "Workflow goal"},
+                    "steps": {
+                        "type": "array",
+                        "description": "Workflow steps",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "description": {"type": "string"},
+                                "input_description": {"type": "string"},
+                                "input_sources": {"type": "array"},
+                                "output_description": {"type": "string"},
+                                "method": {
+                                    "type": "object",
+                                    "properties": {
+                                        "approach": {"type": "string"},
+                                        "tools": {"type": "array", "items": {"type": "string"}},
+                                        "reasoning": {"type": "string"}
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "payload": {
+                "type": "object",
+                "description": "Payload to present to user for approval"
+            }
+        },
+        "required": ["type", "workflow", "payload"]
+    },
     executor=execute_design_workflow,
     category="workflow",
     streaming=True

@@ -5,7 +5,7 @@ Global registry of tools available to the primary agent.
 Tools are capabilities the agent can invoke regardless of UI state.
 """
 
-from typing import Dict, List, Any, Callable, Optional
+from typing import Any, Callable, Dict, List, Optional
 from dataclasses import dataclass
 from sqlalchemy.orm import Session
 
@@ -35,6 +35,7 @@ class ToolConfig:
     input_schema: Dict[str, Any]  # JSON schema for tool parameters
     executor: Callable[[Dict[str, Any], Session, int, Dict[str, Any]], Any]
     # executor signature: (params, db, user_id, context) -> str | ToolResult | Generator[ToolProgress, None, ToolResult]
+    output_schema: Optional[Dict[str, Any]] = None  # JSON schema for ToolResult.data structure
     category: str = "general"  # Tool category for organization
     streaming: bool = False  # If True, executor yields ToolProgress before returning ToolResult
 

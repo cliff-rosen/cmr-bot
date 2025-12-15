@@ -115,6 +115,16 @@ SAVE_MEMORY_TOOL = ToolConfig(
         },
         "required": ["content"]
     },
+    output_schema={
+        "type": "object",
+        "properties": {
+            "type": {"type": "string", "const": "memory_saved"},
+            "memory_id": {"type": "integer", "description": "ID of the saved memory"},
+            "memory_type": {"type": "string", "description": "Type of memory saved"},
+            "content": {"type": "string", "description": "The saved content"}
+        },
+        "required": ["type", "memory_id", "memory_type", "content"]
+    },
     executor=execute_save_memory,
     category="memory"
 )
@@ -203,6 +213,28 @@ SEARCH_MEMORY_TOOL = ToolConfig(
         },
         "required": ["query"]
     },
+    output_schema={
+        "type": "object",
+        "properties": {
+            "type": {"type": "string", "const": "memory_search"},
+            "query": {"type": "string", "description": "The search query"},
+            "results": {
+                "type": "array",
+                "description": "Matching memories ranked by relevance",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "memory_id": {"type": "integer", "description": "Memory ID"},
+                        "content": {"type": "string", "description": "Memory content"},
+                        "memory_type": {"type": "string", "description": "Type of memory"},
+                        "score": {"type": "number", "description": "Relevance score (0-1)"}
+                    },
+                    "required": ["memory_id", "content", "memory_type", "score"]
+                }
+            }
+        },
+        "required": ["type", "query", "results"]
+    },
     executor=execute_search_memory,
     category="memory"
 )
@@ -272,6 +304,16 @@ DELETE_MEMORY_TOOL = ToolConfig(
                 "description": "Delete all memories containing this text"
             }
         }
+    },
+    output_schema={
+        "type": "object",
+        "properties": {
+            "type": {"type": "string", "enum": ["memory_deleted", "memories_deleted"]},
+            "memory_id": {"type": "integer", "description": "ID of deleted memory (for single delete)"},
+            "count": {"type": "integer", "description": "Number of memories deleted (for content match)"},
+            "match": {"type": "string", "description": "Content match pattern used"}
+        },
+        "required": ["type"]
     },
     executor=execute_delete_memory,
     category="memory"
@@ -362,6 +404,28 @@ LIST_MEMORIES_TOOL = ToolConfig(
                 "default": 10
             }
         }
+    },
+    output_schema={
+        "type": "object",
+        "properties": {
+            "type": {"type": "string", "const": "memory_list"},
+            "memories": {
+                "type": "array",
+                "description": "List of memories",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "memory_id": {"type": "integer", "description": "Memory ID"},
+                        "content": {"type": "string", "description": "Memory content"},
+                        "memory_type": {"type": "string", "description": "Type of memory"},
+                        "category": {"type": ["string", "null"], "description": "Memory category"},
+                        "is_pinned": {"type": "boolean", "description": "Whether memory is pinned"}
+                    },
+                    "required": ["memory_id", "content", "memory_type", "is_pinned"]
+                }
+            }
+        },
+        "required": ["type", "memories"]
     },
     executor=execute_list_memories,
     category="memory"

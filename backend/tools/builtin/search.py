@@ -103,6 +103,28 @@ WEB_SEARCH_TOOL = ToolConfig(
         },
         "required": ["query"]
     },
+    output_schema={
+        "type": "object",
+        "properties": {
+            "type": {"type": "string", "const": "search_results"},
+            "query": {"type": "string", "description": "The search query that was executed"},
+            "results": {
+                "type": "array",
+                "description": "List of search results",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "title": {"type": "string", "description": "Page title"},
+                        "url": {"type": "string", "description": "Page URL"},
+                        "snippet": {"type": ["string", "null"], "description": "Text snippet from the page"}
+                    },
+                    "required": ["title", "url"]
+                }
+            },
+            "fallback_used": {"type": ["string", "null"], "description": "Reason if fallback search engine was used"}
+        },
+        "required": ["type", "query", "results"]
+    },
     executor=execute_web_search,
     category="search"
 )
@@ -169,6 +191,16 @@ FETCH_WEBPAGE_TOOL = ToolConfig(
             }
         },
         "required": ["url"]
+    },
+    output_schema={
+        "type": "object",
+        "properties": {
+            "type": {"type": "string", "const": "webpage_content"},
+            "url": {"type": "string", "description": "The URL that was fetched"},
+            "title": {"type": "string", "description": "Page title"},
+            "content_length": {"type": "integer", "description": "Total length of page content in characters"}
+        },
+        "required": ["type", "url", "title", "content_length"]
     },
     executor=execute_fetch_webpage,
     category="search"

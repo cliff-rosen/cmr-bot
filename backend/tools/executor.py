@@ -6,6 +6,7 @@ for executing tools (both streaming and non-streaming).
 """
 
 import asyncio
+import os
 import types
 import logging
 from dataclasses import dataclass
@@ -17,6 +18,39 @@ if TYPE_CHECKING:
     from services.general_chat_service import CancellationToken
 
 logger = logging.getLogger(__name__)
+
+# Enable output schema validation via environment variable
+# Set VALIDATE_TOOL_OUTPUT=true to enable validation (useful in development/testing)
+VALIDATE_TOOL_OUTPUT = os.getenv("VALIDATE_TOOL_OUTPUT", "false").lower() == "true"
+
+
+def _validate_output_schema(tool_config: ToolConfig, data: Optional[Dict[str, Any]]) -> None:
+    """
+    Validate tool output data against its output_schema if defined and validation is enabled.
+
+    Logs warnings on validation failure rather than raising exceptions to avoid
+    breaking tool execution in production.
+    """
+    if not VALIDATE_TOOL_OUTPUT:
+        return
+
+    if not tool_config.output_schema:
+        return
+
+    if data is None:
+        # Some tools may return None data, which is valid if not required
+        return
+
+    try:
+        from jsonschema import validate, ValidationError
+        validate(instance=data, schema=tool_config.output_schema)
+    except ValidationError as e:
+        logger.warning(
+            f"Tool '{tool_config.name}' output validation failed: {e.message}. "
+            f"Path: {list(e.absolute_path)}"
+        )
+    except Exception as e:
+        logger.warning(f"Tool output validation error for '{tool_config.name}': {e}")
 
 T = TypeVar('T')
 
@@ -109,7 +143,9 @@ def execute_tool_sync(
 
         # Handle streaming tools (generators)
         if hasattr(result, '__iter__') and hasattr(result, '__next__'):
-            return _consume_tool_generator(result)
+            exec_result = _consume_tool_generator(result)
+            _validate_output_schema(tool_config, exec_result.data)
+            return exec_result
         elif isinstance(result, ToolResult):
             # Check if tool indicated failure in its data
             success = True
@@ -118,6 +154,7 @@ def execute_tool_sync(
                 if result.data.get("success") is False:
                     success = False
                     error = result.data.get("error") or result.data.get("reason") or "Tool reported failure"
+            _validate_output_schema(tool_config, result.data)
             return ToolExecutionResult(text=result.text, data=result.data, success=success, error=error)
         elif isinstance(result, str):
             return ToolExecutionResult(text=result, data=None, success=True)
@@ -200,6 +237,7 @@ async def execute_streaming_tool(
                     if return_value is not None:
                         if isinstance(return_value, ToolResult):
                             logger.debug(f"Streaming tool completed with ToolResult: {return_value.text[:100] if return_value.text else '(empty)'}...")
+                            _validate_output_schema(tool_config, return_value.data)
                             yield (return_value.text, return_value.data, return_value.workspace_payload)
                         elif isinstance(return_value, str):
                             logger.debug(f"Streaming tool completed with string: {return_value[:100]}...")
@@ -209,6 +247,7 @@ async def execute_streaming_tool(
                             yield (str(return_value), None, None)
                     elif final_result:
                         logger.debug(f"Streaming tool completed with collected result: {final_result.text[:100] if final_result.text else '(empty)'}...")
+                        _validate_output_schema(tool_config, final_result.data)
                         yield (final_result.text, final_result.data, final_result.workspace_payload)
                     else:
                         logger.warning("Streaming tool completed with no result")
@@ -224,6 +263,7 @@ async def execute_streaming_tool(
         else:
             # Not a generator - treat as regular result
             if isinstance(generator, ToolResult):
+                _validate_output_schema(tool_config, generator.data)
                 yield (generator.text, generator.data, generator.workspace_payload)
             elif isinstance(generator, str):
                 yield (generator, None, None)
@@ -265,6 +305,7 @@ async def execute_tool(
         )
 
         if isinstance(tool_result, ToolResult):
+            _validate_output_schema(tool_config, tool_result.data)
             return tool_result.text, tool_result.data, tool_result.workspace_payload
         elif isinstance(tool_result, str):
             return tool_result, None, None

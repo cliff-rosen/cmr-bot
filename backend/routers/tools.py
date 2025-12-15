@@ -32,6 +32,7 @@ class ToolInfo(BaseModel):
     description: str
     category: str
     input_schema: Dict[str, Any]
+    output_schema: Optional[Dict[str, Any]] = None
     streaming: bool
 
 
@@ -66,6 +67,7 @@ async def list_tools(
             description=tool.description,
             category=tool.category,
             input_schema=tool.input_schema,
+            output_schema=tool.output_schema,
             streaming=tool.streaming
         )
         for tool in tools
