@@ -481,8 +481,8 @@ export default function VendorFinderWorkflowView({
 
             {/* Content */}
             <div className="flex-1 overflow-y-auto p-6">
-                {/* Processing Indicator - show when running, processing, or transitioning */}
-                {(isRunning || isProcessing || isTransitioning) && !isAtCheckpoint && (
+                {/* Processing Indicator - show when transitioning OR when running/processing (not at checkpoint) */}
+                {(isTransitioning || ((isRunning || isProcessing) && !isAtCheckpoint)) && (
                     <div className="mb-6 p-4 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800">
                         <div className="flex items-center gap-3">
                             <ArrowPathIcon className="w-5 h-5 text-blue-600 dark:text-blue-400 animate-spin flex-shrink-0" />
@@ -519,8 +519,8 @@ export default function VendorFinderWorkflowView({
                     </div>
                 )}
 
-                {/* Checkpoint Content */}
-                {isAtCheckpoint && (
+                {/* Checkpoint Content - hide when transitioning */}
+                {isAtCheckpoint && !isTransitioning && (
                     <div className="mb-6 p-4 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg">
                         <h3 className="font-semibold text-gray-900 dark:text-white mb-2">
                             {instance.current_node?.name || 'Review'}
