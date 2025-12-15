@@ -61,9 +61,9 @@ class WorkflowStateResponse(BaseModel):
     id: str
     workflow_id: str
     status: str
-    current_step: Optional[Dict[str, Any]]
+    current_node: Optional[Dict[str, Any]]
     step_data: Dict[str, Any]
-    step_states: Dict[str, Any]
+    node_states: Dict[str, Any]
     created_at: str
     updated_at: str
     completed_at: Optional[str]
@@ -128,8 +128,8 @@ async def run_workflow(instance_id: str):
                 event_data = {
                     'event_type': event.event_type,
                     'instance_id': event.instance_id,
-                    'step_id': event.step_id,
-                    'step_name': event.step_name,
+                    'node_id': event.node_id,
+                    'node_name': event.node_name,
                     'data': event.data,
                     'error': event.error
                 }
@@ -176,8 +176,8 @@ async def resume_workflow(instance_id: str, request: ResumeWorkflowRequest):
                 event_data = {
                     'event_type': event.event_type,
                     'instance_id': event.instance_id,
-                    'step_id': event.step_id,
-                    'step_name': event.step_name,
+                    'node_id': event.node_id,
+                    'node_name': event.node_name,
                     'data': event.data,
                     'error': event.error
                 }

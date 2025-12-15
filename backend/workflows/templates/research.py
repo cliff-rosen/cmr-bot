@@ -1,21 +1,30 @@
 """
-Research Workflow Template
+Research Workflow Template (Graph-Based)
 
 A structured research workflow with:
 1. Question formulation (LLM refines the user's question)
 2. Answer checklist (LLM creates a checklist of what a complete answer needs)
 3. Iterative retrieval (search and collect findings)
 4. Final compilation (LLM synthesizes the answer)
+
+Graph structure:
+    [formulate_question] -> [question_checkpoint] -> [build_checklist] -> [checklist_checkpoint]
+                                                                                    |
+                                                                                    v
+    [final_checkpoint] <- [compile_final] <- [retrieval_checkpoint] <- [run_retrieval] <-+
+                                                                              |          |
+                                                                              +----------+
+                                                                         (loop if not complete)
 """
 
 import logging
-from typing import List, Dict, Any
+from typing import Any, Dict
 import anthropic
 
 from schemas.workflow import (
-    WorkflowDefinition,
-    StepDefinition,
-    StepType,
+    WorkflowGraph,
+    StepNode,
+    Edge,
     StepOutput,
     CheckpointConfig,
     CheckpointAction,
@@ -180,8 +189,8 @@ async def build_checklist(context: WorkflowContext) -> StepOutput:
 
         display_content = "## Answer Checklist\n\n"
         for item in items:
-            priority_emoji = {"high": "🔴", "medium": "🟡", "low": "🟢"}.get(item["priority"], "⚪")
-            display_content += f"- {priority_emoji} **{item['description']}**\n  _{item['rationale']}_\n\n"
+            priority_emoji = {"high": "!", "medium": "-", "low": "."}.get(item["priority"], "-")
+            display_content += f"- [{priority_emoji}] **{item['description']}**\n  _{item['rationale']}_\n\n"
 
         return StepOutput(
             success=True,
@@ -208,7 +217,8 @@ async def run_retrieval_iteration(context: WorkflowContext) -> StepOutput:
     Step 3: Run one iteration of the retrieval loop.
     Searches for information and updates the checklist with findings.
     """
-    checklist_data = context.get_step_output("build_checklist") or context.get_step_output("run_retrieval")
+    # Get checklist data from either build_checklist or previous retrieval
+    checklist_data = context.get_step_output("run_retrieval") or context.get_step_output("build_checklist")
     if not checklist_data:
         return StepOutput(success=False, error="No checklist data available")
 
@@ -223,7 +233,8 @@ async def run_retrieval_iteration(context: WorkflowContext) -> StepOutput:
     pending_items = [item for item in items if item.get("status") == "pending"]
 
     if not pending_items:
-        # All items complete
+        # All items complete - set flag for edge condition
+        context.set_variable("retrieval_complete", True)
         return StepOutput(
             success=True,
             data={
@@ -290,8 +301,14 @@ async def run_retrieval_iteration(context: WorkflowContext) -> StepOutput:
                 item["status"] = result.get("status", "partial")
                 break
 
-        # Check completion
+        # Check completion and set flag for edge condition
         all_complete = all(item.get("status") == "complete" for item in items)
+        context.set_variable("retrieval_complete", all_complete)
+
+        # Check max iterations
+        max_iterations = context.get_variable("max_iterations", 10)
+        if iteration >= max_iterations:
+            context.set_variable("retrieval_complete", True)
 
         display_content = f"## Retrieval Iteration {iteration}\n\n"
         display_content += f"**Researching:** {target_item['description']}\n\n"
@@ -305,7 +322,7 @@ async def run_retrieval_iteration(context: WorkflowContext) -> StepOutput:
             data={
                 **checklist_data,
                 "items": items,
-                "retrieval_complete": all_complete,
+                "retrieval_complete": all_complete or iteration >= max_iterations,
                 "current_iteration": iteration,
                 "last_researched": target_item["id"]
             },
@@ -320,25 +337,6 @@ async def run_retrieval_iteration(context: WorkflowContext) -> StepOutput:
             success=False,
             error=f"Failed retrieval iteration: {str(e)}"
         )
-
-
-def should_continue_retrieval(context: WorkflowContext) -> bool:
-    """Check if we should continue the retrieval loop."""
-    retrieval_data = context.get_step_output("run_retrieval")
-    if not retrieval_data:
-        return True
-
-    # Stop if all items complete
-    if retrieval_data.get("retrieval_complete"):
-        return False
-
-    # Stop after max iterations
-    max_iterations = context.get_variable("max_iterations", 10)
-    current = context.get_variable("retrieval_iteration", 0)
-    if current >= max_iterations:
-        return False
-
-    return True
 
 
 async def compile_final_answer(context: WorkflowContext) -> StepOutput:
@@ -421,10 +419,24 @@ async def compile_final_answer(context: WorkflowContext) -> StepOutput:
 
 
 # =============================================================================
-# Workflow Definition
+# Edge Condition Functions
 # =============================================================================
 
-research_workflow = WorkflowDefinition(
+def should_continue_retrieval(context: WorkflowContext) -> bool:
+    """Edge condition: Return True if we should loop back to retrieval."""
+    return not context.get_variable("retrieval_complete", False)
+
+
+def retrieval_is_complete(context: WorkflowContext) -> bool:
+    """Edge condition: Return True if retrieval is done."""
+    return context.get_variable("retrieval_complete", False)
+
+
+# =============================================================================
+# Workflow Graph Definition
+# =============================================================================
+
+research_workflow = WorkflowGraph(
     id="research",
     name="Research Workflow",
     description="Structured research with question refinement, answer checklist, iterative retrieval, and synthesis",
@@ -451,26 +463,25 @@ research_workflow = WorkflowDefinition(
         }
     },
 
-    initial_step_id="formulate_question",
+    entry_node="formulate_question",
 
-    steps=[
+    nodes={
         # Step 1: Formulate question
-        StepDefinition(
+        "formulate_question": StepNode(
             id="formulate_question",
             name="Formulate Question",
             description="Refine the research question for clarity and focus",
-            step_type=StepType.EXECUTE,
+            node_type="execute",
             execute_fn=formulate_question,
-            next_step_id="question_checkpoint",
             ui_component="question_stage"
         ),
 
         # Checkpoint: User approves/edits question
-        StepDefinition(
+        "question_checkpoint": StepNode(
             id="question_checkpoint",
             name="Review Question",
             description="Review and approve the refined question",
-            step_type=StepType.CHECKPOINT,
+            node_type="checkpoint",
             checkpoint_config=CheckpointConfig(
                 title="Review Research Question",
                 description="Please review the refined question. You can edit it or approve to continue.",
@@ -481,27 +492,25 @@ research_workflow = WorkflowDefinition(
                 ],
                 editable_fields=["refined_question", "scope"]
             ),
-            next_step_id="build_checklist",
             ui_component="question_stage"
         ),
 
         # Step 2: Build checklist
-        StepDefinition(
+        "build_checklist": StepNode(
             id="build_checklist",
             name="Build Answer Checklist",
             description="Create a checklist of what a complete answer needs",
-            step_type=StepType.EXECUTE,
+            node_type="execute",
             execute_fn=build_checklist,
-            next_step_id="checklist_checkpoint",
             ui_component="checklist_stage"
         ),
 
         # Checkpoint: User reviews/edits checklist
-        StepDefinition(
+        "checklist_checkpoint": StepNode(
             id="checklist_checkpoint",
             name="Review Checklist",
             description="Review and modify the answer checklist",
-            step_type=StepType.CHECKPOINT,
+            node_type="checkpoint",
             checkpoint_config=CheckpointConfig(
                 title="Review Answer Checklist",
                 description="Review the checklist items. You can add, remove, or modify items.",
@@ -512,39 +521,25 @@ research_workflow = WorkflowDefinition(
                 ],
                 editable_fields=["items"]
             ),
-            next_step_id="run_retrieval",
             ui_component="checklist_stage"
         ),
 
         # Step 3: Retrieval iteration
-        StepDefinition(
+        "run_retrieval": StepNode(
             id="run_retrieval",
             name="Run Retrieval",
             description="Search and collect findings for checklist items",
-            step_type=StepType.EXECUTE,
+            node_type="execute",
             execute_fn=run_retrieval_iteration,
-            next_step_id="retrieval_loop",
-            ui_component="retrieval_stage"
-        ),
-
-        # Loop check: Continue retrieval?
-        StepDefinition(
-            id="retrieval_loop",
-            name="Continue Retrieval?",
-            description="Check if more retrieval iterations needed",
-            step_type=StepType.LOOP,
-            loop_condition_fn=should_continue_retrieval,
-            loop_step_id="run_retrieval",
-            next_step_id="retrieval_checkpoint",
             ui_component="retrieval_stage"
         ),
 
         # Checkpoint: User reviews retrieval results
-        StepDefinition(
+        "retrieval_checkpoint": StepNode(
             id="retrieval_checkpoint",
             name="Review Findings",
             description="Review collected findings before final synthesis",
-            step_type=StepType.CHECKPOINT,
+            node_type="checkpoint",
             checkpoint_config=CheckpointConfig(
                 title="Review Research Findings",
                 description="Review the findings collected. You can request more research or proceed to synthesis.",
@@ -554,27 +549,25 @@ research_workflow = WorkflowDefinition(
                 ],
                 editable_fields=[]
             ),
-            next_step_id="compile_final",
             ui_component="retrieval_stage"
         ),
 
         # Step 4: Compile final answer
-        StepDefinition(
+        "compile_final": StepNode(
             id="compile_final",
             name="Compile Answer",
             description="Synthesize all findings into a comprehensive answer",
-            step_type=StepType.EXECUTE,
+            node_type="execute",
             execute_fn=compile_final_answer,
-            next_step_id="final_checkpoint",
             ui_component="final_stage"
         ),
 
         # Final checkpoint: User accepts the answer
-        StepDefinition(
+        "final_checkpoint": StepNode(
             id="final_checkpoint",
             name="Review Final Answer",
             description="Review the final compiled answer",
-            step_type=StepType.CHECKPOINT,
+            node_type="checkpoint",
             checkpoint_config=CheckpointConfig(
                 title="Review Final Answer",
                 description="Review the final answer. Save it or request revisions.",
@@ -584,8 +577,28 @@ research_workflow = WorkflowDefinition(
                 ],
                 editable_fields=[]
             ),
-            next_step_id=None,  # End of workflow
             ui_component="final_stage"
         ),
+    },
+
+    edges=[
+        # Linear flow: formulate -> question checkpoint -> build checklist -> checklist checkpoint
+        Edge(from_node="formulate_question", to_node="question_checkpoint"),
+        Edge(from_node="question_checkpoint", to_node="build_checklist"),
+        Edge(from_node="build_checklist", to_node="checklist_checkpoint"),
+        Edge(from_node="checklist_checkpoint", to_node="run_retrieval"),
+
+        # Retrieval loop: run_retrieval -> (loop back if not complete, else to checkpoint)
+        Edge(from_node="run_retrieval", to_node="run_retrieval",
+             condition=should_continue_retrieval, label="continue"),
+        Edge(from_node="run_retrieval", to_node="retrieval_checkpoint",
+             condition=retrieval_is_complete, label="complete"),
+
+        # After retrieval checkpoint -> compile
+        Edge(from_node="retrieval_checkpoint", to_node="compile_final"),
+
+        # Final flow
+        Edge(from_node="compile_final", to_node="final_checkpoint"),
+        # final_checkpoint has no outgoing edges = end of workflow
     ]
 )

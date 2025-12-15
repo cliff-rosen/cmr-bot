@@ -1,38 +1,45 @@
 """
 Workflow Engine Package
 
-Provides a deterministic workflow execution engine.
-Workflows are defined as a sequence of steps with conditionals and loops.
-Individual steps may use LLMs or tools, but the orchestration is code-based.
+Provides a graph-based workflow execution engine.
+Workflows are defined as directed graphs with nodes (execute/checkpoint) and edges (transitions).
+Loops and conditionals are represented as edges with conditions.
 """
 
 from schemas.workflow import (
-    StepType,
+    # Core types
     CheckpointAction,
     StepOutput,
     CheckpointConfig,
-    StepDefinition,
-    WorkflowDefinition,
     WorkflowStatus,
     StepState,
     WorkflowContext,
     WorkflowInstance,
+    # Graph types
+    StepNode,
+    Edge,
+    WorkflowGraph,
+    # Backwards compatibility alias
+    WorkflowDefinition,
 )
 from .registry import workflow_registry, WorkflowRegistry
 from .engine import workflow_engine, WorkflowEngine, EngineEvent
 
 __all__ = [
-    # Schema types
-    "StepType",
+    # Core types
     "CheckpointAction",
     "StepOutput",
     "CheckpointConfig",
-    "StepDefinition",
-    "WorkflowDefinition",
     "WorkflowStatus",
     "StepState",
     "WorkflowContext",
     "WorkflowInstance",
+    # Graph types
+    "StepNode",
+    "Edge",
+    "WorkflowGraph",
+    # Backwards compatibility
+    "WorkflowDefinition",
     # Registry
     "workflow_registry",
     "WorkflowRegistry",
