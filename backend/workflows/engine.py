@@ -124,7 +124,7 @@ class WorkflowEngine:
         self._persist(instance)
 
         # Execute until we hit a checkpoint or complete
-        async for event in self.njbmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmhhhhhhhhhhhhhhhh   (instance):
+        async for event in self.execute_until_checkpoint(instance):
             yield event
 
     async def resume(

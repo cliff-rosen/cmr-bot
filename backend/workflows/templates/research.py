@@ -56,20 +56,20 @@ async def formulate_question(context: WorkflowContext) -> StepOutput:
 
         prompt = f"""You are helping formulate a clear, focused research question.
 
-User's original query: "{user_query}"
+        User's original query: "{user_query}"
 
-Please provide:
-1. A refined, specific research question
-2. The scope and boundaries of this research
-3. Key terms and concepts to explore
+        Please provide:
+        1. A refined, specific research question
+        2. The scope and boundaries of this research
+        3. Key terms and concepts to explore
 
-Respond in JSON format:
-{{
-    "refined_question": "The refined research question",
-    "scope": "Description of what is in and out of scope",
-    "key_terms": ["term1", "term2", "term3"],
-    "rationale": "Brief explanation of how you refined the question"
-}}"""
+        Respond in JSON format:
+        {{
+            "refined_question": "The refined research question",
+            "scope": "Description of what is in and out of scope",
+            "key_terms": ["term1", "term2", "term3"],
+            "rationale": "Brief explanation of how you refined the question"
+        }}"""
 
         response = client.messages.create(
             model="claude-sonnet-4-20250514",
@@ -129,26 +129,26 @@ async def build_checklist(context: WorkflowContext) -> StepOutput:
 
         prompt = f"""You are helping create a comprehensive answer checklist for a research question.
 
-Research Question: "{refined_question}"
-Scope: "{scope}"
+        Research Question: "{refined_question}"
+        Scope: "{scope}"
 
-Create a checklist of 4-8 items that a complete answer to this question should address.
-Each item should be:
-- Specific and verifiable
-- Important for answering the question comprehensively
-- Prioritized (high, medium, low)
+        Create a checklist of 4-8 items that a complete answer to this question should address.
+        Each item should be:
+        - Specific and verifiable
+        - Important for answering the question comprehensively
+        - Prioritized (high, medium, low)
 
-Respond in JSON format:
-{{
-    "items": [
+        Respond in JSON format:
         {{
-            "id": "1",
-            "description": "What this checklist item covers",
-            "rationale": "Why this is important for the answer",
-            "priority": "high|medium|low"
-        }}
-    ]
-}}"""
+            "items": [
+                {{
+                    "id": "1",
+                    "description": "What this checklist item covers",
+                    "rationale": "Why this is important for the answer",
+                    "priority": "high|medium|low"
+                }}
+            ]
+        }}"""
 
         response = client.messages.create(
             model="claude-sonnet-4-20250514",
@@ -245,27 +245,27 @@ async def run_retrieval_iteration(context: WorkflowContext) -> StepOutput:
 
         prompt = f"""You are researching to answer a question. Focus on finding information for one specific aspect.
 
-Research Question: "{refined_question}"
+        Research Question: "{refined_question}"
 
-Current focus: "{target_item['description']}"
+        Current focus: "{target_item['description']}"
 
-Provide findings that address this aspect. Include:
-1. Key facts or information found
-2. Any sources or references (simulate for now)
-3. Confidence level in the findings
+        Provide findings that address this aspect. Include:
+        1. Key facts or information found
+        2. Any sources or references (simulate for now)
+        3. Confidence level in the findings
 
-Respond in JSON format:
-{{
-    "findings": [
+        Respond in JSON format:
         {{
-            "content": "The finding or fact",
-            "source": "Source reference",
-            "confidence": "high|medium|low"
-        }}
-    ],
-    "status": "complete|partial|pending",
-    "summary": "Brief summary of what was found"
-}}"""
+            "findings": [
+                {{
+                    "content": "The finding or fact",
+                    "source": "Source reference",
+                    "confidence": "high|medium|low"
+                }}
+            ],
+            "status": "complete|partial|pending",
+            "summary": "Brief summary of what was found"
+        }}"""
 
         response = client.messages.create(
             model="claude-sonnet-4-20250514",
@@ -364,18 +364,18 @@ async def compile_final_answer(context: WorkflowContext) -> StepOutput:
 
         prompt = f"""You are compiling a comprehensive research answer.
 
-Research Question: "{refined_question}"
+        Research Question: "{refined_question}"
 
-Collected Findings:
-{findings_context}
+        Collected Findings:
+        {findings_context}
 
-Please write a comprehensive, well-structured answer that:
-1. Directly addresses the research question
-2. Synthesizes all the findings coherently
-3. Notes any gaps or uncertainties
-4. Provides a clear conclusion
+        Please write a comprehensive, well-structured answer that:
+        1. Directly addresses the research question
+        2. Synthesizes all the findings coherently
+        3. Notes any gaps or uncertainties
+        4. Provides a clear conclusion
 
-Write in a clear, professional style."""
+        Write in a clear, professional style."""
 
         response = client.messages.create(
             model="claude-sonnet-4-20250514",
