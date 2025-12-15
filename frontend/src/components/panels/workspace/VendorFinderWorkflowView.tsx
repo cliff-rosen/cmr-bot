@@ -10,7 +10,6 @@ import {
     CheckCircleIcon,
     XCircleIcon,
     StarIcon,
-    ClockIcon,
     ArrowPathIcon,
     ChevronDownIcon,
     ChevronRightIcon,
@@ -398,11 +397,8 @@ export default function VendorFinderWorkflowView({
     // Get current state
     const currentNodeId = instance.current_node?.id;
     const isAtCheckpoint = instance.status === 'waiting';
+    const isRunning = instance.status === 'running';
     const stepData = instance.step_data;
-
-    // Get relevant data for current checkpoint
-    const checkpointDataNodeId = currentNodeId ? CHECKPOINT_DATA_MAP[currentNodeId] : null;
-    const checkpointData = checkpointDataNodeId ? stepData[checkpointDataNodeId] : null;
 
     // Get vendors from the latest step that has them
     const vendors = useMemo(() => {
@@ -418,23 +414,8 @@ export default function VendorFinderWorkflowView({
     // Get criteria
     const criteria = stepData.define_criteria?.criteria as Criteria | undefined;
 
-    // Determine what to show based on current stage
-    const showReviews = currentNodeId?.includes('final') || stepData.find_reviews;
-
-    // Check if workflow is actively running (not waiting, not completed)
-    const isRunning = instance.status === 'running';
-
-    // Get the most recent step output for display
-    const getLatestStepOutput = () => {
-        const orderedSteps = ['find_reviews', 'enrich_company_info', 'build_vendor_list', 'broad_search', 'define_criteria'];
-        for (const step of orderedSteps) {
-            if (stepData[step]) {
-                return { stepId: step, data: stepData[step] };
-            }
-        }
-        return null;
-    };
-    const latestStepOutput = getLatestStepOutput();
+    // Show reviews after find_reviews step has completed or at final checkpoint
+    const showReviews = !!stepData.find_reviews || currentNodeId === 'final_checkpoint';
 
     return (
         <div className="h-full flex flex-col">
