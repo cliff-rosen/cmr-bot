@@ -438,9 +438,6 @@ export default function VendorFinderWorkflowView({
     // Get criteria
     const criteria = stepData.define_criteria?.criteria as Criteria | undefined;
 
-    // Show reviews after find_reviews step has completed or at final checkpoint
-    const showReviews = !!stepData.find_reviews || currentNodeId === 'final_checkpoint';
-
     return (
         <div className="h-full flex flex-col">
             {/* Header */}
@@ -480,139 +477,167 @@ export default function VendorFinderWorkflowView({
                 />
             </div>
 
-            {/* Content */}
+            {/* Content Area - ONE focus at a time */}
             <div className="flex-1 overflow-y-auto p-6">
-                {/* Processing Indicator - show when processing OR transitioning OR running */}
-                {(isProcessing || isTransitioning || isRunning) && (
-                    <div className="mb-6 p-4 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800">
-                        <div className="flex items-center gap-3">
-                            <ArrowPathIcon className="w-5 h-5 text-blue-600 dark:text-blue-400 animate-spin flex-shrink-0" />
-                            <div className="flex-1 min-w-0">
-                                <div className="font-medium text-gray-900 dark:text-white">
-                                    {isTransitioning && !isRunning
-                                        ? 'Resuming workflow...'
-                                        : currentEvent?.node_name || instance.current_node?.name || 'Processing...'}
+                {(() => {
+                    // Determine the single view to show
+                    const isWorking = isProcessing || isTransitioning || isRunning;
+                    const isComplete = instance.status === 'completed';
+                    const isCheckpoint = isAtCheckpoint && !isProcessing && !isTransitioning;
+
+                    // ===========================================
+                    // STATE: WORKING (processing/running)
+                    // ===========================================
+                    if (isWorking && !isComplete) {
+                        return (
+                            <div className="flex flex-col items-center justify-center py-16">
+                                <div className="w-16 h-16 mb-6 rounded-full bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center">
+                                    <ArrowPathIcon className="w-8 h-8 text-blue-600 dark:text-blue-400 animate-spin" />
                                 </div>
-                                {currentEvent?.data?.message && (
-                                    <div className="text-sm text-gray-600 dark:text-gray-400 truncate">
-                                        {currentEvent.data.message}
-                                    </div>
-                                )}
-                                {!currentEvent?.data?.message && !isTransitioning && currentNodeId && (
-                                    <div className="text-sm text-gray-600 dark:text-gray-400">
-                                        {currentNodeId === 'define_criteria' && 'Analyzing your requirements...'}
-                                        {currentNodeId === 'broad_search' && 'Searching for vendors...'}
-                                        {currentNodeId === 'build_vendor_list' && 'Building vendor list...'}
-                                        {currentNodeId === 'enrich_company_info' && 'Researching company details...'}
-                                        {currentNodeId === 'find_reviews' && 'Finding reviews...'}
+                                <h3 className="text-xl font-semibold text-gray-900 dark:text-white mb-2">
+                                    {isTransitioning
+                                        ? 'Resuming...'
+                                        : currentEvent?.node_name || instance.current_node?.name || 'Processing'}
+                                </h3>
+                                <p className="text-gray-600 dark:text-gray-400 mb-6 text-center max-w-md">
+                                    {currentEvent?.data?.message || (
+                                        currentNodeId === 'define_criteria' ? 'Analyzing your requirements...' :
+                                        currentNodeId === 'broad_search' ? 'Searching for vendors...' :
+                                        currentNodeId === 'build_vendor_list' ? 'Building vendor list...' :
+                                        currentNodeId === 'enrich_company_info' ? 'Researching company details...' :
+                                        currentNodeId === 'find_reviews' ? 'Finding reviews...' :
+                                        'Working...'
+                                    )}
+                                </p>
+                                {currentEvent?.data?.progress != null && (
+                                    <div className="w-64 h-2 bg-blue-200 dark:bg-blue-800 rounded-full overflow-hidden">
+                                        <div
+                                            className="h-full bg-blue-500 transition-all duration-300"
+                                            style={{ width: `${Math.round(currentEvent.data.progress * 100)}%` }}
+                                        />
                                     </div>
                                 )}
                             </div>
-                        </div>
-                        {currentEvent?.data?.progress != null && (
-                            <div className="mt-3 h-2 bg-blue-200 dark:bg-blue-800 rounded-full overflow-hidden">
-                                <div
-                                    className="h-full bg-blue-500 transition-all duration-300"
-                                    style={{ width: `${Math.round(currentEvent.data.progress * 100)}%` }}
-                                />
-                            </div>
-                        )}
-                    </div>
-                )}
+                        );
+                    }
 
-                {/* Checkpoint Content - hide when processing or transitioning */}
-                {isAtCheckpoint && !isProcessing && !isTransitioning && (
-                    <div className="mb-6 p-4 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg">
-                        <h3 className="font-semibold text-gray-900 dark:text-white mb-2">
-                            {instance.current_node?.name || 'Review'}
-                        </h3>
-                        <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
-                            {currentNodeId === 'criteria_checkpoint' && 'Review the search criteria before we start finding vendors.'}
-                            {currentNodeId === 'vendor_list_checkpoint' && 'Review the vendors found. Continue to research their reviews.'}
-                            {currentNodeId === 'final_checkpoint' && 'Review the complete vendor profiles with reviews and ratings.'}
-                        </p>
-                        <div className="flex gap-2">
-                            <button
-                                onClick={handleApprove}
-                                disabled={isTransitioning}
-                                className="flex items-center gap-2 px-4 py-2 bg-gray-900 dark:bg-white text-white dark:text-gray-900 rounded-lg hover:bg-gray-800 dark:hover:bg-gray-100 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                            >
-                                {isTransitioning ? (
-                                    <ArrowPathIcon className="w-4 h-4 animate-spin" />
-                                ) : (
-                                    <CheckCircleIcon className="w-4 h-4" />
+                    // ===========================================
+                    // STATE: CHECKPOINT (waiting for user)
+                    // ===========================================
+                    if (isCheckpoint) {
+                        return (
+                            <div>
+                                {/* Checkpoint prompt */}
+                                <div className="mb-6 p-4 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg">
+                                    <h3 className="font-semibold text-gray-900 dark:text-white mb-2">
+                                        {currentNodeId === 'criteria_checkpoint' ? 'Review Search Criteria' :
+                                         currentNodeId === 'vendor_list_checkpoint' ? 'Review Vendor List' :
+                                         currentNodeId === 'final_checkpoint' ? 'Review Final Results' :
+                                         'Review'}
+                                    </h3>
+                                    <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
+                                        {currentNodeId === 'criteria_checkpoint' && 'Confirm these criteria before searching for vendors.'}
+                                        {currentNodeId === 'vendor_list_checkpoint' && 'Review the vendors found. Continue to research their reviews and details.'}
+                                        {currentNodeId === 'final_checkpoint' && 'Review the complete vendor profiles with reviews and ratings.'}
+                                    </p>
+                                    <div className="flex gap-2">
+                                        <button
+                                            onClick={handleApprove}
+                                            className="flex items-center gap-2 px-4 py-2 bg-gray-900 dark:bg-white text-white dark:text-gray-900 rounded-lg hover:bg-gray-800 dark:hover:bg-gray-100 transition-colors"
+                                        >
+                                            <CheckCircleIcon className="w-4 h-4" />
+                                            Continue
+                                        </button>
+                                        <button
+                                            onClick={handleReject}
+                                            className="flex items-center gap-2 px-4 py-2 text-gray-500 hover:text-gray-700 transition-colors"
+                                        >
+                                            <XCircleIcon className="w-4 h-4" />
+                                            Cancel
+                                        </button>
+                                    </div>
+                                </div>
+
+                                {/* Data to review - specific to checkpoint */}
+                                {currentNodeId === 'criteria_checkpoint' && criteria && (
+                                    <CriteriaView criteria={criteria} />
                                 )}
-                                {isTransitioning ? 'Continuing...' : 'Continue'}
-                            </button>
-                            <button
-                                onClick={handleReject}
-                                disabled={isTransitioning}
-                                className="flex items-center gap-2 px-4 py-2 text-gray-500 hover:text-gray-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                            >
-                                <XCircleIcon className="w-4 h-4" />
-                                Cancel
-                            </button>
+
+                                {currentNodeId === 'vendor_list_checkpoint' && vendors.length > 0 && (
+                                    <div className="space-y-3">
+                                        {vendors.map(vendor => (
+                                            <VendorCard
+                                                key={vendor.id}
+                                                vendor={vendor}
+                                                expanded={expandedVendors.has(vendor.id)}
+                                                onToggle={() => toggleVendor(vendor.id)}
+                                                showReviews={false}
+                                            />
+                                        ))}
+                                    </div>
+                                )}
+
+                                {currentNodeId === 'final_checkpoint' && vendors.length > 0 && (
+                                    <div className="space-y-3">
+                                        {vendors.map(vendor => (
+                                            <VendorCard
+                                                key={vendor.id}
+                                                vendor={vendor}
+                                                expanded={expandedVendors.has(vendor.id)}
+                                                onToggle={() => toggleVendor(vendor.id)}
+                                                showReviews={true}
+                                            />
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
+                        );
+                    }
+
+                    // ===========================================
+                    // STATE: COMPLETED
+                    // ===========================================
+                    if (isComplete) {
+                        return (
+                            <div>
+                                {/* Success banner */}
+                                <div className="mb-6 p-4 bg-green-50 dark:bg-green-900/20 rounded-lg border border-green-200 dark:border-green-800">
+                                    <div className="flex items-center gap-2">
+                                        <CheckCircleIcon className="w-5 h-5 text-green-600" />
+                                        <span className="font-medium text-gray-900 dark:text-white">
+                                            Vendor research complete
+                                        </span>
+                                    </div>
+                                </div>
+
+                                {/* Final results */}
+                                {vendors.length > 0 && (
+                                    <div className="space-y-3">
+                                        {vendors.map(vendor => (
+                                            <VendorCard
+                                                key={vendor.id}
+                                                vendor={vendor}
+                                                expanded={expandedVendors.has(vendor.id)}
+                                                onToggle={() => toggleVendor(vendor.id)}
+                                                showReviews={true}
+                                            />
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
+                        );
+                    }
+
+                    // ===========================================
+                    // STATE: IDLE/INITIAL (shouldn't normally see)
+                    // ===========================================
+                    return (
+                        <div className="flex flex-col items-center justify-center py-16 text-gray-400">
+                            <BuildingStorefrontIcon className="w-12 h-12 mb-3 opacity-50" />
+                            <p>Ready to start</p>
                         </div>
-                    </div>
-                )}
-
-                {/* Criteria Display - show after criteria is defined */}
-                {criteria && (
-                    <div className="mb-6">
-                        <h3 className="font-medium text-gray-900 dark:text-white mb-3">Search Criteria</h3>
-                        <CriteriaView criteria={criteria} />
-                    </div>
-                )}
-
-                {/* Search Results Summary - show after broad_search completes */}
-                {stepData.broad_search && !vendors.length && (
-                    <div className="mb-6 p-4 bg-gray-50 dark:bg-gray-800 rounded-lg">
-                        <h3 className="font-medium text-gray-900 dark:text-white mb-2">Search Complete</h3>
-                        <p className="text-sm text-gray-600 dark:text-gray-400">
-                            Found {stepData.broad_search.search_results?.length || 0} search results. Building vendor list...
-                        </p>
-                    </div>
-                )}
-
-                {/* Vendor List */}
-                {vendors.length > 0 && (
-                    <div>
-                        <h3 className="font-medium text-gray-900 dark:text-white mb-3">
-                            Vendors ({vendors.length})
-                        </h3>
-                        <div className="space-y-3">
-                            {vendors.map(vendor => (
-                                <VendorCard
-                                    key={vendor.id}
-                                    vendor={vendor}
-                                    expanded={expandedVendors.has(vendor.id)}
-                                    onToggle={() => toggleVendor(vendor.id)}
-                                    showReviews={showReviews}
-                                />
-                            ))}
-                        </div>
-                    </div>
-                )}
-
-                {/* Empty state - workflow just started */}
-                {!criteria && !vendors.length && isRunning && (
-                    <div className="text-center py-8 text-gray-500 dark:text-gray-400">
-                        <BuildingStorefrontIcon className="w-12 h-12 mx-auto mb-3 opacity-50" />
-                        <p>Starting vendor search...</p>
-                    </div>
-                )}
-
-                {/* Completed State */}
-                {instance.status === 'completed' && (
-                    <div className="mt-6 p-4 bg-green-50 dark:bg-green-900/20 rounded-lg border border-green-200 dark:border-green-800">
-                        <div className="flex items-center gap-2">
-                            <CheckCircleIcon className="w-5 h-5 text-green-600" />
-                            <span className="font-medium text-gray-900 dark:text-white">
-                                Vendor research complete
-                            </span>
-                        </div>
-                    </div>
-                )}
+                    );
+                })()}
             </div>
         </div>
     );
