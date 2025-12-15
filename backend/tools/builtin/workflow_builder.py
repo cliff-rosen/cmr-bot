@@ -250,8 +250,8 @@ def execute_design_workflow(
     # Build the user prompt
     user_prompt = f"""Design an optimal workflow for this task:
 
-**Goal**: {goal}
-"""
+    **Goal**: {goal}
+    """
 
     if initial_input:
         user_prompt += f"\n**Initial Input/Context**: {initial_input}\n"
@@ -260,7 +260,7 @@ def execute_design_workflow(
         user_prompt += f"\n**Constraints/Preferences**: {constraints}\n"
 
     user_prompt += """
-Return ONLY the JSON workflow plan, no other text. The JSON should follow the exact format specified in your instructions."""
+    Return ONLY the JSON workflow plan, no other text. The JSON should follow the exact format specified in your instructions."""
 
     try:
         client = anthropic.Anthropic(api_key=os.getenv('ANTHROPIC_API_KEY'))
@@ -319,13 +319,13 @@ Return ONLY the JSON workflow plan, no other text. The JSON should follow the ex
         return ToolResult(
             text=f"""I've designed a workflow plan for this task.
 
-**IMPORTANT**: You must now present this plan to the user for approval. Include the following payload block at the end of your response:
+            **IMPORTANT**: You must now present this plan to the user for approval. Include the following payload block at the end of your response:
 
-```payload
-{payload_json}
-```
+            ```payload
+            {payload_json}
+            ```
 
-Briefly explain the workflow approach to the user, then include the payload above. Do NOT execute any steps yet - wait for the user to approve the plan first.""",
+            Briefly explain the workflow approach to the user, then include the payload above. Do NOT execute any steps yet - wait for the user to approve the plan first.""",
             data={
                 "type": "workflow_plan",
                 "workflow": workflow_plan,
