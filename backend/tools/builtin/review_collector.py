@@ -6,6 +6,8 @@ collects business reviews using search and fetch tools.
 """
 
 import logging
+import queue
+import threading
 from typing import Dict, Any, List, Optional, Generator
 from dataclasses import dataclass, field, asdict
 from sqlalchemy.orm import Session
@@ -15,6 +17,7 @@ from services.agent_loop import (
     run_agent_loop_sync,
     AgentEvent,
     AgentToolStart,
+    AgentToolProgress,
     AgentToolComplete,
     AgentComplete,
     AgentError
@@ -175,7 +178,7 @@ def execute_review_collector(
 
     yield ToolProgress(
         stage="starting",
-        message=f"Agent starting review collection for {business_name}",
+        message=f"Starting review collection for {business_name}",
         data={"business_name": business_name, "location": location}
     )
 
@@ -232,36 +235,101 @@ def execute_review_collector(
         "fetch": FETCH_TOOL
     }
 
-    # Track events for progress reporting
-    def on_event(event: AgentEvent):
-        if isinstance(event, AgentToolStart):
-            logger.info(f"[REVIEW AGENT] {business_name}: {event.tool_name}({event.tool_input})")
-        elif isinstance(event, AgentToolComplete):
-            logger.info(f"[REVIEW AGENT] {business_name}: {event.tool_name} complete")
+    # Queue for events from the agent loop running in background thread
+    event_queue: queue.Queue = queue.Queue()
+    result_holder: List[Any] = [None, None, None]  # [final_text, tool_calls, error]
 
-    # Run the agent loop
-    final_text, tool_calls, error = run_agent_loop_sync(
-        model=AGENT_MODEL,
-        max_tokens=4096,
-        max_iterations=MAX_AGENT_TURNS,
-        system_prompt=system_prompt,
-        messages=messages,
-        tools=tools,
-        db=db,
-        user_id=user_id,
-        context=context,
-        temperature=0.3,
-        on_event=on_event
-    )
+    def run_agent():
+        """Run the agent loop in a background thread."""
+        def on_event(event: AgentEvent):
+            event_queue.put(event)
+
+        try:
+            final_text, tool_calls, error = run_agent_loop_sync(
+                model=AGENT_MODEL,
+                max_tokens=4096,
+                max_iterations=MAX_AGENT_TURNS,
+                system_prompt=system_prompt,
+                messages=messages,
+                tools=tools,
+                db=db,
+                user_id=user_id,
+                context=context,
+                temperature=0.3,
+                on_event=on_event
+            )
+            result_holder[0] = final_text
+            result_holder[1] = tool_calls
+            result_holder[2] = error
+        except Exception as e:
+            logger.error(f"Agent thread error: {e}", exc_info=True)
+            result_holder[2] = str(e)
+        finally:
+            event_queue.put(None)  # Signal completion
+
+    # Start agent in background thread
+    agent_thread = threading.Thread(target=run_agent, daemon=True)
+    agent_thread.start()
+
+    # Yield progress events as they come from the agent
+    tool_call_count = 0
+    while True:
+        try:
+            event = event_queue.get(timeout=0.5)
+            if event is None:
+                break
+
+            if isinstance(event, AgentToolStart):
+                tool_call_count += 1
+                # Format the tool input for display
+                input_summary = str(event.tool_input)
+                if len(input_summary) > 80:
+                    input_summary = input_summary[:80] + "..."
+                yield ToolProgress(
+                    stage="tool_call",
+                    message=f"[{tool_call_count}] {event.tool_name}: {input_summary}",
+                    data={
+                        "tool": event.tool_name,
+                        "input": event.tool_input,
+                        "tool_use_id": event.tool_use_id
+                    }
+                )
+            elif isinstance(event, AgentToolProgress):
+                # Forward inner tool progress
+                yield ToolProgress(
+                    stage="tool_progress",
+                    message=f"{event.tool_name}: {event.progress.message}",
+                    data={"tool": event.tool_name, "progress": event.progress.stage}
+                )
+            elif isinstance(event, AgentToolComplete):
+                # Brief completion notice
+                result_preview = event.result_text[:100] if event.result_text else "(no output)"
+                if len(event.result_text or "") > 100:
+                    result_preview += "..."
+                yield ToolProgress(
+                    stage="tool_complete",
+                    message=f"{event.tool_name} done",
+                    data={"tool": event.tool_name, "preview": result_preview}
+                )
+        except queue.Empty:
+            continue
+
+    agent_thread.join(timeout=5.0)
 
     yield ToolProgress(
         stage="complete",
-        message=f"Agent completed with {len(tool_calls)} tool calls",
-        data={"tool_calls": len(tool_calls)}
+        message=f"Agent completed with {tool_call_count} tool calls",
+        data={"tool_calls": tool_call_count}
     )
 
     # Parse the agent's final response
-    return _build_result(business_name, location, final_text, tool_calls, error)
+    return _build_result(
+        business_name,
+        location,
+        result_holder[0] or "",
+        result_holder[1] or [],
+        result_holder[2]
+    )
 
 
 def _build_result(
