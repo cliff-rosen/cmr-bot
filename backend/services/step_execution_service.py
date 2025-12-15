@@ -173,7 +173,7 @@ class StepExecutionService:
 
             system_prompt = f"""You are a task execution agent. Execute the task and return ONLY the output.
 
-            **Today's date: {current_date}**
+            **IMPORTANT - Current Date: {current_date}** (Use this date for all time-relative references.)
 
             ## Task
             {assignment.description}

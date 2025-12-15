@@ -10,6 +10,7 @@ import logging
 import os
 import time
 from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime
 from dataclasses import dataclass, field
 from typing import Any, Dict, Generator, List, Optional, Tuple, Union
 
@@ -191,7 +192,10 @@ def _process_item_agent(
         full_prompt = _substitute_item(prompt, item)
 
         # Build system prompt for the agent
+        current_date = datetime.now().strftime("%Y-%m-%d")
         system_prompt = f"""You are a focused task agent. Complete the task for the given item.
+
+        **IMPORTANT - Current Date: {current_date}** (Use this date for all time-relative references.)
 
         ## Task
         {full_prompt}

@@ -7,7 +7,7 @@ Manages autonomous background agents - creation, execution, and lifecycle.
 import json
 import logging
 import os
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 from typing import Any, Dict, List, Optional
 
 from sqlalchemy.orm import Session
@@ -376,7 +376,10 @@ class AutonomousAgentService:
             )
 
             # Build system prompt
+            current_date = date.today().strftime("%Y-%m-%d")
             system_prompt = f"""You are an autonomous agent executing a specific task.
+
+            **IMPORTANT - Current Date: {current_date}** (Use this date for all time-relative references.)
 
             ## Your Task
             {agent.instructions}
