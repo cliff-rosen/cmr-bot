@@ -612,12 +612,17 @@ export default function WorkflowExecutionView({
         if (!isAtCheckpoint || !currentNodeId) return null;
 
         // Map checkpoint nodes to their preceding execute nodes
-        // This is based on the research workflow graph structure
         const checkpointToDataMap: Record<string, string> = {
+            // Research workflow
             'question_checkpoint': 'formulate_question',
             'checklist_checkpoint': 'build_checklist',
             'retrieval_checkpoint': 'run_retrieval',
             'final_checkpoint': 'compile_final',
+            // Vendor finder workflow
+            'criteria_checkpoint': 'define_criteria',
+            'vendor_list_checkpoint': 'build_vendor_list',
+            // Simple search workflow
+            'answer_checkpoint': 'generate_answer',
         };
 
         // If we have a mapping for this checkpoint, use it

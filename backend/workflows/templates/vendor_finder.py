@@ -505,7 +505,7 @@ Only include fields you can actually find. JSON:"""
         if v.get('price_tier'):
             display += f"**Price:** {v['price_tier']}\n"
         if v.get('contact'):
-            contacts = [f"{k}: {v}" for k, v in v['contact'].items() if v]
+            contacts = [f"{key}: {val}" for key, val in v['contact'].items() if val]
             if contacts:
                 display += f"**Contact:** {', '.join(contacts)}\n"
         display += "\n"
@@ -584,9 +584,16 @@ JSON:"""
                     }]
                 )
                 yelp_data = _parse_json(response.content[0].text) or {}
+                # Ensure rating is float
+                rating = yelp_data.get("rating")
+                if rating is not None:
+                    try:
+                        rating = float(rating)
+                    except (ValueError, TypeError):
+                        rating = None
                 reviews.append(ReviewSummary(
                     source="yelp",
-                    rating=yelp_data.get("rating"),
+                    rating=rating,
                     sentiment=yelp_data.get("sentiment", "unknown"),
                     highlights=yelp_data.get("highlights", []),
                     concerns=yelp_data.get("concerns", [])
@@ -619,9 +626,16 @@ JSON:"""
                     }]
                 )
                 google_data = _parse_json(response.content[0].text) or {}
+                # Ensure rating is float
+                rating = google_data.get("rating")
+                if rating is not None:
+                    try:
+                        rating = float(rating)
+                    except (ValueError, TypeError):
+                        rating = None
                 reviews.append(ReviewSummary(
                     source="google",
-                    rating=google_data.get("rating"),
+                    rating=rating,
                     sentiment=google_data.get("sentiment", "unknown"),
                     highlights=google_data.get("highlights", []),
                     concerns=google_data.get("concerns", [])
