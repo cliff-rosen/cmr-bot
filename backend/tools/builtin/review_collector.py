@@ -741,8 +741,11 @@ def execute_review_collector(
     agent_thread = threading.Thread(target=run_agent, daemon=True)
     agent_thread.start()
 
-    # Yield progress events
-    current_phase_name = "entity_resolution"
+    # Yield progress events with better status messages
+    step_count = 0
+    search_count = 0
+    fetch_count = 0
+    blocked_count = 0
 
     while True:
         try:
@@ -751,28 +754,104 @@ def execute_review_collector(
                 break
 
             if isinstance(event, AgentToolStart):
+                step_count += 1
                 tool_name = event.tool_name
-                input_summary = str(event.tool_input)
-                if len(input_summary) > 80:
-                    input_summary = input_summary[:80] + "..."
+
+                # Build a more informative message
+                if tool_name == "search":
+                    search_count += 1
+                    query = event.tool_input.get("query", "") if isinstance(event.tool_input, dict) else str(event.tool_input)
+                    # Extract the key part of the query
+                    if "site:yelp.com" in query:
+                        stage = "searching_yelp"
+                        message = f"Searching Yelp [{search_count}]"
+                    elif "site:reddit.com" in query:
+                        stage = "searching_reddit"
+                        message = f"Searching Reddit [{search_count}]"
+                    elif "site:google.com" in query or "site:maps.google.com" in query:
+                        stage = "searching_google"
+                        message = f"Searching Google [{search_count}]"
+                    else:
+                        stage = "searching"
+                        message = f"Web search [{search_count}]"
+                else:
+                    fetch_count += 1
+                    url = event.tool_input.get("url", "") if isinstance(event.tool_input, dict) else str(event.tool_input)
+                    # Extract domain from URL
+                    if "yelp.com" in url:
+                        stage = "fetching_yelp"
+                        message = f"Fetching Yelp page [{fetch_count}]"
+                    elif "healthgrades.com" in url:
+                        stage = "fetching_healthgrades"
+                        message = f"Fetching Healthgrades [{fetch_count}]"
+                    elif "reddit.com" in url:
+                        stage = "fetching_reddit"
+                        message = f"Fetching Reddit [{fetch_count}]"
+                    else:
+                        stage = "fetching"
+                        message = f"Fetching page [{fetch_count}]"
 
                 yield ToolProgress(
-                    stage=current_phase_name,
-                    message=f"{tool_name}: {input_summary}",
-                    data={"tool": tool_name, "input": event.tool_input, "phase": current_phase_name}
+                    stage=stage,
+                    message=message,
+                    data={
+                        "tool": tool_name,
+                        "input": event.tool_input,
+                        "step": step_count,
+                        "searches": search_count,
+                        "fetches": fetch_count
+                    }
                 )
+
             elif isinstance(event, AgentToolComplete):
-                # Check if we should transition to artifact collection phase
-                result_lower = event.result_text.lower() if event.result_text else ""
-                if current_phase_name == "entity_resolution" and "review" in result_lower:
-                    # Might be transitioning to artifact collection
-                    pass
+                tool_name = event.tool_name
+                result_text = event.result_text or ""
+
+                # Check for blocking
+                was_blocked = "BLOCKED" in result_text or "403" in result_text
+
+                if was_blocked:
+                    blocked_count += 1
+                    stage = "blocked"
+                    message = f"Blocked by site [{blocked_count}]"
+                elif tool_name == "search":
+                    # Extract result count if possible
+                    if "No results found" in result_text:
+                        stage = "search_empty"
+                        message = "No results found"
+                    elif "Found " in result_text:
+                        # Try to extract count
+                        import re
+                        match = re.search(r'Found (\d+) results', result_text)
+                        if match:
+                            count = match.group(1)
+                            stage = "search_results"
+                            message = f"Found {count} results"
+                        else:
+                            stage = "search_complete"
+                            message = "Search complete"
+                    else:
+                        stage = "search_complete"
+                        message = "Search complete"
+                else:
+                    # Fetch complete
+                    if "review" in result_text.lower():
+                        stage = "content_found"
+                        message = "Found review content"
+                    else:
+                        stage = "fetch_complete"
+                        message = "Page loaded"
 
                 yield ToolProgress(
-                    stage=current_phase_name,
-                    message=f"{event.tool_name} complete",
-                    data={"tool": event.tool_name, "phase": current_phase_name}
+                    stage=stage,
+                    message=message,
+                    data={
+                        "tool": tool_name,
+                        "step": step_count,
+                        "blocked": blocked_count
+                    }
                 )
+
         except queue.Empty:
             continue
 
