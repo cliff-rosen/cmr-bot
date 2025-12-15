@@ -11,6 +11,7 @@ export { default as AgentPayloadView } from './AgentPayloadView';
 export { default as TablePayloadView } from './TablePayloadView';
 export { default as ResearchWorkflowView } from './ResearchWorkflowView';
 export { default as ResearchResultView } from './ResearchResultView';
+export { default as ReviewCollectionView } from './ReviewCollectionView';
 export { default as WorkflowExecutionView } from './WorkflowExecutionView';
 export { default as VendorFinderWorkflowView } from './VendorFinderWorkflowView';
 export { default as IteratorProgress } from './IteratorProgress';

@@ -13,6 +13,7 @@ import AgentPayloadView from '../../components/panels/workspace/AgentPayloadView
 import TablePayloadView from '../../components/panels/workspace/TablePayloadView';
 import ResearchWorkflowView from '../../components/panels/workspace/ResearchWorkflowView';
 import ResearchResultView from '../../components/panels/workspace/ResearchResultView';
+import ReviewCollectionView from '../../components/panels/workspace/ReviewCollectionView';
 
 // Import workflow view components
 import WorkflowExecutionView from '../../components/panels/workspace/WorkflowExecutionView';
@@ -39,6 +40,9 @@ export const payloadViewRegistry: PayloadViewRegistry = {
 
     // Research results (from deep_research tool)
     'research_result': ResearchResultView as React.ComponentType<PayloadViewProps>,
+
+    // Review collection results (from collect_reviews tool)
+    'review_collection': ReviewCollectionView as React.ComponentType<PayloadViewProps>,
 
     // Standard types use StandardPayloadView (draft, summary, data, code)
     // These don't need explicit entries - they fall through to default

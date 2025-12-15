@@ -5,7 +5,7 @@
 import {
     DocumentTextIcon, TableCellsIcon, CodeBracketIcon,
     ClipboardDocumentListIcon, PlayIcon, ArrowPathIcon, CheckCircleIcon,
-    CpuChipIcon, PencilSquareIcon, Squares2X2Icon, BeakerIcon
+    CpuChipIcon, PencilSquareIcon, Squares2X2Icon, BeakerIcon, StarIcon
 } from '@heroicons/react/24/solid';
 import { ComponentType } from 'react';
 
@@ -113,6 +113,14 @@ export const payloadTypeConfig: Record<string, PayloadTypeConfig> = {
         bg: 'bg-purple-50 dark:bg-purple-900/20',
         border: 'border-purple-200 dark:border-purple-800',
         label: 'Research Results',
+        editable: false
+    },
+    review_collection: {
+        icon: StarIcon,
+        color: 'text-yellow-500',
+        bg: 'bg-yellow-50 dark:bg-yellow-900/20',
+        border: 'border-yellow-200 dark:border-yellow-800',
+        label: 'Review Collection',
         editable: false
     }
 };
