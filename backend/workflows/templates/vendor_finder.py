@@ -641,11 +641,18 @@ async def find_reviews(context: WorkflowContext) -> AsyncGenerator[Union[StepPro
         # Search for Yelp reviews
         try:
             yelp_query = f"{vendor_name} yelp reviews {location}".strip()
+            logger.info(f"[REVIEW TELEMETRY] Yelp query: {yelp_query}")
             yelp_results = await search_service.search(search_term=yelp_query, num_results=5)
 
+            raw_results = yelp_results.get("search_results", [])
+            logger.info(f"[REVIEW TELEMETRY] Yelp raw results count: {len(raw_results)}")
+            for idx, r in enumerate(raw_results[:3]):
+                logger.info(f"[REVIEW TELEMETRY] Yelp result {idx}: title={getattr(r, 'title', 'N/A')}, url={getattr(r, 'url', 'N/A')}, snippet_len={len(getattr(r, 'snippet', '') or '')}")
+
             yelp_snippets = "\n".join(
-                f"- {r.snippet}" for r in yelp_results.get("search_results", [])[:3]
+                f"- {r.snippet}" for r in raw_results[:3] if getattr(r, 'snippet', None)
             )
+            logger.info(f"[REVIEW TELEMETRY] Yelp snippets assembled: {len(yelp_snippets)} chars")
 
             if yelp_snippets:
                 response = client.messages.create(
@@ -670,6 +677,8 @@ async def find_reviews(context: WorkflowContext) -> AsyncGenerator[Union[StepPro
                         rating = float(rating)
                     except (ValueError, TypeError):
                         rating = None
+                logger.info(f"[REVIEW TELEMETRY] Yelp LLM response: {response.content[0].text[:200]}...")
+                logger.info(f"[REVIEW TELEMETRY] Yelp parsed data: {yelp_data}")
                 reviews.append(ReviewSummary(
                     source="yelp",
                     rating=rating,
@@ -677,17 +686,26 @@ async def find_reviews(context: WorkflowContext) -> AsyncGenerator[Union[StepPro
                     highlights=yelp_data.get("highlights", []),
                     concerns=yelp_data.get("concerns", [])
                 ))
+            else:
+                logger.warning(f"[REVIEW TELEMETRY] Yelp - NO SNIPPETS for {vendor_name} despite {len(raw_results)} results")
         except Exception as e:
-            logger.warning(f"Yelp search error for {vendor_name}: {e}")
+            logger.warning(f"[REVIEW TELEMETRY] Yelp search error for {vendor_name}: {e}")
 
         # Search for Google reviews
         try:
             google_query = f'"{vendor_name}" reviews {location}'.strip()
+            logger.info(f"[REVIEW TELEMETRY] Google query: {google_query}")
             google_results = await search_service.search(search_term=google_query, num_results=5)
 
+            raw_google = google_results.get("search_results", [])
+            logger.info(f"[REVIEW TELEMETRY] Google raw results count: {len(raw_google)}")
+            for idx, r in enumerate(raw_google[:3]):
+                logger.info(f"[REVIEW TELEMETRY] Google result {idx}: title={getattr(r, 'title', 'N/A')}, snippet_len={len(getattr(r, 'snippet', '') or '')}")
+
             google_snippets = "\n".join(
-                f"- {r.snippet}" for r in google_results.get("search_results", [])[:3]
+                f"- {r.snippet}" for r in raw_google[:3] if getattr(r, 'snippet', None)
             )
+            logger.info(f"[REVIEW TELEMETRY] Google snippets assembled: {len(google_snippets)} chars")
 
             if google_snippets:
                 response = client.messages.create(
@@ -712,6 +730,8 @@ async def find_reviews(context: WorkflowContext) -> AsyncGenerator[Union[StepPro
                         rating = float(rating)
                     except (ValueError, TypeError):
                         rating = None
+                logger.info(f"[REVIEW TELEMETRY] Google LLM response: {response.content[0].text[:200]}...")
+                logger.info(f"[REVIEW TELEMETRY] Google parsed data: {google_data}")
                 reviews.append(ReviewSummary(
                     source="google",
                     rating=rating,
@@ -719,8 +739,10 @@ async def find_reviews(context: WorkflowContext) -> AsyncGenerator[Union[StepPro
                     highlights=google_data.get("highlights", []),
                     concerns=google_data.get("concerns", [])
                 ))
+            else:
+                logger.warning(f"[REVIEW TELEMETRY] Google - NO SNIPPETS for {vendor_name} despite {len(raw_google)} results")
         except Exception as e:
-            logger.warning(f"Google review search error for {vendor_name}: {e}")
+            logger.warning(f"[REVIEW TELEMETRY] Google search error for {vendor_name}: {e}")
 
         # Search Reddit for mentions
         try:

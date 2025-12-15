@@ -58,9 +58,8 @@ export default function WorkspacePanel({
     workflowHandlers,
     isWorkflowProcessing = false,
     currentWorkflowEvent,
-    onCloseWorkflowInstance: _onCloseWorkflowInstance
+    onCloseWorkflowInstance,
 }: WorkspacePanelProps) {
-    void _onCloseWorkflowInstance; // Reserved for close button in workflow view
 
     // Determine workspace mode using single function
     const mode = getWorkspaceMode({
@@ -89,6 +88,7 @@ export default function WorkspacePanel({
                         currentEvent={mode.currentEvent}
                         onSaveAsAsset={onSavePayloadAsAsset}
                         isSavingAsset={isSavingAsset}
+                        onClose={onCloseWorkflowInstance}
                     />
                 </div>
             );

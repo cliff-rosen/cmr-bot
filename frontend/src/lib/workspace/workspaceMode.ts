@@ -123,6 +123,8 @@ export interface WorkflowViewProps {
     // Asset saving
     onSaveAsAsset?: (payload: WorkspacePayload) => void;
     isSavingAsset?: boolean;
+    // Close/dismiss workflow
+    onClose?: () => void;
 }
 
 /**

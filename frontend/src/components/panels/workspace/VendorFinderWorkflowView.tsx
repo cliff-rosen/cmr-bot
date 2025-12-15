@@ -92,11 +92,11 @@ const CHECKPOINT_DATA_MAP: Record<string, string> = {
 
 function StatusBadge({ status }: { status: string }) {
     const config: Record<string, { color: string; bg: string; label: string }> = {
-        pending: { color: 'text-gray-600', bg: 'bg-gray-100', label: 'Pending' },
-        running: { color: 'text-blue-600', bg: 'bg-blue-100', label: 'Running' },
-        waiting: { color: 'text-amber-600', bg: 'bg-amber-100', label: 'Waiting' },
-        completed: { color: 'text-green-600', bg: 'bg-green-100', label: 'Completed' },
-        failed: { color: 'text-red-600', bg: 'bg-red-100', label: 'Failed' },
+        pending: { color: 'text-gray-600 dark:text-gray-400', bg: 'bg-gray-100 dark:bg-gray-800', label: 'Pending' },
+        running: { color: 'text-blue-600 dark:text-blue-400', bg: 'bg-blue-100 dark:bg-blue-900/30', label: 'Running' },
+        waiting: { color: 'text-amber-600 dark:text-amber-400', bg: 'bg-amber-100 dark:bg-amber-900/30', label: 'Waiting' },
+        completed: { color: 'text-green-600 dark:text-green-400', bg: 'bg-green-100 dark:bg-green-900/30', label: 'Completed' },
+        failed: { color: 'text-red-600 dark:text-red-400', bg: 'bg-red-100 dark:bg-red-900/30', label: 'Failed' },
     };
     const cfg = config[status] || config.pending;
     return (
@@ -154,7 +154,7 @@ function StageProgress({ currentNodeId, nodeStates }: { currentNodeId?: string; 
                                     }`}
                                 />
                             </div>
-                            <span className={`text-xs mt-1 ${isCurrent ? 'font-medium text-gray-900 dark:text-white' : 'text-gray-500'}`}>
+                            <span className={`text-xs mt-1 ${isCurrent ? 'font-medium text-gray-900 dark:text-white' : 'text-gray-500 dark:text-gray-400'}`}>
                                 {stage.name}
                             </span>
                         </div>
@@ -183,7 +183,64 @@ function RatingStars({ rating }: { rating?: number }) {
     return (
         <div className="flex items-center gap-1">
             <StarIcon className="w-4 h-4 text-amber-500" />
-            <span className="text-sm font-medium">{rating.toFixed(1)}</span>
+            <span className="text-sm font-medium text-gray-900 dark:text-white">{rating.toFixed(1)}</span>
+        </div>
+    );
+}
+
+/**
+ * Calculate a composite score (0-100) for a vendor based on available data
+ */
+function calculateVendorScore(vendor: Vendor): { score: number; confidence: 'high' | 'medium' | 'low' } | null {
+    const rating = vendor.overall_rating;
+    const sentiment = vendor.overall_sentiment;
+    const reviewCount = vendor.reviews?.length || 0;
+
+    // Need at least rating OR sentiment to calculate score
+    if (!rating && !sentiment) return null;
+
+    let score = 50; // Start at neutral
+
+    // Rating contributes up to 40 points (rating/5 * 40)
+    if (rating) {
+        score = (rating / 5) * 80; // 0-80 base from rating
+    }
+
+    // Sentiment adjustment (+/- 10 points)
+    if (sentiment === 'positive') score += 10;
+    else if (sentiment === 'negative') score -= 10;
+
+    // Clamp to 0-100
+    score = Math.max(0, Math.min(100, Math.round(score)));
+
+    // Confidence based on data availability
+    const confidence: 'high' | 'medium' | 'low' =
+        rating && reviewCount >= 2 ? 'high' :
+        rating || reviewCount >= 1 ? 'medium' : 'low';
+
+    return { score, confidence };
+}
+
+function VendorScore({ vendor }: { vendor: Vendor }) {
+    const result = calculateVendorScore(vendor);
+    if (!result) return null;
+
+    const { score, confidence } = result;
+
+    // Color based on score
+    const getScoreColor = (s: number) => {
+        if (s >= 80) return 'text-green-600 dark:text-green-400 bg-green-100 dark:bg-green-900/30';
+        if (s >= 60) return 'text-blue-600 dark:text-blue-400 bg-blue-100 dark:bg-blue-900/30';
+        if (s >= 40) return 'text-amber-600 dark:text-amber-400 bg-amber-100 dark:bg-amber-900/30';
+        return 'text-red-600 dark:text-red-400 bg-red-100 dark:bg-red-900/30';
+    };
+
+    const confidenceIndicator = confidence === 'high' ? '●●●' : confidence === 'medium' ? '●●○' : '●○○';
+
+    return (
+        <div className={`flex items-center gap-1 px-2 py-0.5 rounded-full text-sm font-bold ${getScoreColor(score)}`}>
+            <span>{score}</span>
+            <span className="text-[10px] opacity-60" title={`Confidence: ${confidence}`}>{confidenceIndicator}</span>
         </div>
     );
 }
@@ -210,6 +267,9 @@ function VendorCard({
                 onClick={onToggle}
                 className="w-full flex items-center gap-3 p-4 text-left hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors"
             >
+                {/* Score badge - prominent position */}
+                <VendorScore vendor={vendor} />
+
                 <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
                         <h3 className="font-semibold text-gray-900 dark:text-white truncate">
@@ -228,7 +288,7 @@ function VendorCard({
                             {vendor.description}
                         </p>
                     )}
-                    <div className="flex items-center gap-4 mt-2 text-xs text-gray-500">
+                    <div className="flex items-center gap-4 mt-2 text-xs text-gray-500 dark:text-gray-400">
                         {vendor.location && (
                             <span className="flex items-center gap-1">
                                 <MapPinIcon className="w-3 h-3" />
@@ -256,10 +316,10 @@ function VendorCard({
                     {/* Services */}
                     {vendor.services && vendor.services.length > 0 && (
                         <div>
-                            <h4 className="text-xs font-medium text-gray-500 uppercase mb-1">Services</h4>
+                            <h4 className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase mb-1">Services</h4>
                             <div className="flex flex-wrap gap-1">
                                 {vendor.services.map((service, i) => (
-                                    <span key={i} className="px-2 py-0.5 text-xs bg-gray-100 dark:bg-gray-800 rounded">
+                                    <span key={i} className="px-2 py-0.5 text-xs bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 rounded">
                                         {service}
                                     </span>
                                 ))}
@@ -270,7 +330,7 @@ function VendorCard({
                     {/* Contact */}
                     {vendor.contact && Object.keys(vendor.contact).length > 0 && (
                         <div>
-                            <h4 className="text-xs font-medium text-gray-500 uppercase mb-1">Contact</h4>
+                            <h4 className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase mb-1">Contact</h4>
                             <div className="space-y-1 text-sm">
                                 {vendor.contact.phone && (
                                     <div className="flex items-center gap-2 text-gray-600 dark:text-gray-400">
@@ -310,12 +370,12 @@ function VendorCard({
                     {/* Reviews */}
                     {showReviews && vendor.reviews && vendor.reviews.length > 0 && (
                         <div>
-                            <h4 className="text-xs font-medium text-gray-500 uppercase mb-2">Reviews</h4>
+                            <h4 className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase mb-2">Reviews</h4>
                             <div className="space-y-2">
                                 {vendor.reviews.map((review, i) => (
                                     <div key={i} className="p-2 bg-gray-50 dark:bg-gray-800 rounded text-sm">
                                         <div className="flex items-center gap-2 mb-1">
-                                            <span className="font-medium capitalize">{review.source}</span>
+                                            <span className="font-medium capitalize text-gray-900 dark:text-white">{review.source}</span>
                                             {review.rating && <RatingStars rating={review.rating} />}
                                             <SentimentBadge sentiment={review.sentiment} />
                                         </div>
@@ -349,7 +409,7 @@ function CriteriaView({ criteria }: { criteria: Criteria }) {
         <div className="space-y-4 p-4 bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700">
             <div>
                 <h3 className="font-medium text-gray-900 dark:text-white">Looking for: {criteria.vendor_type}</h3>
-                <p className="text-sm text-gray-500">{criteria.location} ({criteria.radius})</p>
+                <p className="text-sm text-gray-500 dark:text-gray-400">{criteria.location} ({criteria.radius})</p>
             </div>
 
             {criteria.must_have && criteria.must_have.length > 0 && (
@@ -388,10 +448,12 @@ export default function VendorFinderWorkflowView({
     currentEvent,
     onSaveAsAsset,
     isSavingAsset = false,
+    onClose,
 }: WorkflowViewProps) {
     const [expandedVendors, setExpandedVendors] = useState<Set<string>>(new Set());
     const [isTransitioning, setIsTransitioning] = useState(false);
     const [lastCheckpointId, setLastCheckpointId] = useState<string | null>(null);
+    const [assetSaved, setAssetSaved] = useState(false);
 
     const toggleVendor = (id: string) => {
         setExpandedVendors(prev => {
@@ -484,6 +546,7 @@ export default function VendorFinderWorkflowView({
         if (!onSaveAsAsset) return;
         const tablePayload = convertVendorsToTablePayload();
         onSaveAsAsset(tablePayload);
+        setAssetSaved(true);
     };
 
     return (
@@ -495,7 +558,7 @@ export default function VendorFinderWorkflowView({
                         <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
                             Vendor Finder
                         </h2>
-                        <p className="text-sm text-gray-500">
+                        <p className="text-sm text-gray-500 dark:text-gray-400">
                             {instance.status === 'completed'
                                 ? `Complete - ${vendors.length} vendors`
                                 : vendors.length > 0
@@ -510,7 +573,7 @@ export default function VendorFinderWorkflowView({
                         {instance.status !== 'completed' && instance.status !== 'cancelled' && (
                             <button
                                 onClick={() => handlers.onCancel()}
-                                className="px-3 py-1.5 text-sm text-gray-500 hover:text-gray-700"
+                                className="px-3 py-1.5 text-sm text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"
                             >
                                 Cancel
                             </button>
@@ -599,7 +662,7 @@ export default function VendorFinderWorkflowView({
                                         </button>
                                         <button
                                             onClick={handleReject}
-                                            className="flex items-center gap-2 px-4 py-2 text-gray-500 hover:text-gray-700 transition-colors"
+                                            className="flex items-center gap-2 px-4 py-2 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 transition-colors"
                                         >
                                             <XCircleIcon className="w-4 h-4" />
                                             Cancel
@@ -649,32 +712,45 @@ export default function VendorFinderWorkflowView({
                     if (isComplete) {
                         return (
                             <div>
-                                {/* Success banner with save button */}
+                                {/* Success banner with save/close buttons */}
                                 <div className="mb-6 p-4 bg-green-50 dark:bg-green-900/20 rounded-lg border border-green-200 dark:border-green-800">
                                     <div className="flex items-center justify-between">
                                         <div className="flex items-center gap-2">
                                             <CheckCircleIcon className="w-5 h-5 text-green-600" />
                                             <span className="font-medium text-gray-900 dark:text-white">
-                                                Vendor research complete
+                                                {assetSaved ? 'Results saved!' : 'Vendor research complete'}
                                             </span>
-                                            <span className="text-sm text-gray-500">
+                                            <span className="text-sm text-gray-500 dark:text-gray-400">
                                                 ({vendors.length} vendors)
                                             </span>
                                         </div>
-                                        {onSaveAsAsset && vendors.length > 0 && (
-                                            <button
-                                                onClick={handleSaveAsAsset}
-                                                disabled={isSavingAsset}
-                                                className="flex items-center gap-2 px-4 py-2 bg-green-600 hover:bg-green-700 disabled:bg-green-400 text-white rounded-lg transition-colors"
-                                            >
-                                                {isSavingAsset ? (
-                                                    <ArrowPathIcon className="w-4 h-4 animate-spin" />
-                                                ) : (
-                                                    <DocumentArrowDownIcon className="w-4 h-4" />
-                                                )}
-                                                {isSavingAsset ? 'Saving...' : 'Save as Asset'}
-                                            </button>
-                                        )}
+                                        <div className="flex items-center gap-2">
+                                            {/* Save button - only show if not saved yet */}
+                                            {onSaveAsAsset && vendors.length > 0 && !assetSaved && (
+                                                <button
+                                                    onClick={handleSaveAsAsset}
+                                                    disabled={isSavingAsset}
+                                                    className="flex items-center gap-2 px-4 py-2 bg-green-600 hover:bg-green-700 disabled:bg-green-400 text-white rounded-lg transition-colors"
+                                                >
+                                                    {isSavingAsset ? (
+                                                        <ArrowPathIcon className="w-4 h-4 animate-spin" />
+                                                    ) : (
+                                                        <DocumentArrowDownIcon className="w-4 h-4" />
+                                                    )}
+                                                    {isSavingAsset ? 'Saving...' : 'Save as Asset'}
+                                                </button>
+                                            )}
+                                            {/* Close button */}
+                                            {onClose && (
+                                                <button
+                                                    onClick={onClose}
+                                                    className="flex items-center gap-2 px-4 py-2 bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-200 rounded-lg transition-colors"
+                                                >
+                                                    <XCircleIcon className="w-4 h-4" />
+                                                    Close
+                                                </button>
+                                            )}
+                                        </div>
                                     </div>
                                 </div>
 
