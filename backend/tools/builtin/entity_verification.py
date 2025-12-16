@@ -1,15 +1,11 @@
 """
 Entity Verification Workflow
 
-An orchestrated workflow that verifies a business entity on a platform.
-This is NOT an autonomous agent - the code orchestrates, the LLM advises.
+Verifies a business entity exists on a platform (Yelp or Google).
 
-Workflow steps:
-1. Search for the business
-2. Ask LLM for best guess from results
-3. Fetch the guessed page
-4. Show LLM what we found
-5. Loop: LLM says "confirmed" / "not it, try X" / "give up"
+Two modes:
+1. SerpAPI mode (preferred): Uses SerpAPI for reliable, structured data
+2. Web scraping mode (fallback): Orchestrated search/fetch/verify loop
 """
 
 import json
@@ -24,6 +20,7 @@ logger = logging.getLogger(__name__)
 # Configuration
 LLM_MODEL = "claude-sonnet-4-20250514"
 MAX_ITERATIONS = 5
+USE_SERPAPI = True  # Try SerpAPI first
 
 
 # =============================================================================
@@ -168,21 +165,28 @@ def _do_search(query: str, db, user_id: int, context: Dict) -> List[SearchResult
     return results
 
 
+def _run_async(coro):
+    """Run async code safely, handling Windows subprocess requirements."""
+    import asyncio
+    import sys
+
+    # On Windows, we need ProactorEventLoop for subprocess support (used by Playwright)
+    if sys.platform == 'win32':
+        asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
+
+    # Use asyncio.run() which properly manages the event loop
+    return asyncio.run(coro)
+
+
 def _do_fetch(url: str, needs_js: bool = False) -> tuple[str, bool]:
     """Fetch a page and return (content, was_blocked)."""
-    import asyncio
-
     try:
         if needs_js:
             from services.js_web_retrieval_service import fetch_with_js
 
-            loop = asyncio.new_event_loop()
-            try:
-                result = loop.run_until_complete(
-                    fetch_with_js(url=url, timeout=45000, wait_after_load=3000)
-                )
-            finally:
-                loop.close()
+            result = _run_async(
+                fetch_with_js(url=url, timeout=45000, wait_after_load=3000)
+            )
 
             webpage = result["webpage"]
             content = webpage.content
@@ -200,13 +204,9 @@ def _do_fetch(url: str, needs_js: bool = False) -> tuple[str, bool]:
             from services.web_retrieval_service import WebRetrievalService
 
             web_service = WebRetrievalService()
-            loop = asyncio.new_event_loop()
-            try:
-                result = loop.run_until_complete(
-                    web_service.retrieve_webpage(url=url, extract_text_only=True)
-                )
-            finally:
-                loop.close()
+            result = _run_async(
+                web_service.retrieve_webpage(url=url, extract_text_only=True)
+            )
 
             content = result["webpage"].content
             if len(content) > 12000:
@@ -282,7 +282,121 @@ def _get_site_operator(source: str) -> str:
 
 
 # =============================================================================
-# Main Verification Workflow
+# SerpAPI-based Verification (Preferred)
+# =============================================================================
+
+def _verify_with_serpapi(
+    business_name: str,
+    location: str,
+    source: str
+) -> Generator[Dict[str, Any], None, Optional[VerificationResult]]:
+    """
+    Verify entity using SerpAPI.
+
+    Much simpler than web scraping - SerpAPI returns structured data.
+    Returns None if SerpAPI is not available or fails (caller should fall back).
+    """
+    from services.serpapi_service import get_serpapi_service, SerpApiService
+
+    start_time = time.time()
+    steps: List[VerificationStep] = []
+
+    service = get_serpapi_service()
+    if not service.api_key:
+        logger.info("SerpAPI key not configured, falling back to web scraping")
+        return None
+
+    yield {"stage": "serpapi_search", "message": f"Searching {source.upper()} via SerpAPI", "iteration": 1}
+
+    step_start = time.time()
+
+    # Search for business
+    if source == "yelp":
+        result = service.search_yelp(business_name, location)
+    else:
+        result = service.search_google_maps(business_name, location)
+
+    step_duration = int((time.time() - step_start) * 1000)
+
+    steps.append(VerificationStep(
+        iteration=1,
+        action="search",
+        input=f"{business_name} in {location}",
+        output=f"SerpAPI: {result.business.name if result.business else 'not found'}",
+        duration_ms=step_duration
+    ))
+
+    if not result.success or not result.business:
+        yield {"stage": "not_found", "message": f"Business not found on {source.upper()}", "iteration": 1}
+        total_duration = int((time.time() - start_time) * 1000)
+        return VerificationResult(
+            status="not_found",
+            entity=None,
+            page_content=None,
+            steps=steps,
+            total_duration_ms=total_duration,
+            message=result.error or f"Could not find {business_name} on {source.upper()}"
+        )
+
+    biz = result.business
+
+    # Simple name matching - check if the found business matches our target
+    # Use fuzzy matching: lowercase, remove punctuation
+    import re
+    def normalize(s: str) -> str:
+        return re.sub(r'[^\w\s]', '', s.lower()).strip()
+
+    target_normalized = normalize(business_name)
+    found_normalized = normalize(biz.name)
+
+    # Check for reasonable match
+    name_matches = (
+        target_normalized in found_normalized or
+        found_normalized in target_normalized or
+        # Check if significant words overlap
+        len(set(target_normalized.split()) & set(found_normalized.split())) >= min(2, len(target_normalized.split()))
+    )
+
+    if name_matches:
+        confidence = "high" if target_normalized == found_normalized else "medium"
+        yield {"stage": "confirmed", "message": f"Found: {biz.name}", "iteration": 1}
+
+        total_duration = int((time.time() - start_time) * 1000)
+        return VerificationResult(
+            status="confirmed",
+            entity=EntityCandidate(
+                name=biz.name,
+                url=biz.url or f"https://www.yelp.com/biz/{biz.place_id}" if source == "yelp" else "",
+                reason=f"SerpAPI match: {biz.rating}★ ({biz.review_count} reviews) at {biz.address or 'address N/A'}",
+                confidence=confidence
+            ),
+            page_content=None,  # SerpAPI doesn't give us page content, but we don't need it
+            steps=steps,
+            total_duration_ms=total_duration,
+            message=f"Verified {biz.name} on {source.upper()} via SerpAPI"
+        )
+    else:
+        # Name doesn't match well - could be wrong business
+        yield {"stage": "ambiguous", "message": f"Found '{biz.name}' but expected '{business_name}'", "iteration": 1}
+
+        total_duration = int((time.time() - start_time) * 1000)
+        return VerificationResult(
+            status="ambiguous",
+            entity=EntityCandidate(
+                name=biz.name,
+                url=biz.url or "",
+                reason=f"Name mismatch: searched for '{business_name}', found '{biz.name}'",
+                confidence="low"
+            ),
+            page_content=None,
+            steps=steps,
+            total_duration_ms=total_duration,
+            message=f"Found '{biz.name}' but may not match '{business_name}'"
+        )
+
+
+# =============================================================================
+# Web Scraping Verification (Fallback)
 # =============================================================================
 
 def verify_entity(
@@ -295,17 +409,27 @@ def verify_entity(
     on_progress: Optional[callable] = None
 ) -> Generator[Dict[str, Any], None, VerificationResult]:
     """
-    Orchestrated entity verification workflow.
+    Entity verification workflow.
 
-    Yields progress updates, returns final VerificationResult.
-
-    The workflow:
-    1. Search for the business
-    2. Ask LLM for best guess
-    3. Fetch the page
-    4. Ask LLM to verify
-    5. Loop until confirmed, gave up, or max iterations
+    Tries SerpAPI first (fast, reliable), falls back to web scraping if needed.
     """
+    # Try SerpAPI first
+    if USE_SERPAPI and source in ("yelp", "google"):
+        serpapi_gen = _verify_with_serpapi(business_name, location, source)
+        try:
+            while True:
+                progress = next(serpapi_gen)
+                yield progress
+        except StopIteration as e:
+            result = e.value
+            if result is not None:
+                return result
+            # result is None means SerpAPI not available, fall back to web scraping
+            logger.info("SerpAPI unavailable, falling back to web scraping")
+
+    # Fall back to web scraping workflow
+    yield {"stage": "fallback", "message": "Using web scraping fallback", "iteration": 0}
+
     start_time = time.time()
     steps: List[VerificationStep] = []
     iteration = 0

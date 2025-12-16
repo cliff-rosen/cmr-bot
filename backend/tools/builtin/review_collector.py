@@ -432,6 +432,18 @@ def _execute_search(params: Dict[str, Any], db: Session, user_id: int, context: 
         return ToolResult(text=f"Search error: {str(e)}")
 
 
+def _run_async(coro):
+    """Run async code safely, handling Windows subprocess requirements."""
+    import asyncio
+    import sys
+
+    # On Windows, we need ProactorEventLoop for subprocess support (used by Playwright)
+    if sys.platform == 'win32':
+        asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
+
+    return asyncio.run(coro)
+
+
 def _execute_fetch(params: Dict[str, Any], db: Session, user_id: int, context: Dict) -> ToolResult:
     """Fetch tool for the review collector agent."""
     global _current_tracker
@@ -457,18 +469,12 @@ def _execute_fetch(params: Dict[str, Any], db: Session, user_id: int, context: D
     needs_js = any(domain.endswith(d) or domain == d for d in js_required_domains)
 
     try:
-        import asyncio
-
         if needs_js:
             from services.js_web_retrieval_service import fetch_with_js
 
-            loop = asyncio.new_event_loop()
-            try:
-                result = loop.run_until_complete(
-                    fetch_with_js(url=url, timeout=45000, wait_after_load=3000)
-                )
-            finally:
-                loop.close()
+            result = _run_async(
+                fetch_with_js(url=url, timeout=45000, wait_after_load=3000)
+            )
 
             webpage = result["webpage"]
             content = webpage.content
@@ -502,13 +508,9 @@ def _execute_fetch(params: Dict[str, Any], db: Session, user_id: int, context: D
             from services.web_retrieval_service import WebRetrievalService
 
             web_service = WebRetrievalService()
-            loop = asyncio.new_event_loop()
-            try:
-                result = loop.run_until_complete(
-                    web_service.retrieve_webpage(url=url, extract_text_only=True)
-                )
-            finally:
-                loop.close()
+            result = _run_async(
+                web_service.retrieve_webpage(url=url, extract_text_only=True)
+            )
 
             webpage = result["webpage"]
             content = webpage.content
@@ -668,6 +670,149 @@ Return ACTUAL review text, not summaries. Include all visible reviews."""
 
 
 # =============================================================================
+# SerpAPI Fast Path
+# =============================================================================
+
+def _try_serpapi_collection(
+    business_name: str,
+    location: str,
+    source: str,
+    tracker: JourneyTracker
+) -> Generator[ToolProgress, None, Optional[ToolResult]]:
+    """
+    Try to collect reviews via SerpAPI.
+
+    Returns ToolResult if successful, None if SerpAPI unavailable (caller should fall back).
+    """
+    from services.serpapi_service import get_serpapi_service
+
+    service = get_serpapi_service()
+    if not service.api_key:
+        logger.info("SerpAPI key not configured, falling back to web scraping")
+        yield ToolProgress(
+            stage="serpapi_unavailable",
+            message="SerpAPI not configured, using fallback",
+            data={}
+        )
+        return None
+
+    yield ToolProgress(
+        stage="serpapi",
+        message=f"Fetching {source.upper()} reviews via SerpAPI",
+        data={"method": "serpapi"}
+    )
+
+    tracker.start_step("search", f"SerpAPI {source} search")
+
+    # Use SerpAPI to find business and get reviews
+    result = service.find_and_get_reviews(
+        business_name=business_name,
+        location=location,
+        source=source,
+        num_reviews=20
+    )
+
+    tracker.complete_step(
+        "success" if result.success else "failed",
+        [f"Found {len(result.reviews)} reviews" if result.success else result.error or "Failed"]
+    )
+
+    if not result.success:
+        yield ToolProgress(
+            stage="serpapi_failed",
+            message=result.error or f"Could not find {business_name} on {source.upper()}",
+            data={}
+        )
+        # Return failure result
+        tracker.set_phase_conclusion(result.error or "SerpAPI search failed", "failed")
+        outcome = Outcome(
+            success=False,
+            status="entity_not_found",
+            confidence="low",
+            summary=result.error or f"Could not find {business_name} on {source.upper()}"
+        )
+        final_result = tracker.finalize(outcome)
+        return ToolResult(
+            text=_format_text_output(final_result),
+            data=final_result.to_dict(),
+            workspace_payload={"type": "review_collection", "data": final_result.to_dict()}
+        )
+
+    # Success! Convert SerpAPI result to our format
+    biz = result.business
+    tracker.entity = Entity(
+        name=biz.name,
+        url=biz.url or "",
+        rating=biz.rating,
+        review_count=biz.review_count,
+        match_confidence="high",
+        match_reason=f"SerpAPI match at {biz.address or 'N/A'}"
+    )
+    tracker.set_phase_conclusion(f"Found via SerpAPI: {biz.name}", "success")
+
+    # Phase 2: Reviews (already fetched)
+    tracker.start_phase("artifact_collection")
+
+    yield ToolProgress(
+        stage="serpapi_reviews",
+        message=f"Got {len(result.reviews)} reviews from SerpAPI",
+        data={"review_count": len(result.reviews)}
+    )
+
+    # Convert reviews to our format
+    for review in result.reviews:
+        tracker.artifacts.append(ReviewArtifact(
+            rating=review.rating,
+            text=review.text,
+            author=review.author,
+            date=review.date
+        ))
+
+    # Build analysis (simple version - could use LLM for better analysis)
+    if tracker.artifacts:
+        ratings = [a.rating for a in tracker.artifacts if a.rating]
+        avg_rating = sum(ratings) / len(ratings) if ratings else None
+
+        tracker.analysis = Analysis(
+            sentiment=f"Average rating: {avg_rating:.1f}/5" if avg_rating else "Mixed reviews",
+            themes=[],
+            notable_quotes=[a.text[:100] + "..." for a in tracker.artifacts[:2] if len(a.text) > 50]
+        )
+
+    tracker.set_phase_conclusion(f"Collected {len(tracker.artifacts)} reviews via SerpAPI", "success")
+
+    # Build final result
+    artifact_count = len(tracker.artifacts)
+    rating_str = f"{biz.rating}★" if biz.rating else ""
+
+    summary = f"Found {artifact_count} reviews"
+    if rating_str:
+        summary += f" • {rating_str}"
+    summary += f" • {biz.name}"
+
+    outcome = Outcome(
+        success=True,
+        status="complete",
+        confidence="high",
+        summary=summary
+    )
+
+    final_result = tracker.finalize(outcome)
+
+    yield ToolProgress(
+        stage="complete",
+        message=summary,
+        data={"success": True, "method": "serpapi"}
+    )
+
+    return ToolResult(
+        text=_format_text_output(final_result),
+        data=final_result.to_dict(),
+        workspace_payload={"type": "review_collection", "data": final_result.to_dict()}
+    )
+
+
+# =============================================================================
 # Main Executor
 # =============================================================================
 
@@ -709,7 +854,19 @@ def execute_review_collector(
     )
 
     # ==========================================================================
-    # PHASE 1: Entity Verification (Orchestrated Workflow)
+    # TRY SERPAPI FIRST (Fast path for Yelp/Google)
+    # ==========================================================================
+
+    if source in ("yelp", "google"):
+        serpapi_result = yield from _try_serpapi_collection(
+            business_name, location, source, _current_tracker
+        )
+        if serpapi_result is not None:
+            _current_tracker = None
+            return serpapi_result
+
+    # ==========================================================================
+    # FALLBACK: Entity Verification + Extraction
     # ==========================================================================
 
     verification_result = None
