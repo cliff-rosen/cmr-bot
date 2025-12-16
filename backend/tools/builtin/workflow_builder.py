@@ -11,6 +11,7 @@ by the workflow engine. Creates declarative workflow definitions with:
 import json
 import logging
 import os
+import textwrap
 from typing import Any, Dict, Generator
 from sqlalchemy.orm import Session
 import anthropic
@@ -65,167 +66,166 @@ MAX_VALIDATION_RETRIES = 2
 
 def _build_system_prompt(available_tools: str) -> str:
     """Build the system prompt with dynamic tool list."""
-    return f"""You are a Workflow Architect that designs executable graph-based workflows.
+    return textwrap.dedent(f"""\
+        You are a Workflow Architect that designs executable graph-based workflows.
 
-    ## CRITICAL: Output Format
+        ## CRITICAL: Output Format
 
-    You MUST output ONLY valid JSON matching this EXACT schema. No other text.
+        You MUST output ONLY valid JSON matching this EXACT schema. No other text.
 
-    ## Required JSON Structure
+        ## Required JSON Structure
 
-    ```json
-    {{
-    "id": "string (snake_case identifier)",
-    "name": "string (human readable name)",
-    "description": "string (what this workflow does)",
-    "nodes": {{
-        "node_id": {{
-        "id": "node_id (must match key)",
-        "name": "string",
-        "description": "string",
-        "node_type": "execute" | "checkpoint",
-        "step_definition": {{...}}  // REQUIRED for execute nodes
-        "checkpoint_config": {{...}} // REQUIRED for checkpoint nodes
+        ```json
+        {{
+          "id": "string (snake_case identifier)",
+          "name": "string (human readable name)",
+          "description": "string (what this workflow does)",
+          "nodes": {{
+            "node_id": {{
+              "id": "node_id (must match key)",
+              "name": "string",
+              "description": "string",
+              "node_type": "execute" | "checkpoint",
+              "step_definition": {{...}},  // REQUIRED for execute nodes
+              "checkpoint_config": {{...}}  // REQUIRED for checkpoint nodes
+            }}
+          }},
+          "edges": [
+            {{"from_node": "node_id", "to_node": "node_id"}}
+          ],
+          "entry_node": "node_id (must exist in nodes)",
+          "input_schema": {{
+            "type": "object",
+            "properties": {{"field_name": {{"type": "string", "description": "..."}}}},
+            "required": ["field_name"]
+          }}
         }}
-    }},
-    "edges": [
-        {{"from_node": "node_id", "to_node": "node_id"}}
-    ],
-    "entry_node": "node_id (must exist in nodes)",
-    "input_schema": {{
-        "type": "object",
-        "properties": {{"field_name": {{"type": "string", "description": "..."}}}},
-        "required": ["field_name"]
-    }}
-    }}
-    ```
+        ```
 
-    ## Execute Node step_definition (REQUIRED fields)
+        ## Execute Node step_definition (REQUIRED fields)
 
-    ```json
-    {{
-    "id": "string",
-    "name": "string",
-    "description": "string",
-    "goal": "string (what this step accomplishes)",
-    "tools": ["tool_name"],  // Array of tool names from Available Tools below
-    "input_fields": ["field_name"],  // Fields this step reads (see Data Flow Rules)
-    "output_field": "field_name",  // Where result is stored (see Data Flow Rules)
-    "mode": "llm_with_tools"
-    }}
-    ```
-
-    ## Checkpoint Node checkpoint_config (REQUIRED fields)
-
-    ```json
-    {{
-    "title": "string",
-    "description": "string",
-    "allowed_actions": ["approve", "edit", "reject"],
-    "editable_fields": ["field_name"]  // Fields user can modify
-    }}
-    ```
-
-    ## DATA FLOW RULES (CRITICAL)
-
-    Each step's `input_fields` MUST reference fields that exist when the step runs:
-
-    1. **input_schema fields**: Available from workflow start (e.g., "query" if defined in input_schema)
-    2. **Previous step output_field**: Available after that step completes
-
-    Example valid data flow:
-    - input_schema defines: "query"
-    - Step A: input_fields=["query"], output_field="search_results"
-    - Step B: input_fields=["query", "search_results"], output_field="analysis"
-    (Step B can use "query" from input AND "search_results" from Step A)
-
-    INVALID: Referencing a field that doesn't exist or comes from a later step.
-
-    ## Available Tools
-
-    Steps can use these tools (specify in step_definition.tools array):
-
-    {available_tools}
-
-    Use an empty array `"tools": []` for steps that only need LLM reasoning without tools.
-
-    ## Design Principles
-
-    1. Add checkpoints after significant steps for user review
-    2. Keep step goals focused - one clear objective per step
-    3. 2-5 execute nodes is typical - don't over-engineer
-    4. Use tools appropriate to the task
-    5. Ensure data flows correctly between steps
-
-    ## Example
-
-    ```json
-    {{
-    "id": "research_topic",
-    "name": "Research Topic",
-    "description": "Research a topic and compile findings",
-    "nodes": {{
-        "search": {{
-        "id": "search",
-        "name": "Search for Information",
-        "description": "Search the web for relevant information",
-        "node_type": "execute",
-        "step_definition": {{
-            "id": "search",
-            "name": "Search",
-            "description": "Search for information",
-            "goal": "Find relevant information about the topic",
-            "tools": ["web_search"],
-            "input_fields": ["query"],
-            "output_field": "search_results",
-            "mode": "llm_with_tools"
+        ```json
+        {{
+          "id": "string",
+          "name": "string",
+          "description": "string",
+          "goal": "string (what this step accomplishes)",
+          "tools": ["tool_name"],
+          "input_fields": ["field_name"],
+          "output_field": "field_name",
+          "mode": "llm_with_tools"
         }}
-        }},
-        "review": {{
-        "id": "review",
-        "name": "Review Results",
-        "description": "User reviews search results",
-        "node_type": "checkpoint",
-        "checkpoint_config": {{
-            "title": "Review Search Results",
-            "description": "Review the search results before proceeding",
-            "allowed_actions": ["approve", "edit", "reject"],
-            "editable_fields": ["search_results"]
-        }}
-        }},
-        "summarize": {{
-        "id": "summarize",
-        "name": "Summarize Findings",
-        "description": "Create a summary of the research",
-        "node_type": "execute",
-        "step_definition": {{
-            "id": "summarize",
-            "name": "Summarize",
-            "description": "Summarize the findings",
-            "goal": "Create a clear summary of the research findings",
-            "tools": [],
-            "input_fields": ["query", "search_results"],
-            "output_field": "summary",
-            "mode": "llm_with_tools"
-        }}
-        }}
-    }},
-    "edges": [
-        {{"from_node": "search", "to_node": "review"}},
-        {{"from_node": "review", "to_node": "summarize"}}
-    ],
-    "entry_node": "search",
-    "input_schema": {{
-        "type": "object",
-        "properties": {{
-        "query": {{"type": "string", "description": "The research topic"}}
-        }},
-        "required": ["query"]
-    }}
-    }}
-    ```
+        ```
 
-    Output ONLY the JSON workflow. No explanations, no markdown formatting outside the JSON."""
+        ## Checkpoint Node checkpoint_config (REQUIRED fields)
+
+        ```json
+        {{
+          "title": "string",
+          "description": "string",
+          "allowed_actions": ["approve", "edit", "reject"],
+          "editable_fields": ["field_name"]
+        }}
+        ```
+
+        ## DATA FLOW RULES (CRITICAL)
+
+        Each step's `input_fields` MUST reference fields that exist when the step runs:
+
+        1. **input_schema fields**: Available from workflow start (e.g., "query" if in input_schema)
+        2. **Previous step output_field**: Available after that step completes
+
+        Example valid data flow:
+        - input_schema defines: "query"
+        - Step A: input_fields=["query"], output_field="search_results"
+        - Step B: input_fields=["query", "search_results"], output_field="analysis"
+
+        INVALID: Referencing a field that doesn't exist or comes from a later step.
+
+        ## Available Tools
+
+        Steps can use these tools (specify in step_definition.tools array):
+
+        {available_tools}
+
+        Use `"tools": []` for steps that only need LLM reasoning without tools.
+
+        ## Design Principles
+
+        1. Add checkpoints after significant steps for user review
+        2. Keep step goals focused - one clear objective per step
+        3. 2-5 execute nodes is typical
+        4. Ensure data flows correctly between steps
+
+        ## Example
+
+        ```json
+        {{
+          "id": "research_topic",
+          "name": "Research Topic",
+          "description": "Research a topic and compile findings",
+          "nodes": {{
+            "search": {{
+              "id": "search",
+              "name": "Search for Information",
+              "description": "Search the web for relevant information",
+              "node_type": "execute",
+              "step_definition": {{
+                "id": "search",
+                "name": "Search",
+                "description": "Search for information",
+                "goal": "Find relevant information about the topic",
+                "tools": ["web_search"],
+                "input_fields": ["query"],
+                "output_field": "search_results",
+                "mode": "llm_with_tools"
+              }}
+            }},
+            "review": {{
+              "id": "review",
+              "name": "Review Results",
+              "description": "User reviews search results",
+              "node_type": "checkpoint",
+              "checkpoint_config": {{
+                "title": "Review Search Results",
+                "description": "Review the search results before proceeding",
+                "allowed_actions": ["approve", "edit", "reject"],
+                "editable_fields": ["search_results"]
+              }}
+            }},
+            "summarize": {{
+              "id": "summarize",
+              "name": "Summarize Findings",
+              "description": "Create a summary of the research",
+              "node_type": "execute",
+              "step_definition": {{
+                "id": "summarize",
+                "name": "Summarize",
+                "description": "Summarize the findings",
+                "goal": "Create a clear summary of the research findings",
+                "tools": [],
+                "input_fields": ["query", "search_results"],
+                "output_field": "summary",
+                "mode": "llm_with_tools"
+              }}
+            }}
+          }},
+          "edges": [
+            {{"from_node": "search", "to_node": "review"}},
+            {{"from_node": "review", "to_node": "summarize"}}
+          ],
+          "entry_node": "search",
+          "input_schema": {{
+            "type": "object",
+            "properties": {{
+              "query": {{"type": "string", "description": "The research topic"}}
+            }},
+            "required": ["query"]
+          }}
+        }}
+        ```
+
+        Output ONLY the JSON workflow. No explanations, no markdown.""")
 
 
 def execute_design_workflow(
@@ -258,14 +258,11 @@ def execute_design_workflow(
     system_prompt = _build_system_prompt(available_tools)
 
     # Build the initial user prompt
-    user_prompt = f"""Design an executable workflow graph for this task:
-
-    **Goal**: {goal}
-    """
+    user_prompt = f"Design an executable workflow graph for this task:\n\n**Goal**: {goal}"
     if initial_input:
-        user_prompt += f"\n**Initial Input/Context**: {initial_input}\n"
+        user_prompt += f"\n\n**Initial Input/Context**: {initial_input}"
     if constraints:
-        user_prompt += f"\n**Constraints/Preferences**: {constraints}\n"
+        user_prompt += f"\n\n**Constraints/Preferences**: {constraints}"
 
     try:
         client = anthropic.Anthropic(api_key=os.getenv('ANTHROPIC_API_KEY'))
@@ -347,14 +344,16 @@ def execute_design_workflow(
 
                 # Add the workflow and error feedback to conversation
                 messages.append({"role": "assistant", "content": response_text})
-                error_feedback = f"""Your workflow has validation errors that must be fixed:
+                error_list = "\n".join(f"- {e}" for e in validation_errors)
+                error_feedback = textwrap.dedent(f"""\
+                    Your workflow has validation errors that must be fixed:
 
-                {chr(10).join(f'- {e}' for e in validation_errors)}
+                    {error_list}
 
-                Please fix these issues and output the corrected JSON workflow. Remember:
-                - input_fields must reference fields from input_schema OR output_field from previous steps
-                - tools must be from the available tools list
-                - All required fields must be present"""
+                    Please fix these issues and output the corrected JSON workflow. Remember:
+                    - input_fields must reference fields from input_schema OR output_field from previous steps
+                    - tools must be from the available tools list
+                    - All required fields must be present""")
                 messages.append({"role": "user", "content": error_feedback})
             else:
                 # Out of retries - report the errors
@@ -404,12 +403,9 @@ def execute_design_workflow(
             "workflow_graph_data": workflow_data
         }
 
+        result_text = f"I've designed an executable workflow graph.\n\n{summary}\n\n**To execute this workflow**, you can run it from the workspace panel to test it."
         return ToolResult(
-            text=f"""I've designed an executable workflow graph.
-
-            {summary}
-
-            **To execute this workflow**, you can run it from the workspace panel to test it.""",
+            text=result_text,
             data={
                 "type": "workflow_graph",
                 "workflow": workflow_data,
@@ -452,74 +448,22 @@ def _parse_workflow_json(text: str) -> Dict[str, Any] | None:
         return None
 
 
-def _validate_workflow(workflow: Dict[str, Any]) -> list[str]:
-    """Validate workflow graph structure and return list of errors."""
-    errors = []
-
-    if not workflow.get("name"):
-        errors.append("Missing name")
-
-    if not workflow.get("entry_node"):
-        errors.append("Missing entry_node")
-
-    nodes = workflow.get("nodes", {})
-    if not nodes:
-        errors.append("No nodes defined")
-        return errors
-
-    # Check entry node exists
-    if workflow.get("entry_node") and workflow["entry_node"] not in nodes:
-        errors.append(f"Entry node '{workflow['entry_node']}' not in nodes")
-
-    # Validate each node
-    for node_id, node in nodes.items():
-        if not node.get("node_type"):
-            errors.append(f"Node '{node_id}': missing node_type")
-            continue
-
-        if node["node_type"] == "execute":
-            if not node.get("step_definition"):
-                errors.append(f"Node '{node_id}': execute node missing step_definition")
-            else:
-                step_def = node["step_definition"]
-                if not step_def.get("goal"):
-                    errors.append(f"Node '{node_id}': step_definition missing goal")
-
-        elif node["node_type"] == "checkpoint":
-            if not node.get("checkpoint_config"):
-                errors.append(f"Node '{node_id}': checkpoint node missing checkpoint_config")
-
-    # Validate edges
-    edges = workflow.get("edges", [])
-    for i, edge in enumerate(edges):
-        if not edge.get("from_node"):
-            errors.append(f"Edge {i}: missing from_node")
-        elif edge["from_node"] not in nodes:
-            errors.append(f"Edge {i}: from_node '{edge['from_node']}' not in nodes")
-
-        if not edge.get("to_node"):
-            errors.append(f"Edge {i}: missing to_node")
-        elif edge["to_node"] not in nodes:
-            errors.append(f"Edge {i}: to_node '{edge['to_node']}' not in nodes")
-
-    return errors
-
-
 DESIGN_WORKFLOW_TOOL = ToolConfig(
     name="design_workflow",
-    description="""Design an executable graph-based workflow to accomplish a complex task.
+    description=textwrap.dedent("""\
+        Design an executable graph-based workflow to accomplish a complex task.
 
-    Use this tool when:
-    - A task requires multiple coordinated steps
-    - User review/approval is needed at certain stages
-    - The workflow should be reusable as a template
+        Use this tool when:
+        - A task requires multiple coordinated steps
+        - User review/approval is needed at certain stages
+        - The workflow should be reusable as a template
 
-    This tool creates an executable workflow graph with:
-    - Execute nodes: Steps that perform work using LLM + tools
-    - Checkpoint nodes: Pause points for user review
-    - Edges with conditions: Support for loops and branching
+        This tool creates an executable workflow graph with:
+        - Execute nodes: Steps that perform work using LLM + tools
+        - Checkpoint nodes: Pause points for user review
+        - Edges with conditions: Support for loops and branching
 
-    The workflow can be executed by the workflow engine with real-time progress updates.""",
+        The workflow can be executed by the workflow engine with real-time progress updates."""),
     input_schema={
         "type": "object",
         "properties": {
