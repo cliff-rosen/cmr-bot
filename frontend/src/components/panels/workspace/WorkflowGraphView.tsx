@@ -2,7 +2,7 @@
  * WorkflowGraphView
  *
  * Displays a designed workflow graph from the design_workflow tool.
- * Shows nodes, edges, and allows the user to test the workflow.
+ * Shows nodes with step_type-specific details, edges, and data flow.
  */
 
 import { useState, useMemo } from 'react';
@@ -16,42 +16,193 @@ import {
     WrenchScrewdriverIcon,
     DocumentTextIcon,
     ExclamationTriangleIcon,
+    ArrowDownIcon,
+    LightBulbIcon,
+    QuestionMarkCircleIcon,
+    CodeBracketIcon,
 } from '@heroicons/react/24/solid';
 import {
     WorkflowNode,
     WorkflowEdge,
     WorkflowGraphData,
+    WorkflowStepDefinition,
+    StepType,
 } from '../../../types/chat';
 import { PayloadViewProps } from '../../../lib/workspace/workspaceMode';
 
 interface WorkflowGraphViewProps extends PayloadViewProps {
-    // Callback for testing the workflow with inputs
     onTest?: (workflow: WorkflowGraphData, inputs: Record<string, any>) => void;
 }
 
-// Node type styling
-function getNodeStyle(nodeType: 'execute' | 'checkpoint') {
-    if (nodeType === 'execute') {
-        return {
-            icon: CpuChipIcon,
-            bg: 'bg-blue-50 dark:bg-blue-900/20',
-            border: 'border-blue-200 dark:border-blue-800',
-            iconColor: 'text-blue-600 dark:text-blue-400',
-            label: 'Execute',
-            labelBg: 'bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300',
-        };
+// Step type styling
+function getStepTypeStyle(stepType: StepType) {
+    switch (stepType) {
+        case 'tool_call':
+            return {
+                icon: WrenchScrewdriverIcon,
+                bg: 'bg-purple-50 dark:bg-purple-900/20',
+                border: 'border-purple-200 dark:border-purple-800',
+                iconColor: 'text-purple-600 dark:text-purple-400',
+                label: 'Tool Call',
+                labelBg: 'bg-purple-100 dark:bg-purple-900/40 text-purple-700 dark:text-purple-300',
+            };
+        case 'llm_transform':
+            return {
+                icon: LightBulbIcon,
+                bg: 'bg-blue-50 dark:bg-blue-900/20',
+                border: 'border-blue-200 dark:border-blue-800',
+                iconColor: 'text-blue-600 dark:text-blue-400',
+                label: 'LLM Transform',
+                labelBg: 'bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300',
+            };
+        case 'llm_decision':
+            return {
+                icon: QuestionMarkCircleIcon,
+                bg: 'bg-green-50 dark:bg-green-900/20',
+                border: 'border-green-200 dark:border-green-800',
+                iconColor: 'text-green-600 dark:text-green-400',
+                label: 'LLM Decision',
+                labelBg: 'bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-300',
+            };
+        default:
+            return {
+                icon: CpuChipIcon,
+                bg: 'bg-gray-50 dark:bg-gray-900/20',
+                border: 'border-gray-200 dark:border-gray-800',
+                iconColor: 'text-gray-600 dark:text-gray-400',
+                label: 'Execute',
+                labelBg: 'bg-gray-100 dark:bg-gray-900/40 text-gray-700 dark:text-gray-300',
+            };
     }
-    return {
-        icon: PauseCircleIcon,
-        bg: 'bg-amber-50 dark:bg-amber-900/20',
-        border: 'border-amber-200 dark:border-amber-800',
-        iconColor: 'text-amber-600 dark:text-amber-400',
-        label: 'Checkpoint',
-        labelBg: 'bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300',
-    };
 }
 
-// Individual node component
+// Checkpoint styling
+const checkpointStyle = {
+    icon: PauseCircleIcon,
+    bg: 'bg-amber-50 dark:bg-amber-900/20',
+    border: 'border-amber-200 dark:border-amber-800',
+    iconColor: 'text-amber-600 dark:text-amber-400',
+    label: 'Checkpoint',
+    labelBg: 'bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300',
+};
+
+// Extract field references from input_mapping templates
+function extractFieldsFromMapping(mapping: Record<string, string>): string[] {
+    const fields = new Set<string>();
+    Object.values(mapping).forEach(template => {
+        const matches = template.match(/\{(\w+)(?:\.\w+)?\}/g);
+        if (matches) {
+            matches.forEach(m => {
+                // Extract field name (before any dot)
+                const field = m.replace(/[{}]/g, '').split('.')[0];
+                fields.add(field);
+            });
+        }
+    });
+    return Array.from(fields);
+}
+
+// Render step definition details based on step_type
+function StepDetails({ stepDef }: { stepDef: WorkflowStepDefinition }) {
+    const inputFields = stepDef.step_type === 'tool_call' && stepDef.input_mapping
+        ? extractFieldsFromMapping(stepDef.input_mapping)
+        : stepDef.input_fields || [];
+
+    return (
+        <div className="space-y-3 text-sm">
+            {/* Data Flow Summary */}
+            <div className="flex items-center gap-2 p-2 bg-gray-100 dark:bg-gray-800 rounded-lg">
+                <div className="flex-1">
+                    <span className="text-xs text-gray-500 dark:text-gray-400">Reads:</span>
+                    <div className="flex flex-wrap gap-1 mt-0.5">
+                        {inputFields.length > 0 ? inputFields.map(f => (
+                            <code key={f} className="text-xs px-1.5 py-0.5 bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 rounded">
+                                {f}
+                            </code>
+                        )) : (
+                            <span className="text-xs text-gray-400 italic">none</span>
+                        )}
+                    </div>
+                </div>
+                <ArrowLongRightIcon className="h-4 w-4 text-gray-400 flex-shrink-0" />
+                <div className="flex-1">
+                    <span className="text-xs text-gray-500 dark:text-gray-400">Writes:</span>
+                    <div className="mt-0.5">
+                        <code className="text-xs px-1.5 py-0.5 bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-300 rounded">
+                            {stepDef.output_field}
+                        </code>
+                    </div>
+                </div>
+            </div>
+
+            {/* Step Type Specific Details */}
+            {stepDef.step_type === 'tool_call' && (
+                <>
+                    <div>
+                        <span className="font-medium text-gray-700 dark:text-gray-300">Tool:</span>
+                        <code className="ml-2 px-2 py-0.5 bg-purple-100 dark:bg-purple-900/40 text-purple-700 dark:text-purple-300 rounded text-xs">
+                            {stepDef.tool}
+                        </code>
+                    </div>
+                    {stepDef.input_mapping && (
+                        <div>
+                            <span className="font-medium text-gray-700 dark:text-gray-300">Input Mapping:</span>
+                            <div className="mt-1 p-2 bg-gray-50 dark:bg-gray-900 rounded text-xs font-mono overflow-x-auto">
+                                {Object.entries(stepDef.input_mapping).map(([key, value]) => (
+                                    <div key={key} className="text-gray-600 dark:text-gray-400">
+                                        <span className="text-purple-600 dark:text-purple-400">{key}</span>
+                                        <span className="text-gray-400"> = </span>
+                                        <span className="text-blue-600 dark:text-blue-400">"{value}"</span>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    )}
+                </>
+            )}
+
+            {stepDef.step_type === 'llm_transform' && (
+                <>
+                    <div>
+                        <span className="font-medium text-gray-700 dark:text-gray-300">Goal:</span>
+                        <p className="text-gray-600 dark:text-gray-400 mt-0.5">{stepDef.goal}</p>
+                    </div>
+                    {stepDef.output_schema && (
+                        <div>
+                            <span className="font-medium text-gray-700 dark:text-gray-300">Output Schema:</span>
+                            <pre className="mt-1 p-2 bg-gray-50 dark:bg-gray-900 rounded text-xs font-mono overflow-x-auto max-h-32 text-gray-800 dark:text-gray-200">
+                                {JSON.stringify(stepDef.output_schema, null, 2)}
+                            </pre>
+                        </div>
+                    )}
+                </>
+            )}
+
+            {stepDef.step_type === 'llm_decision' && (
+                <>
+                    <div>
+                        <span className="font-medium text-gray-700 dark:text-gray-300">Goal:</span>
+                        <p className="text-gray-600 dark:text-gray-400 mt-0.5">{stepDef.goal}</p>
+                    </div>
+                    {stepDef.choices && (
+                        <div>
+                            <span className="font-medium text-gray-700 dark:text-gray-300">Choices:</span>
+                            <div className="flex flex-wrap gap-1 mt-1">
+                                {stepDef.choices.map(choice => (
+                                    <code key={choice} className="text-xs px-2 py-0.5 bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-300 rounded">
+                                        {choice}
+                                    </code>
+                                ))}
+                            </div>
+                        </div>
+                    )}
+                </>
+            )}
+        </div>
+    );
+}
+
+// Individual node card
 function NodeCard({
     node,
     isExpanded,
@@ -63,7 +214,13 @@ function NodeCard({
     onToggle: () => void;
     isEntry: boolean;
 }) {
-    const style = getNodeStyle(node.node_type);
+    const stepDef = node.step_definition;
+    const isCheckpoint = node.node_type === 'checkpoint';
+
+    const style = isCheckpoint
+        ? checkpointStyle
+        : (stepDef?.step_type ? getStepTypeStyle(stepDef.step_type) : getStepTypeStyle('llm_transform'));
+
     const Icon = style.icon;
 
     return (
@@ -91,9 +248,25 @@ function NodeCard({
                             </span>
                         )}
                     </div>
-                    <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
-                        {node.description}
-                    </p>
+
+                    {/* Quick summary line */}
+                    <div className="text-xs text-gray-500 dark:text-gray-400 mt-1 flex items-center gap-2 flex-wrap">
+                        {!isCheckpoint && stepDef && (
+                            <>
+                                {stepDef.step_type === 'tool_call' && stepDef.tool && (
+                                    <span className="flex items-center gap-1">
+                                        <WrenchScrewdriverIcon className="h-3 w-3" />
+                                        <code className="text-purple-600 dark:text-purple-400">{stepDef.tool}</code>
+                                    </span>
+                                )}
+                                <span className="text-gray-400">→</span>
+                                <code className="text-green-600 dark:text-green-400">{stepDef.output_field}</code>
+                            </>
+                        )}
+                        {isCheckpoint && node.checkpoint_config && (
+                            <span>{node.checkpoint_config.title}</span>
+                        )}
+                    </div>
                 </div>
                 {isExpanded ? (
                     <ChevronDownIcon className="h-5 w-5 text-gray-400 flex-shrink-0" />
@@ -104,55 +277,15 @@ function NodeCard({
 
             {isExpanded && (
                 <div className="px-3 pb-3 border-t border-gray-200 dark:border-gray-700 mt-1 pt-3 ml-8">
-                    {node.node_type === 'execute' && node.step_definition && (
+                    {!isCheckpoint && stepDef && <StepDetails stepDef={stepDef} />}
+
+                    {isCheckpoint && node.checkpoint_config && (
                         <div className="space-y-2 text-sm">
                             <div>
-                                <span className="font-medium text-gray-700 dark:text-gray-300">Goal:</span>
+                                <span className="font-medium text-gray-700 dark:text-gray-300">Description:</span>
                                 <p className="text-gray-600 dark:text-gray-400 mt-0.5">
-                                    {node.step_definition.goal}
+                                    {node.checkpoint_config.description}
                                 </p>
-                            </div>
-                            {node.step_definition.tools && node.step_definition.tools.length > 0 && (
-                                <div>
-                                    <span className="font-medium text-gray-700 dark:text-gray-300">Tools:</span>
-                                    <div className="flex flex-wrap gap-1 mt-1">
-                                        {node.step_definition.tools.map((tool) => (
-                                            <span
-                                                key={tool}
-                                                className="inline-flex items-center gap-1 text-xs px-2 py-0.5 bg-gray-100 dark:bg-gray-800 rounded"
-                                            >
-                                                <WrenchScrewdriverIcon className="h-3 w-3" />
-                                                {tool}
-                                            </span>
-                                        ))}
-                                    </div>
-                                </div>
-                            )}
-                            {node.step_definition.input_fields && node.step_definition.input_fields.length > 0 && (
-                                <div>
-                                    <span className="font-medium text-gray-700 dark:text-gray-300">Inputs:</span>
-                                    <span className="text-gray-600 dark:text-gray-400 ml-1">
-                                        {node.step_definition.input_fields.join(', ')}
-                                    </span>
-                                </div>
-                            )}
-                            {node.step_definition.output_field && (
-                                <div>
-                                    <span className="font-medium text-gray-700 dark:text-gray-300">Output:</span>
-                                    <span className="text-gray-600 dark:text-gray-400 ml-1">
-                                        {node.step_definition.output_field}
-                                    </span>
-                                </div>
-                            )}
-                        </div>
-                    )}
-                    {node.node_type === 'checkpoint' && node.checkpoint_config && (
-                        <div className="space-y-2 text-sm">
-                            <div>
-                                <span className="font-medium text-gray-700 dark:text-gray-300">Title:</span>
-                                <span className="text-gray-600 dark:text-gray-400 ml-1">
-                                    {node.checkpoint_config.title}
-                                </span>
                             </div>
                             <div>
                                 <span className="font-medium text-gray-700 dark:text-gray-300">Actions:</span>
@@ -167,12 +300,16 @@ function NodeCard({
                                     ))}
                                 </div>
                             </div>
-                            {node.checkpoint_config.editable_fields && node.checkpoint_config.editable_fields.length > 0 && (
+                            {node.checkpoint_config.editable_fields?.length > 0 && (
                                 <div>
                                     <span className="font-medium text-gray-700 dark:text-gray-300">Editable:</span>
-                                    <span className="text-gray-600 dark:text-gray-400 ml-1">
-                                        {node.checkpoint_config.editable_fields.join(', ')}
-                                    </span>
+                                    <div className="flex flex-wrap gap-1 mt-1">
+                                        {node.checkpoint_config.editable_fields.map(f => (
+                                            <code key={f} className="text-xs px-1.5 py-0.5 bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300 rounded">
+                                                {f}
+                                            </code>
+                                        ))}
+                                    </div>
                                 </div>
                             )}
                         </div>
@@ -183,7 +320,7 @@ function NodeCard({
     );
 }
 
-// Edge component
+// Edge display
 function EdgeDisplay({ edge, nodes }: { edge: WorkflowEdge; nodes: Record<string, WorkflowNode> }) {
     const fromNode = nodes[edge.from_node];
     const toNode = nodes[edge.to_node];
@@ -194,25 +331,77 @@ function EdgeDisplay({ edge, nodes }: { edge: WorkflowEdge; nodes: Record<string
             <ArrowLongRightIcon className="h-4 w-4 flex-shrink-0" />
             <span className="font-medium">{toNode?.name || edge.to_node}</span>
             {edge.condition_expr && (
-                <span className="text-xs px-2 py-0.5 bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300 rounded ml-1">
+                <code className="text-xs px-2 py-0.5 bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300 rounded ml-1">
                     if: {edge.condition_expr}
-                </span>
+                </code>
             )}
-            {edge.label && !edge.condition_expr && (
-                <span className="text-xs text-gray-400 ml-1">({edge.label})</span>
-            )}
+        </div>
+    );
+}
+
+// Data flow summary
+function DataFlowSummary({ workflow }: { workflow: WorkflowGraphData }) {
+    // Collect all fields
+    const inputSchemaFields = Object.keys(workflow.input_schema?.properties || {});
+    const outputFields: { field: string; node: string; stepType: string }[] = [];
+
+    Object.entries(workflow.nodes).forEach(([id, node]) => {
+        if (node.step_definition?.output_field) {
+            outputFields.push({
+                field: node.step_definition.output_field,
+                node: node.name,
+                stepType: node.step_definition.step_type,
+            });
+        }
+    });
+
+    return (
+        <div className="bg-gray-50 dark:bg-gray-800/50 rounded-lg p-3">
+            <h4 className="text-xs font-medium text-gray-700 dark:text-gray-300 mb-2">Data Flow</h4>
+
+            <div className="space-y-2 text-xs">
+                <div>
+                    <span className="text-gray-500 dark:text-gray-400">Initial Inputs:</span>
+                    <div className="flex flex-wrap gap-1 mt-1">
+                        {inputSchemaFields.map(f => (
+                            <code key={f} className="px-1.5 py-0.5 bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 rounded">
+                                {f}
+                            </code>
+                        ))}
+                    </div>
+                </div>
+
+                <div className="flex justify-center">
+                    <ArrowDownIcon className="h-4 w-4 text-gray-400" />
+                </div>
+
+                <div>
+                    <span className="text-gray-500 dark:text-gray-400">Produced Fields:</span>
+                    <div className="space-y-1 mt-1">
+                        {outputFields.map(({ field, node, stepType }) => (
+                            <div key={field} className="flex items-center gap-2">
+                                <code className="px-1.5 py-0.5 bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-300 rounded">
+                                    {field}
+                                </code>
+                                <span className="text-gray-400">←</span>
+                                <span className="text-gray-600 dark:text-gray-400">{node}</span>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            </div>
         </div>
     );
 }
 
 export default function WorkflowGraphView({ payload, onTest }: WorkflowGraphViewProps) {
     const [expandedNodes, setExpandedNodes] = useState<Set<string>>(new Set());
+    const [showDataFlow, setShowDataFlow] = useState(true);
     const [showAllEdges, setShowAllEdges] = useState(false);
     const [inputValues, setInputValues] = useState<Record<string, string>>({});
 
     const workflow = payload.workflow_graph_data;
 
-    // Initialize input values from schema
     const inputFields = useMemo(() => {
         const schema = workflow?.input_schema;
         if (!schema?.properties) return [];
@@ -224,14 +413,12 @@ export default function WorkflowGraphView({ payload, onTest }: WorkflowGraphView
         }));
     }, [workflow]);
 
-    // Handle test - runs the workflow with provided inputs
     const handleTest = () => {
         if (workflow && onTest) {
             onTest(workflow, inputValues);
         }
     };
 
-    // Check if all required inputs are filled
     const canTest = useMemo(() => {
         if (!workflow?.input_schema?.required) return true;
         return workflow.input_schema.required.every(
@@ -239,7 +426,6 @@ export default function WorkflowGraphView({ payload, onTest }: WorkflowGraphView
         );
     }, [workflow, inputValues]);
 
-    // Validate workflow data
     if (!workflow) {
         return (
             <div className="h-full flex flex-col items-center justify-center p-8 text-gray-500 dark:text-gray-400">
@@ -258,7 +444,6 @@ export default function WorkflowGraphView({ payload, onTest }: WorkflowGraphView
         });
     };
 
-    // Get ordered list of nodes based on graph traversal from entry
     const orderedNodes = useMemo(() => {
         const visited = new Set<string>();
         const order: string[] = [];
@@ -270,7 +455,6 @@ export default function WorkflowGraphView({ payload, onTest }: WorkflowGraphView
             visited.add(nodeId);
             order.push(nodeId);
 
-            // Find outgoing edges
             const outgoing = workflow.edges.filter((e) => e.from_node === nodeId);
             for (const edge of outgoing) {
                 if (!visited.has(edge.to_node)) {
@@ -279,7 +463,6 @@ export default function WorkflowGraphView({ payload, onTest }: WorkflowGraphView
             }
         }
 
-        // Add any orphaned nodes
         for (const nodeId of Object.keys(workflow.nodes)) {
             if (!visited.has(nodeId)) {
                 order.push(nodeId);
@@ -290,8 +473,18 @@ export default function WorkflowGraphView({ payload, onTest }: WorkflowGraphView
     }, [workflow]);
 
     const nodeCount = Object.keys(workflow.nodes).length;
-    const executeCount = Object.values(workflow.nodes).filter((n) => n.node_type === 'execute').length;
-    const checkpointCount = nodeCount - executeCount;
+    const toolCallCount = Object.values(workflow.nodes).filter(
+        n => n.step_definition?.step_type === 'tool_call'
+    ).length;
+    const transformCount = Object.values(workflow.nodes).filter(
+        n => n.step_definition?.step_type === 'llm_transform'
+    ).length;
+    const decisionCount = Object.values(workflow.nodes).filter(
+        n => n.step_definition?.step_type === 'llm_decision'
+    ).length;
+    const checkpointCount = Object.values(workflow.nodes).filter(
+        n => n.node_type === 'checkpoint'
+    ).length;
 
     return (
         <div className="h-full flex flex-col">
@@ -308,13 +501,26 @@ export default function WorkflowGraphView({ payload, onTest }: WorkflowGraphView
                         <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
                             {workflow.description}
                         </p>
-                        <div className="flex items-center gap-3 mt-2 text-xs text-gray-500 dark:text-gray-400">
-                            <span>{nodeCount} nodes</span>
-                            <span className="text-blue-600 dark:text-blue-400">{executeCount} execute</span>
-                            <span className="text-amber-600 dark:text-amber-400">{checkpointCount} checkpoints</span>
-                            {workflow.category && (
-                                <span className="px-1.5 py-0.5 bg-gray-100 dark:bg-gray-800 rounded">
-                                    {workflow.category}
+                        <div className="flex items-center gap-2 mt-2 text-xs flex-wrap">
+                            <span className="text-gray-500">{nodeCount} nodes:</span>
+                            {toolCallCount > 0 && (
+                                <span className="px-1.5 py-0.5 bg-purple-100 dark:bg-purple-900/40 text-purple-700 dark:text-purple-300 rounded">
+                                    {toolCallCount} tool
+                                </span>
+                            )}
+                            {transformCount > 0 && (
+                                <span className="px-1.5 py-0.5 bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 rounded">
+                                    {transformCount} transform
+                                </span>
+                            )}
+                            {decisionCount > 0 && (
+                                <span className="px-1.5 py-0.5 bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-300 rounded">
+                                    {decisionCount} decision
+                                </span>
+                            )}
+                            {checkpointCount > 0 && (
+                                <span className="px-1.5 py-0.5 bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300 rounded">
+                                    {checkpointCount} checkpoint
                                 </span>
                             )}
                         </div>
@@ -338,6 +544,18 @@ export default function WorkflowGraphView({ payload, onTest }: WorkflowGraphView
 
             {/* Content */}
             <div className="flex-1 overflow-y-auto p-4 space-y-4">
+                {/* Data Flow Summary */}
+                <div>
+                    <button
+                        onClick={() => setShowDataFlow(!showDataFlow)}
+                        className="flex items-center gap-2 text-sm font-medium text-gray-700 dark:text-gray-300 mb-2"
+                    >
+                        {showDataFlow ? <ChevronDownIcon className="h-4 w-4" /> : <ChevronRightIcon className="h-4 w-4" />}
+                        Data Flow Overview
+                    </button>
+                    {showDataFlow && <DataFlowSummary workflow={workflow} />}
+                </div>
+
                 {/* Nodes */}
                 <div>
                     <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
@@ -366,11 +584,7 @@ export default function WorkflowGraphView({ payload, onTest }: WorkflowGraphView
                         onClick={() => setShowAllEdges(!showAllEdges)}
                         className="flex items-center gap-2 text-sm font-medium text-gray-700 dark:text-gray-300 mb-2"
                     >
-                        {showAllEdges ? (
-                            <ChevronDownIcon className="h-4 w-4" />
-                        ) : (
-                            <ChevronRightIcon className="h-4 w-4" />
-                        )}
+                        {showAllEdges ? <ChevronDownIcon className="h-4 w-4" /> : <ChevronRightIcon className="h-4 w-4" />}
                         Flow Connections ({workflow.edges.length})
                     </button>
                     {showAllEdges && (
@@ -392,7 +606,7 @@ export default function WorkflowGraphView({ payload, onTest }: WorkflowGraphView
                             {inputFields.map((field) => (
                                 <div key={field.key}>
                                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                                        {field.key}
+                                        <code className="text-blue-600 dark:text-blue-400">{field.key}</code>
                                         {field.required && <span className="text-red-500 ml-1">*</span>}
                                     </label>
                                     {field.description && (

@@ -93,17 +93,28 @@ export interface ResearchResultData {
 }
 
 // Workflow Graph types (from design_workflow tool)
+export type StepType = 'tool_call' | 'llm_transform' | 'llm_decision';
+
 export interface WorkflowStepDefinition {
     id: string;
     name: string;
     description: string;
-    goal: string;
-    tools: string[];
-    input_fields: string[];
+    step_type: StepType;
     output_field: string;
-    prompt_template?: string;
-    instructions?: string;
-    mode: 'llm' | 'tool' | 'llm_with_tools';
+
+    // For tool_call
+    tool?: string;
+    input_mapping?: Record<string, string>;
+
+    // For llm_transform and llm_decision
+    goal?: string;
+    input_fields?: string[];
+
+    // For llm_transform
+    output_schema?: Record<string, any>;
+
+    // For llm_decision
+    choices?: string[];
 }
 
 export interface WorkflowCheckpointConfig {

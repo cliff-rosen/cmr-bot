@@ -1,323 +1,397 @@
 {
-    "type": "complete",
-    "payload": {
-        "message": "I'll design a workflow to find someone's LinkedIn profile using their name, title, and company information. This is a great use case for a structured workflow since it involves multiple search strategies and verification steps.[[tool:0]]\n\nPerfect! I've designed a workflow that will systematically find someone's LinkedIn profile using their name, title, and company. Here's how it works:\n\nThe workflow uses a multi-step approach to ensure we find the right person:\n\n1. **Search LinkedIn** - Uses targeted search strategies to find potential LinkedIn profiles\n2. **Verify Profile Match** - Confirms the profile matches the provided criteria (name, title, company)\n3. **Review Profile Match** - Gives you a chance to review and confirm the results\n\nThis workflow is particularly useful because LinkedIn searches can return multiple results, so we need to verify we've found the correct person before presenting the final result.\n\n```payload\n{\n  \"type\": \"plan\",\n  \"title\": \"LinkedIn Profile Finder\",\n  \"goal\": \"Find someone's LinkedIn profile from their name, title, and company\",\n  \"initial_input\": \"Person's name, job title, and company name\",\n  \"steps\": [\n    {\n      \"id\": \"search_linkedin\",\n      \"name\": \"Search LinkedIn\",\n      \"type\": \"execute\",\n      \"input_sources\": [\"user\"],\n      \"method\": \"Use web search with LinkedIn-specific queries to find the person's profile\",\n      \"output\": \"List of potential LinkedIn profile matches\"\n    },\n    {\n      \"id\": \"verify_profile\",\n      \"name\": \"Verify Profile Match\",\n      \"type\": \"execute\", \n      \"input_sources\": [\"search_linkedin\"],\n      \"method\": \"Analyze the found profiles to identify the best match based on name, title, and company\",\n      \"output\": \"Verified LinkedIn profile with confidence assessment\"\n    },\n    {\n      \"id\": \"review_results\",\n      \"name\": \"Review Profile Match\",\n      \"type\": \"checkpoint\",\n      \"input_sources\": [\"verify_profile\"],\n      \"method\": \"Present the found profile for user review and confirmation\",\n      \"output\": \"User-approved LinkedIn profile result\"\n    }\n  ]\n}\n```",
-        "conversation_id": 188,
-        "suggested_values": null,
-        "suggested_actions": null,
-        "custom_payload": {
-            "type": "tool_history",
-            "data": [
-                {
-                    "tool_name": "design_workflow",
-                    "input": {
-                        "goal": "Find someone's LinkedIn profile from their name, title, and company",
-                        "initial_input": "Person's name, job title, and company name"
+    "type": "workflow_graph",
+    "workflow": {
+        "id": "find_linkedin_profile",
+        "name": "Find LinkedIn Profile",
+        "description": "Find and verify someone's LinkedIn profile using their name, title, and company",
+        "nodes": {
+            "initial_search": {
+                "id": "initial_search",
+                "name": "Initial LinkedIn Search",
+                "description": "Search for LinkedIn profile using name and company",
+                "node_type": "execute",
+                "step_definition": {
+                    "id": "initial_search",
+                    "name": "Initial LinkedIn Search",
+                    "description": "Search for LinkedIn profile",
+                    "step_type": "tool_call",
+                    "tool": "web_search",
+                    "input_mapping": {
+                        "query": "{name} {company} site:linkedin.com"
                     },
-                    "output": {
-                        "type": "workflow_graph",
-                        "workflow": {
-                            "id": "linkedin_profile_finder",
-                            "name": "LinkedIn Profile Finder",
-                            "description": "Find someone's LinkedIn profile using their name, title, and company",
-                            "icon": "user-search",
-                            "category": "research",
-                            "nodes": {
-                                "search_linkedin": {
-                                    "id": "search_linkedin",
-                                    "name": "Search LinkedIn",
-                                    "description": "Search for the person's LinkedIn profile",
-                                    "node_type": "execute",
-                                    "step_definition": {
-                                        "goal": "Find the person's LinkedIn profile using their name, title, and company",
-                                        "tools": [
-                                            "web_search"
-                                        ],
-                                        "input_fields": [
-                                            "person_name",
-                                            "job_title",
-                                            "company_name"
-                                        ],
-                                        "output_field": "search_results",
-                                        "prompt_template": "Search for LinkedIn profile of {person_name} who works as {job_title} at {company_name}. Look for their official LinkedIn profile URL and basic profile information."
-                                    }
-                                },
-                                "verify_profile": {
-                                    "id": "verify_profile",
-                                    "name": "Verify Profile Match",
-                                    "description": "Verify the found profile matches the search criteria",
-                                    "node_type": "execute",
-                                    "step_definition": {
-                                        "goal": "Verify that the found LinkedIn profile matches the provided name, title, and company",
-                                        "tools": [
-                                            "fetch_webpage"
-                                        ],
-                                        "input_fields": [
-                                            "search_results",
-                                            "person_name",
-                                            "job_title",
-                                            "company_name"
-                                        ],
-                                        "output_field": "verified_profile",
-                                        "prompt_template": "Verify that the LinkedIn profile from {search_results} matches {person_name} working as {job_title} at {company_name}. Extract key profile details and confirm the match."
-                                    }
-                                },
-                                "review_results": {
-                                    "id": "review_results",
-                                    "name": "Review Profile Match",
-                                    "description": "User reviews the found LinkedIn profile",
-                                    "node_type": "checkpoint",
-                                    "checkpoint_config": {
-                                        "title": "Review LinkedIn Profile",
-                                        "description": "Review the found LinkedIn profile to confirm it matches the person you're looking for",
-                                        "allowed_actions": [
-                                            "approve",
-                                            "reject"
-                                        ],
-                                        "editable_fields": []
-                                    }
-                                }
-                            },
-                            "edges": [
-                                {
-                                    "from_node": "search_linkedin",
-                                    "to_node": "verify_profile"
-                                },
-                                {
-                                    "from_node": "verify_profile",
-                                    "to_node": "review_results"
-                                }
-                            ],
-                            "entry_node": "search_linkedin",
-                            "input_schema": {
-                                "type": "object",
-                                "properties": {
-                                    "person_name": {
-                                        "type": "string",
-                                        "description": "Full name of the person"
-                                    },
-                                    "job_title": {
-                                        "type": "string",
-                                        "description": "Their job title or position"
-                                    },
-                                    "company_name": {
-                                        "type": "string",
-                                        "description": "Name of their company"
-                                    }
-                                },
-                                "required": [
-                                    "person_name",
-                                    "job_title",
-                                    "company_name"
-                                ]
-                            }
-                        },
-                        "summary": "## Workflow: LinkedIn Profile Finder\n\nFind someone's LinkedIn profile using their name, title, and company\n\n### Steps (3 nodes)\n\n- ⚙️ **Search LinkedIn**: Search for the person's LinkedIn profile\n- ⚙️ **Verify Profile Match**: Verify the found profile matches the search criteria\n- ⏸️ **Review Profile Match**: User reviews the found LinkedIn profile\n\n### Flow\nEntry: `search_linkedin`\n- search_linkedin → verify_profile\n- verify_profile → review_results\n"
-                    },
-                    "workspace_payload": {
-                        "type": "workflow_graph",
-                        "title": "LinkedIn Profile Finder",
-                        "content": "## Workflow: LinkedIn Profile Finder\n\nFind someone's LinkedIn profile using their name, title, and company\n\n### Steps (3 nodes)\n\n- ⚙️ **Search LinkedIn**: Search for the person's LinkedIn profile\n- ⚙️ **Verify Profile Match**: Verify the found profile matches the search criteria\n- ⏸️ **Review Profile Match**: User reviews the found LinkedIn profile\n\n### Flow\nEntry: `search_linkedin`\n- search_linkedin → verify_profile\n- verify_profile → review_results\n",
-                        "workflow_graph_data": {
-                            "id": "linkedin_profile_finder",
-                            "name": "LinkedIn Profile Finder",
-                            "description": "Find someone's LinkedIn profile using their name, title, and company",
-                            "icon": "user-search",
-                            "category": "research",
-                            "nodes": {
-                                "search_linkedin": {
-                                    "id": "search_linkedin",
-                                    "name": "Search LinkedIn",
-                                    "description": "Search for the person's LinkedIn profile",
-                                    "node_type": "execute",
-                                    "step_definition": {
-                                        "goal": "Find the person's LinkedIn profile using their name, title, and company",
-                                        "tools": [
-                                            "web_search"
-                                        ],
-                                        "input_fields": [
-                                            "person_name",
-                                            "job_title",
-                                            "company_name"
-                                        ],
-                                        "output_field": "search_results",
-                                        "prompt_template": "Search for LinkedIn profile of {person_name} who works as {job_title} at {company_name}. Look for their official LinkedIn profile URL and basic profile information."
-                                    }
-                                },
-                                "verify_profile": {
-                                    "id": "verify_profile",
-                                    "name": "Verify Profile Match",
-                                    "description": "Verify the found profile matches the search criteria",
-                                    "node_type": "execute",
-                                    "step_definition": {
-                                        "goal": "Verify that the found LinkedIn profile matches the provided name, title, and company",
-                                        "tools": [
-                                            "fetch_webpage"
-                                        ],
-                                        "input_fields": [
-                                            "search_results",
-                                            "person_name",
-                                            "job_title",
-                                            "company_name"
-                                        ],
-                                        "output_field": "verified_profile",
-                                        "prompt_template": "Verify that the LinkedIn profile from {search_results} matches {person_name} working as {job_title} at {company_name}. Extract key profile details and confirm the match."
-                                    }
-                                },
-                                "review_results": {
-                                    "id": "review_results",
-                                    "name": "Review Profile Match",
-                                    "description": "User reviews the found LinkedIn profile",
-                                    "node_type": "checkpoint",
-                                    "checkpoint_config": {
-                                        "title": "Review LinkedIn Profile",
-                                        "description": "Review the found LinkedIn profile to confirm it matches the person you're looking for",
-                                        "allowed_actions": [
-                                            "approve",
-                                            "reject"
-                                        ],
-                                        "editable_fields": []
-                                    }
-                                }
-                            },
-                            "edges": [
-                                {
-                                    "from_node": "search_linkedin",
-                                    "to_node": "verify_profile"
-                                },
-                                {
-                                    "from_node": "verify_profile",
-                                    "to_node": "review_results"
-                                }
-                            ],
-                            "entry_node": "search_linkedin",
-                            "input_schema": {
-                                "type": "object",
-                                "properties": {
-                                    "person_name": {
-                                        "type": "string",
-                                        "description": "Full name of the person"
-                                    },
-                                    "job_title": {
-                                        "type": "string",
-                                        "description": "Their job title or position"
-                                    },
-                                    "company_name": {
-                                        "type": "string",
-                                        "description": "Name of their company"
-                                    }
-                                },
-                                "required": [
-                                    "person_name",
-                                    "job_title",
-                                    "company_name"
-                                ]
-                            }
-                        }
-                    }
+                    "output_field": "initial_results"
                 }
-            ]
-        },
-        "workspace_payload": {
-            "type": "workflow_graph",
-            "title": "LinkedIn Profile Finder",
-            "content": "## Workflow: LinkedIn Profile Finder\n\nFind someone's LinkedIn profile using their name, title, and company\n\n### Steps (3 nodes)\n\n- ⚙️ **Search LinkedIn**: Search for the person's LinkedIn profile\n- ⚙️ **Verify Profile Match**: Verify the found profile matches the search criteria\n- ⏸️ **Review Profile Match**: User reviews the found LinkedIn profile\n\n### Flow\nEntry: `search_linkedin`\n- search_linkedin → verify_profile\n- verify_profile → review_results\n",
-            "workflow_graph_data": {
-                "id": "linkedin_profile_finder",
-                "name": "LinkedIn Profile Finder",
-                "description": "Find someone's LinkedIn profile using their name, title, and company",
-                "icon": "user-search",
-                "category": "research",
-                "nodes": {
-                    "search_linkedin": {
-                        "id": "search_linkedin",
-                        "name": "Search LinkedIn",
-                        "description": "Search for the person's LinkedIn profile",
-                        "node_type": "execute",
-                        "step_definition": {
-                            "goal": "Find the person's LinkedIn profile using their name, title, and company",
-                            "tools": [
-                                "web_search"
-                            ],
-                            "input_fields": [
-                                "person_name",
-                                "job_title",
-                                "company_name"
-                            ],
-                            "output_field": "search_results",
-                            "prompt_template": "Search for LinkedIn profile of {person_name} who works as {job_title} at {company_name}. Look for their official LinkedIn profile URL and basic profile information."
-                        }
-                    },
-                    "verify_profile": {
-                        "id": "verify_profile",
-                        "name": "Verify Profile Match",
-                        "description": "Verify the found profile matches the search criteria",
-                        "node_type": "execute",
-                        "step_definition": {
-                            "goal": "Verify that the found LinkedIn profile matches the provided name, title, and company",
-                            "tools": [
-                                "fetch_webpage"
-                            ],
-                            "input_fields": [
-                                "search_results",
-                                "person_name",
-                                "job_title",
-                                "company_name"
-                            ],
-                            "output_field": "verified_profile",
-                            "prompt_template": "Verify that the LinkedIn profile from {search_results} matches {person_name} working as {job_title} at {company_name}. Extract key profile details and confirm the match."
-                        }
-                    },
-                    "review_results": {
-                        "id": "review_results",
-                        "name": "Review Profile Match",
-                        "description": "User reviews the found LinkedIn profile",
-                        "node_type": "checkpoint",
-                        "checkpoint_config": {
-                            "title": "Review LinkedIn Profile",
-                            "description": "Review the found LinkedIn profile to confirm it matches the person you're looking for",
-                            "allowed_actions": [
-                                "approve",
-                                "reject"
-                            ],
-                            "editable_fields": []
-                        }
-                    }
-                },
-                "edges": [
-                    {
-                        "from_node": "search_linkedin",
-                        "to_node": "verify_profile"
-                    },
-                    {
-                        "from_node": "verify_profile",
-                        "to_node": "review_results"
-                    }
-                ],
-                "entry_node": "search_linkedin",
-                "input_schema": {
-                    "type": "object",
-                    "properties": {
-                        "person_name": {
-                            "type": "string",
-                            "description": "Full name of the person"
+            },
+            "extract_candidates": {
+                "id": "extract_candidates",
+                "name": "Extract Profile Candidates",
+                "description": "Extract potential LinkedIn profile URLs from search results",
+                "node_type": "execute",
+                "step_definition": {
+                    "id": "extract_candidates",
+                    "name": "Extract Profile Candidates",
+                    "description": "Extract LinkedIn URLs and assess match confidence",
+                    "step_type": "llm_transform",
+                    "goal": "Extract LinkedIn profile URLs from search results and assess how well each matches the target person based on name, title, and company",
+                    "input_fields": [
+                        "initial_results",
+                        "name",
+                        "title",
+                        "company"
+                    ],
+                    "output_schema": {
+                        "type": "object",
+                        "properties": {
+                            "candidates": {
+                                "type": "array",
+                                "items": {
+                                    "type": "object",
+                                    "properties": {
+                                        "url": {
+                                            "type": "string"
+                                        },
+                                        "confidence": {
+                                            "type": "number",
+                                            "minimum": 0,
+                                            "maximum": 1
+                                        },
+                                        "reason": {
+                                            "type": "string"
+                                        }
+                                    },
+                                    "required": [
+                                        "url",
+                                        "confidence",
+                                        "reason"
+                                    ]
+                                }
+                            }
                         },
-                        "job_title": {
-                            "type": "string",
-                            "description": "Their job title or position"
-                        },
-                        "company_name": {
-                            "type": "string",
-                            "description": "Name of their company"
-                        }
+                        "required": [
+                            "candidates"
+                        ]
                     },
-                    "required": [
-                        "person_name",
-                        "job_title",
-                        "company_name"
-                    ]
+                    "output_field": "candidate_profiles"
+                }
+            },
+            "evaluate_results": {
+                "id": "evaluate_results",
+                "name": "Evaluate Search Results",
+                "description": "Decide if we found a good match or need alternative search",
+                "node_type": "execute",
+                "step_definition": {
+                    "id": "evaluate_results",
+                    "name": "Evaluate Search Results",
+                    "description": "Determine next action based on candidate quality",
+                    "step_type": "llm_decision",
+                    "goal": "Determine if we found a high-confidence match (>0.8) or need to try alternative search strategies",
+                    "input_fields": [
+                        "candidate_profiles",
+                        "name",
+                        "title",
+                        "company"
+                    ],
+                    "choices": [
+                        "high_confidence_match",
+                        "try_alternative_search",
+                        "no_viable_candidates"
+                    ],
+                    "output_field": "search_decision"
+                }
+            },
+            "select_best_initial": {
+                "id": "select_best_initial",
+                "name": "Select Best Initial Candidate",
+                "description": "Select the highest confidence candidate from initial search",
+                "node_type": "execute",
+                "step_definition": {
+                    "id": "select_best_initial",
+                    "name": "Select Best Initial Candidate",
+                    "description": "Choose the best candidate from initial search results",
+                    "step_type": "llm_transform",
+                    "goal": "Select the candidate with the highest confidence score from the initial search results",
+                    "input_fields": [
+                        "candidate_profiles"
+                    ],
+                    "output_schema": {
+                        "type": "object",
+                        "properties": {
+                            "best_candidate_url": {
+                                "type": "string"
+                            },
+                            "confidence": {
+                                "type": "number"
+                            },
+                            "reason": {
+                                "type": "string"
+                            }
+                        },
+                        "required": [
+                            "best_candidate_url",
+                            "confidence",
+                            "reason"
+                        ]
+                    },
+                    "output_field": "initial_selected_candidate"
+                }
+            },
+            "alternative_search": {
+                "id": "alternative_search",
+                "name": "Alternative Search Strategy",
+                "description": "Try broader search with title or name variations",
+                "node_type": "execute",
+                "step_definition": {
+                    "id": "alternative_search",
+                    "name": "Alternative Search Strategy",
+                    "description": "Search with different query combinations",
+                    "step_type": "tool_call",
+                    "tool": "web_search",
+                    "input_mapping": {
+                        "query": ""{name
+                        }" "{title
+                        }" linkedin OR "{name
+                        }" linkedin {company}"
+                    },
+                    "output_field": "alternative_results"
+                }
+            },
+            "extract_alt_candidates": {
+                "id": "extract_alt_candidates",
+                "name": "Extract Alternative Candidates",
+                "description": "Extract candidates from alternative search",
+                "node_type": "execute",
+                "step_definition": {
+                    "id": "extract_alt_candidates",
+                    "name": "Extract Alternative Candidates",
+                    "description": "Extract and assess alternative search results",
+                    "step_type": "llm_transform",
+                    "goal": "Extract LinkedIn profile URLs from alternative search results and assess match confidence",
+                    "input_fields": [
+                        "alternative_results",
+                        "name",
+                        "title",
+                        "company"
+                    ],
+                    "output_schema": {
+                        "type": "object",
+                        "properties": {
+                            "candidates": {
+                                "type": "array",
+                                "items": {
+                                    "type": "object",
+                                    "properties": {
+                                        "url": {
+                                            "type": "string"
+                                        },
+                                        "confidence": {
+                                            "type": "number",
+                                            "minimum": 0,
+                                            "maximum": 1
+                                        },
+                                        "reason": {
+                                            "type": "string"
+                                        }
+                                    },
+                                    "required": [
+                                        "url",
+                                        "confidence",
+                                        "reason"
+                                    ]
+                                }
+                            }
+                        },
+                        "required": [
+                            "candidates"
+                        ]
+                    },
+                    "output_field": "alt_candidate_profiles"
+                }
+            },
+            "select_best_alt": {
+                "id": "select_best_alt",
+                "name": "Select Best Alternative Candidate",
+                "description": "Select the highest confidence candidate from alternative search",
+                "node_type": "execute",
+                "step_definition": {
+                    "id": "select_best_alt",
+                    "name": "Select Best Alternative Candidate",
+                    "description": "Choose the best candidate from alternative search results",
+                    "step_type": "llm_transform",
+                    "goal": "Select the candidate with the highest confidence score from the alternative search results",
+                    "input_fields": [
+                        "alt_candidate_profiles"
+                    ],
+                    "output_schema": {
+                        "type": "object",
+                        "properties": {
+                            "best_candidate_url": {
+                                "type": "string"
+                            },
+                            "confidence": {
+                                "type": "number"
+                            },
+                            "reason": {
+                                "type": "string"
+                            }
+                        },
+                        "required": [
+                            "best_candidate_url",
+                            "confidence",
+                            "reason"
+                        ]
+                    },
+                    "output_field": "alt_selected_candidate"
+                }
+            },
+            "verify_initial_profile": {
+                "id": "verify_initial_profile",
+                "name": "Verify Initial Profile",
+                "description": "Fetch and verify the initial search profile",
+                "node_type": "execute",
+                "step_definition": {
+                    "id": "verify_initial_profile",
+                    "name": "Verify Initial Profile",
+                    "description": "Fetch initial profile content for verification",
+                    "step_type": "tool_call",
+                    "tool": "fetch_webpage",
+                    "input_mapping": {
+                        "url": "{initial_selected_candidate.best_candidate_url}"
+                    },
+                    "output_field": "profile_content"
+                }
+            },
+            "verify_alt_profile": {
+                "id": "verify_alt_profile",
+                "name": "Verify Alternative Profile",
+                "description": "Fetch and verify the alternative search profile",
+                "node_type": "execute",
+                "step_definition": {
+                    "id": "verify_alt_profile",
+                    "name": "Verify Alternative Profile",
+                    "description": "Fetch alternative profile content for verification",
+                    "step_type": "tool_call",
+                    "tool": "fetch_webpage",
+                    "input_mapping": {
+                        "url": "{alt_selected_candidate.best_candidate_url}"
+                    },
+                    "output_field": "profile_content"
+                }
+            },
+            "final_verification": {
+                "id": "final_verification",
+                "name": "Final Profile Verification",
+                "description": "Verify the profile matches the target person",
+                "node_type": "execute",
+                "step_definition": {
+                    "id": "final_verification",
+                    "name": "Final Profile Verification",
+                    "description": "Confirm profile matches target person details",
+                    "step_type": "llm_transform",
+                    "goal": "Analyze the LinkedIn profile content to confirm it matches the target person's name, title, and company. Look for exact or close matches in current/past positions.",
+                    "input_fields": [
+                        "profile_content",
+                        "name",
+                        "title",
+                        "company"
+                    ],
+                    "output_schema": {
+                        "type": "object",
+                        "properties": {
+                            "is_match": {
+                                "type": "boolean"
+                            },
+                            "confidence": {
+                                "type": "number",
+                                "minimum": 0,
+                                "maximum": 1
+                            },
+                            "matching_details": {
+                                "type": "string"
+                            },
+                            "profile_url": {
+                                "type": "string"
+                            },
+                            "profile_summary": {
+                                "type": "string"
+                            }
+                        },
+                        "required": [
+                            "is_match",
+                            "confidence",
+                            "matching_details",
+                            "profile_url"
+                        ]
+                    },
+                    "output_field": "verification_result"
                 }
             }
+        },
+        "edges": [
+            {
+                "from_node": "initial_search",
+                "to_node": "extract_candidates"
+            },
+            {
+                "from_node": "extract_candidates",
+                "to_node": "evaluate_results"
+            },
+            {
+                "from_node": "evaluate_results",
+                "to_node": "select_best_initial",
+                "condition_expr": "search_decision == 'high_confidence_match'"
+            },
+            {
+                "from_node": "evaluate_results",
+                "to_node": "alternative_search",
+                "condition_expr": "search_decision == 'try_alternative_search'"
+            },
+            {
+                "from_node": "select_best_initial",
+                "to_node": "verify_initial_profile"
+            },
+            {
+                "from_node": "alternative_search",
+                "to_node": "extract_alt_candidates"
+            },
+            {
+                "from_node": "extract_alt_candidates",
+                "to_node": "select_best_alt"
+            },
+            {
+                "from_node": "select_best_alt",
+                "to_node": "verify_alt_profile"
+            },
+            {
+                "from_node": "verify_initial_profile",
+                "to_node": "final_verification"
+            },
+            {
+                "from_node": "verify_alt_profile",
+                "to_node": "final_verification"
+            }
+        ],
+        "entry_node": "initial_search",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string",
+                    "description": "The person's full name"
+                },
+                "title": {
+                    "type": "string",
+                    "description": "The person's job title"
+                },
+                "company": {
+                    "type": "string",
+                    "description": "The person's company name"
+                }
+            },
+            "required": [
+                "name",
+                "company"
+            ]
         }
-    }
+    },
+    "summary": "## Workflow: Find LinkedIn Profile\n\nFind and verify someone's LinkedIn profile using their name, title, and company\n\n### Steps (10 nodes)\n\n- ?? Initial LinkedIn Search: Search for LinkedIn profile using name and company\n- ?? Extract Profile Candidates: Extract potential LinkedIn profile URLs from search results\n- ?? Evaluate Search Results: Decide if we found a good match or need alternative search\n- ?? Select Best Initial Candidate: Select the highest confidence candidate from initial search\n- ?? Alternative Search Strategy: Try broader search with title or name variations\n- ?? Extract Alternative Candidates: Extract candidates from alternative search\n- ?? Select Best Alternative Candidate: Select the highest confidence candidate from alternative search\n- ?? Verify Initial Profile: Fetch and verify the initial search profile\n- ?? Verify Alternative Profile: Fetch and verify the alternative search profile\n- ?? Final Profile Verification: Verify the profile matches the target person\n\n### Flow\nEntry: initial_search\n- initial_search ? extract_candidates\n- extract_candidates ? evaluate_results\n- evaluate_results ? select_best_initial (if search_decision == 'high_confidence_match')\n- evaluate_results ? alternative_search (if search_decision == 'try_alternative_search')\n- select_best_initial ? verify_initial_profile\n- alternative_search ? extract_alt_candidates\n- extract_alt_candidates ? select_best_alt\n- select_best_alt ? verify_alt_profile\n- verify_initial_profile ? final_verification\n- verify_alt_profile ? final_verification\n"
 }
