@@ -79,53 +79,141 @@ class CheckpointConfig:
 @dataclass
 class StepDefinition:
     """
-    Declarative step definition that can be created by an agent as JSON.
+    Declarative step definition with three distinct types for predictable data flow.
 
-    Instead of requiring Python code, steps are defined as data:
-    - goal: what the step should accomplish
-    - tools: which tools the step can use
-    - prompt_template: how to instruct the LLM
-    - input/output fields: data flow
+    Step Types:
+    -----------
+    1. tool_call: Execute a specific tool with mapped inputs
+       - tool: which tool to call
+       - input_mapping: how to map context fields to tool parameters
+       - output_field: where to store the tool's result
+       - Tool output schema is defined by the tool itself
 
-    A generic executor interprets these definitions at runtime.
+    2. llm_transform: LLM transforms input data to structured output
+       - goal: what transformation to perform
+       - input_fields: context fields the LLM can see
+       - output_schema: JSON Schema the output MUST match (enforced)
+       - output_field: where to store the result
+
+    3. llm_decision: LLM makes an enumerated choice (for branching)
+       - goal: what decision to make
+       - input_fields: context fields to consider
+       - choices: list of valid choices (LLM must pick one)
+       - output_field: where to store the chosen value
+
+    This design ensures:
+    - Clear contracts between steps (schemas, not hopes)
+    - Predictable tool execution (not LLM pretending to use tools)
+    - Validated data flow at design time
     """
     id: str
     name: str
     description: str
 
-    # What this step should accomplish (instruction for executor)
-    goal: str
+    # Step type determines which fields are used and how execution works
+    step_type: Literal["tool_call", "llm_transform", "llm_decision"]
 
-    # Which tools this step is allowed to use
-    tools: List[str] = field(default_factory=list)
+    # Common: where to store the result in context
+    output_field: str = ""
 
-    # Input/output schema for data flow
-    input_fields: List[str] = field(default_factory=list)  # Fields to read from context
-    output_field: str = ""  # Where to store the result
+    # === For tool_call ===
+    # The tool to execute
+    tool: Optional[str] = None
+    # Map tool parameters to context fields or templates
+    # e.g., {"query": "{name} {company} site:linkedin.com", "max_results": "10"}
+    # Templates use {field_name} for substitution from context
+    input_mapping: Optional[Dict[str, str]] = None
 
-    # Prompt template for execution (uses {field_name} substitution)
-    prompt_template: Optional[str] = None
+    # === For llm_transform and llm_decision ===
+    # What the LLM should accomplish
+    goal: Optional[str] = None
+    # Context fields to include in the prompt
+    input_fields: List[str] = field(default_factory=list)
 
-    # Optional specific instructions
-    instructions: Optional[str] = None
+    # === For llm_transform only ===
+    # JSON Schema that output MUST conform to (uses structured output)
+    output_schema: Optional[Dict[str, Any]] = None
 
-    # Execution mode
-    mode: Literal["llm", "tool", "llm_with_tools"] = "llm_with_tools"
+    # === For llm_decision only ===
+    # Valid choices the LLM must pick from
+    choices: List[str] = field(default_factory=list)
+
+    def validate(self) -> List[str]:
+        """Validate this step definition. Returns list of errors."""
+        errors = []
+
+        if not self.id:
+            errors.append("Step missing 'id'")
+        if not self.name:
+            errors.append(f"Step '{self.id}' missing 'name'")
+        if not self.output_field:
+            errors.append(f"Step '{self.id}' missing 'output_field'")
+
+        if self.step_type == "tool_call":
+            if not self.tool:
+                errors.append(f"Step '{self.id}' (tool_call) missing 'tool'")
+            if not self.input_mapping:
+                errors.append(f"Step '{self.id}' (tool_call) missing 'input_mapping'")
+
+        elif self.step_type == "llm_transform":
+            if not self.goal:
+                errors.append(f"Step '{self.id}' (llm_transform) missing 'goal'")
+            if not self.output_schema:
+                errors.append(f"Step '{self.id}' (llm_transform) missing 'output_schema'")
+
+        elif self.step_type == "llm_decision":
+            if not self.goal:
+                errors.append(f"Step '{self.id}' (llm_decision) missing 'goal'")
+            if not self.choices or len(self.choices) < 2:
+                errors.append(f"Step '{self.id}' (llm_decision) needs at least 2 'choices'")
+
+        else:
+            errors.append(f"Step '{self.id}' has invalid step_type: {self.step_type}")
+
+        return errors
+
+    def get_referenced_fields(self) -> List[str]:
+        """Get all context fields this step references (for validation)."""
+        fields = set()
+
+        # input_fields are explicit references
+        fields.update(self.input_fields)
+
+        # input_mapping may contain {field} templates
+        if self.input_mapping:
+            import re
+            for value in self.input_mapping.values():
+                # Extract {field_name} patterns
+                matches = re.findall(r'\{(\w+)\}', str(value))
+                fields.update(matches)
+
+        return list(fields)
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to JSON-serializable dict."""
-        return {
+        result = {
             "id": self.id,
             "name": self.name,
             "description": self.description,
-            "goal": self.goal,
-            "tools": self.tools,
-            "input_fields": self.input_fields,
+            "step_type": self.step_type,
             "output_field": self.output_field,
-            "prompt_template": self.prompt_template,
-            "instructions": self.instructions,
-            "mode": self.mode,
         }
+
+        if self.step_type == "tool_call":
+            result["tool"] = self.tool
+            result["input_mapping"] = self.input_mapping
+
+        elif self.step_type == "llm_transform":
+            result["goal"] = self.goal
+            result["input_fields"] = self.input_fields
+            result["output_schema"] = self.output_schema
+
+        elif self.step_type == "llm_decision":
+            result["goal"] = self.goal
+            result["input_fields"] = self.input_fields
+            result["choices"] = self.choices
+
+        return result
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "StepDefinition":
@@ -134,13 +222,14 @@ class StepDefinition:
             id=data.get("id", ""),
             name=data.get("name", ""),
             description=data.get("description", ""),
-            goal=data.get("goal", ""),
-            tools=data.get("tools", []),
-            input_fields=data.get("input_fields", []),
+            step_type=data.get("step_type", "llm_transform"),
             output_field=data.get("output_field", ""),
-            prompt_template=data.get("prompt_template"),
-            instructions=data.get("instructions"),
-            mode=data.get("mode", "llm_with_tools"),
+            tool=data.get("tool"),
+            input_mapping=data.get("input_mapping"),
+            goal=data.get("goal"),
+            input_fields=data.get("input_fields", []),
+            output_schema=data.get("output_schema"),
+            choices=data.get("choices", []),
         )
 
 
@@ -361,9 +450,10 @@ class WorkflowGraph:
         Validate data flow through the workflow.
 
         Checks:
-        1. All input_fields reference fields that will be available when the node runs
-        2. No output_field conflicts (same field written by unrelated nodes)
-        3. All referenced tools exist (if tool_validator provided)
+        1. Each step definition is internally valid (required fields for its type)
+        2. All referenced fields will be available when the node runs
+        3. Tool exists for tool_call steps
+        4. No output_field conflicts
 
         Args:
             tool_validator: Optional function that returns True if a tool name exists
@@ -374,9 +464,9 @@ class WorkflowGraph:
         errors = []
 
         # Get fields available from input_schema
-        input_fields = set()
+        schema_fields = set()
         if self.input_schema and "properties" in self.input_schema:
-            input_fields = set(self.input_schema["properties"].keys())
+            schema_fields = set(self.input_schema["properties"].keys())
 
         # Build predecessor map for topological analysis
         predecessors: Dict[str, set] = {node_id: set() for node_id in self.nodes}
@@ -391,12 +481,20 @@ class WorkflowGraph:
                 if node.step_definition.output_field:
                     node_outputs[node_id] = node.step_definition.output_field
 
-        # Compute fields available at each node using topological traversal
-        # For each node, we compute the set of fields GUARANTEED to be available
-        # (intersection of fields available on all paths to this node)
-        fields_at_node: Dict[str, set] = {}
+        # First pass: validate each step definition internally
+        for node_id, node in self.nodes.items():
+            if node.node_type == "execute" and node.step_definition:
+                step_errors = node.step_definition.validate()
+                for err in step_errors:
+                    errors.append(f"Node '{node_id}': {err}")
 
-        # BFS traversal respecting dependencies
+                # Validate tool exists for tool_call steps
+                if node.step_definition.step_type == "tool_call" and tool_validator:
+                    if node.step_definition.tool and not tool_validator(node.step_definition.tool):
+                        errors.append(f"Node '{node_id}': tool '{node.step_definition.tool}' does not exist")
+
+        # Compute fields available at each node using topological traversal
+        fields_at_node: Dict[str, set] = {}
         visited = set()
         queue = [self.entry_node] if self.entry_node else []
 
@@ -406,10 +504,8 @@ class WorkflowGraph:
                 continue
 
             # Check if all predecessors have been processed
-            # (handles conditional/loop cases conservatively)
             unprocessed_preds = predecessors[node_id] - visited
             if unprocessed_preds and node_id != self.entry_node:
-                # Re-queue and try later (will eventually process due to DAG-like structure)
                 queue.append(node_id)
                 continue
 
@@ -417,59 +513,47 @@ class WorkflowGraph:
 
             # Compute available fields at this node
             if node_id == self.entry_node:
-                # Entry node has access to input fields
-                available = input_fields.copy()
+                available = schema_fields.copy()
             else:
-                # Intersection of fields from all predecessors
                 pred_fields = []
                 for pred_id in predecessors[node_id]:
                     if pred_id in fields_at_node:
                         pred_available = fields_at_node[pred_id].copy()
-                        # Add the predecessor's output if it has one
                         if pred_id in node_outputs:
                             pred_available.add(node_outputs[pred_id])
                         pred_fields.append(pred_available)
 
                 if pred_fields:
-                    # Conservative: intersection of all paths
                     available = pred_fields[0]
                     for pf in pred_fields[1:]:
                         available = available.intersection(pf)
                 else:
-                    available = input_fields.copy()
+                    available = schema_fields.copy()
 
             fields_at_node[node_id] = available
 
-            # Validate this node's input_fields
+            # Validate this node's field references
             node = self.nodes[node_id]
             if node.node_type == "execute" and node.step_definition:
                 step_def = node.step_definition
+                referenced_fields = step_def.get_referenced_fields()
 
-                # Check input_fields
-                for field in step_def.input_fields:
+                for field in referenced_fields:
                     if field not in available:
-                        # Check if it could be available on some path (warning vs error)
-                        all_possible = input_fields.copy()
+                        all_possible = schema_fields.copy()
                         for nid, output in node_outputs.items():
                             all_possible.add(output)
 
                         if field in all_possible:
                             errors.append(
-                                f"Node '{node_id}': input_field '{field}' may not be available on all paths. "
-                                f"Guaranteed fields: {sorted(available)}"
+                                f"Node '{node_id}': field '{field}' may not be available on all paths. "
+                                f"Guaranteed: {sorted(available)}"
                             )
                         else:
                             errors.append(
-                                f"Node '{node_id}': input_field '{field}' does not exist. "
-                                f"Available fields: {sorted(available)}. "
-                                f"All possible fields: {sorted(all_possible)}"
+                                f"Node '{node_id}': field '{field}' does not exist. "
+                                f"Available: {sorted(available)}, All possible: {sorted(all_possible)}"
                             )
-
-                # Check tools exist
-                if tool_validator:
-                    for tool_name in step_def.tools:
-                        if not tool_validator(tool_name):
-                            errors.append(f"Node '{node_id}': tool '{tool_name}' does not exist")
 
             # Queue successors
             for edge in self.edges:
@@ -477,7 +561,6 @@ class WorkflowGraph:
                     queue.append(edge.to_node)
 
         # Check for output_field conflicts
-        # (Two nodes writing to the same field where neither is ancestor of the other)
         output_to_nodes: Dict[str, List[str]] = {}
         for node_id, output in node_outputs.items():
             if output not in output_to_nodes:
@@ -486,11 +569,9 @@ class WorkflowGraph:
 
         for output, writers in output_to_nodes.items():
             if len(writers) > 1:
-                # Check if they're on mutually exclusive paths (OK) or conflicting (error)
-                # For now, just warn - proper analysis would check if paths are exclusive
                 errors.append(
                     f"Multiple nodes write to '{output}': {writers}. "
-                    f"This may cause conflicts unless they're on mutually exclusive paths."
+                    f"This may cause conflicts unless on mutually exclusive paths."
                 )
 
         return errors

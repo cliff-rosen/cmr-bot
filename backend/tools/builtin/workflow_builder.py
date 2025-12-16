@@ -71,93 +71,151 @@ def _build_system_prompt(available_tools: str) -> str:
 
         ## CRITICAL: Output Format
 
-        You MUST output ONLY valid JSON matching this EXACT schema. No other text.
+        You MUST output ONLY valid JSON. No explanations, no markdown code blocks.
 
-        ## Required JSON Structure
+        ## Workflow Structure
 
         ```json
         {{
-          "id": "string (snake_case identifier)",
-          "name": "string (human readable name)",
-          "description": "string (what this workflow does)",
-          "nodes": {{
-            "node_id": {{
-              "id": "node_id (must match key)",
-              "name": "string",
-              "description": "string",
-              "node_type": "execute" | "checkpoint",
-              "step_definition": {{...}},  // REQUIRED for execute nodes
-              "checkpoint_config": {{...}}  // REQUIRED for checkpoint nodes
-            }}
-          }},
-          "edges": [
-            {{"from_node": "node_id", "to_node": "node_id"}}
-          ],
-          "entry_node": "node_id (must exist in nodes)",
+          "id": "snake_case_id",
+          "name": "Human Readable Name",
+          "description": "What this workflow accomplishes",
+          "nodes": {{ "node_id": {{ ... }} }},
+          "edges": [ {{"from_node": "a", "to_node": "b"}} ],
+          "entry_node": "first_node_id",
           "input_schema": {{
             "type": "object",
-            "properties": {{"field_name": {{"type": "string", "description": "..."}}}},
-            "required": ["field_name"]
+            "properties": {{ "field": {{"type": "string", "description": "..."}} }},
+            "required": ["field"]
           }}
         }}
         ```
 
-        ## Execute Node step_definition (REQUIRED fields)
+        ## Three Step Types
+
+        Execute nodes have a `step_definition` with one of three `step_type` values:
+
+        ### 1. tool_call - Execute a specific tool
+        Use when you need to call a tool with specific parameters.
 
         ```json
         {{
-          "id": "string",
-          "name": "string",
-          "description": "string",
-          "goal": "string (what this step accomplishes)",
-          "tools": ["tool_name"],
-          "input_fields": ["field_name"],
-          "output_field": "field_name",
-          "mode": "llm_with_tools"
+          "id": "search",
+          "name": "Search Web",
+          "description": "Search for information",
+          "step_type": "tool_call",
+          "tool": "web_search",
+          "input_mapping": {{
+            "query": "{{name}} {{company}} site:linkedin.com"
+          }},
+          "output_field": "search_results"
         }}
         ```
 
-        ## Checkpoint Node checkpoint_config (REQUIRED fields)
+        - `tool`: The tool to call (from available tools list)
+        - `input_mapping`: Maps tool parameters to context values. Use `{{field}}` for substitution.
+        - `output_field`: Where to store the tool's result
+
+        ### 2. llm_transform - LLM processes data with enforced output schema
+        Use when you need to analyze, extract, or transform data.
 
         ```json
         {{
-          "title": "string",
-          "description": "string",
-          "allowed_actions": ["approve", "edit", "reject"],
-          "editable_fields": ["field_name"]
+          "id": "extract",
+          "name": "Extract Profile URLs",
+          "description": "Extract LinkedIn URLs from search results",
+          "step_type": "llm_transform",
+          "goal": "Extract and validate LinkedIn profile URLs from search results",
+          "input_fields": ["search_results", "name"],
+          "output_schema": {{
+            "type": "array",
+            "items": {{
+              "type": "object",
+              "properties": {{
+                "url": {{"type": "string"}},
+                "confidence": {{"type": "number"}}
+              }},
+              "required": ["url", "confidence"]
+            }}
+          }},
+          "output_field": "candidate_profiles"
         }}
         ```
 
-        ## DATA FLOW RULES (CRITICAL)
+        - `goal`: What the LLM should accomplish
+        - `input_fields`: Context fields the LLM can see
+        - `output_schema`: JSON Schema the output MUST match (enforced)
+        - `output_field`: Where to store the result
 
-        Each step's `input_fields` MUST reference fields that exist when the step runs:
+        ### 3. llm_decision - LLM makes a choice (for branching)
+        Use when you need the workflow to branch based on analysis.
 
-        1. **input_schema fields**: Available from workflow start (e.g., "query" if in input_schema)
-        2. **Previous step output_field**: Available after that step completes
+        ```json
+        {{
+          "id": "decide",
+          "name": "Evaluate Results",
+          "description": "Decide if we found a match",
+          "step_type": "llm_decision",
+          "goal": "Determine if any candidate profile is a confident match",
+          "input_fields": ["candidate_profiles"],
+          "choices": ["found_match", "need_more_search", "no_results"],
+          "output_field": "search_decision"
+        }}
+        ```
 
-        Example valid data flow:
-        - input_schema defines: "query"
-        - Step A: input_fields=["query"], output_field="search_results"
-        - Step B: input_fields=["query", "search_results"], output_field="analysis"
+        - `goal`: What decision to make
+        - `input_fields`: Context fields to consider
+        - `choices`: Valid options (LLM must pick exactly one)
+        - `output_field`: Where to store the decision (use in edge conditions)
 
-        INVALID: Referencing a field that doesn't exist or comes from a later step.
+        ## Checkpoint Nodes
+
+        ```json
+        {{
+          "id": "review",
+          "name": "Review Results",
+          "description": "User reviews before proceeding",
+          "node_type": "checkpoint",
+          "checkpoint_config": {{
+            "title": "Review Search Results",
+            "description": "Verify the results are correct",
+            "allowed_actions": ["approve", "edit", "reject"],
+            "editable_fields": ["search_results"]
+          }}
+        }}
+        ```
+
+        ## Data Flow Rules
+
+        Referenced fields must exist when the step runs:
+        - `input_schema` fields are available from the start
+        - Each step's `output_field` becomes available after it completes
+        - `input_mapping` templates (`{{field}}`) reference context fields
+        - `input_fields` reference context fields for LLM steps
 
         ## Available Tools
 
-        Steps can use these tools (specify in step_definition.tools array):
+        For `tool_call` steps, use one of these tools:
 
         {available_tools}
 
-        Use `"tools": []` for steps that only need LLM reasoning without tools.
+        ## Edge Conditions
+
+        For branching based on `llm_decision` output:
+        ```json
+        {{"from_node": "decide", "to_node": "found", "condition_expr": "search_decision == 'found_match'"}}
+        {{"from_node": "decide", "to_node": "retry", "condition_expr": "search_decision == 'need_more_search'"}}
+        ```
 
         ## Design Principles
 
-        1. Add checkpoints after significant steps for user review
-        2. Keep step goals focused - one clear objective per step
-        3. 2-5 execute nodes is typical
-        4. Ensure data flows correctly between steps
+        1. Use `tool_call` for actual tool execution (web search, fetch, etc.)
+        2. Use `llm_transform` for data processing with enforced schemas
+        3. Use `llm_decision` for branching logic
+        4. Add checkpoints after significant steps for user review
+        5. 3-6 nodes is typical
 
-        ## Example
+        ## Complete Example
 
         ```json
         {{
@@ -167,65 +225,95 @@ def _build_system_prompt(available_tools: str) -> str:
           "nodes": {{
             "search": {{
               "id": "search",
-              "name": "Search for Information",
-              "description": "Search the web for relevant information",
+              "name": "Web Search",
+              "description": "Search for information",
               "node_type": "execute",
               "step_definition": {{
                 "id": "search",
-                "name": "Search",
-                "description": "Search for information",
-                "goal": "Find relevant information about the topic",
-                "tools": ["web_search"],
-                "input_fields": ["query"],
-                "output_field": "search_results",
-                "mode": "llm_with_tools"
+                "name": "Web Search",
+                "description": "Search the web",
+                "step_type": "tool_call",
+                "tool": "web_search",
+                "input_mapping": {{"query": "{{topic}}"}},
+                "output_field": "search_results"
+              }}
+            }},
+            "extract": {{
+              "id": "extract",
+              "name": "Extract Key Points",
+              "description": "Extract key information from results",
+              "node_type": "execute",
+              "step_definition": {{
+                "id": "extract",
+                "name": "Extract",
+                "description": "Extract key points",
+                "step_type": "llm_transform",
+                "goal": "Extract the most relevant facts and insights",
+                "input_fields": ["search_results", "topic"],
+                "output_schema": {{
+                  "type": "object",
+                  "properties": {{
+                    "key_points": {{"type": "array", "items": {{"type": "string"}}}},
+                    "sources": {{"type": "array", "items": {{"type": "string"}}}}
+                  }},
+                  "required": ["key_points"]
+                }},
+                "output_field": "extracted_info"
               }}
             }},
             "review": {{
               "id": "review",
-              "name": "Review Results",
-              "description": "User reviews search results",
+              "name": "Review Findings",
+              "description": "User reviews extracted information",
               "node_type": "checkpoint",
               "checkpoint_config": {{
-                "title": "Review Search Results",
-                "description": "Review the search results before proceeding",
+                "title": "Review Research",
+                "description": "Review the extracted information",
                 "allowed_actions": ["approve", "edit", "reject"],
-                "editable_fields": ["search_results"]
+                "editable_fields": ["extracted_info"]
               }}
             }},
             "summarize": {{
               "id": "summarize",
-              "name": "Summarize Findings",
-              "description": "Create a summary of the research",
+              "name": "Create Summary",
+              "description": "Create final summary",
               "node_type": "execute",
               "step_definition": {{
                 "id": "summarize",
                 "name": "Summarize",
-                "description": "Summarize the findings",
-                "goal": "Create a clear summary of the research findings",
-                "tools": [],
-                "input_fields": ["query", "search_results"],
-                "output_field": "summary",
-                "mode": "llm_with_tools"
+                "description": "Create summary",
+                "step_type": "llm_transform",
+                "goal": "Create a comprehensive summary of the research",
+                "input_fields": ["topic", "extracted_info"],
+                "output_schema": {{
+                  "type": "object",
+                  "properties": {{
+                    "summary": {{"type": "string"}},
+                    "conclusion": {{"type": "string"}}
+                  }},
+                  "required": ["summary"]
+                }},
+                "output_field": "final_summary"
               }}
             }}
           }},
           "edges": [
-            {{"from_node": "search", "to_node": "review"}},
+            {{"from_node": "search", "to_node": "extract"}},
+            {{"from_node": "extract", "to_node": "review"}},
             {{"from_node": "review", "to_node": "summarize"}}
           ],
           "entry_node": "search",
           "input_schema": {{
             "type": "object",
             "properties": {{
-              "query": {{"type": "string", "description": "The research topic"}}
+              "topic": {{"type": "string", "description": "The research topic"}}
             }},
-            "required": ["query"]
+            "required": ["topic"]
           }}
         }}
         ```
 
-        Output ONLY the JSON workflow. No explanations, no markdown.""")
+        Output ONLY valid JSON. No markdown, no explanations.""")
 
 
 def execute_design_workflow(
