@@ -36,8 +36,8 @@ from schemas.workflow import (
 
 logger = logging.getLogger(__name__)
 
-# LLM client - initialized lazily
-_client = None
+# LLM client - initialized lazily (async client)
+_async_client = None
 
 # Research constants
 RESEARCH_MODEL = "claude-sonnet-4-20250514"
@@ -45,11 +45,12 @@ MAX_URLS_PER_ITERATION = 3
 MAX_SEARCH_RESULTS = 8
 
 
-def get_llm_client():
-    global _client
-    if _client is None:
-        _client = anthropic.Anthropic()
-    return _client
+def get_async_llm_client():
+    """Get the async Anthropic client."""
+    global _async_client
+    if _async_client is None:
+        _async_client = anthropic.AsyncAnthropic()
+    return _async_client
 
 
 def _parse_llm_json(text: str) -> Optional[Any]:
@@ -90,7 +91,7 @@ async def formulate_question(context: WorkflowContext) -> StepOutput:
         )
 
     try:
-        client = get_llm_client()
+        client = get_async_llm_client()
 
         prompt = f"""You are helping formulate a clear, focused research question.
 
@@ -109,7 +110,7 @@ async def formulate_question(context: WorkflowContext) -> StepOutput:
             "rationale": "Brief explanation of how you refined the question"
         }}"""
 
-        response = client.messages.create(
+        response = await client.messages.create(
             model="claude-sonnet-4-20250514",
             max_tokens=1024,
             messages=[{"role": "user", "content": prompt}]
@@ -163,7 +164,7 @@ async def build_checklist(context: WorkflowContext) -> StepOutput:
     scope = user_edits.get("scope", question_data.get("scope", ""))
 
     try:
-        client = get_llm_client()
+        client = get_async_llm_client()
 
         prompt = f"""You are helping create a comprehensive answer checklist for a research question.
 
@@ -188,7 +189,7 @@ async def build_checklist(context: WorkflowContext) -> StepOutput:
             ]
         }}"""
 
-        response = client.messages.create(
+        response = await client.messages.create(
             model="claude-sonnet-4-20250514",
             max_tokens=2048,
             messages=[{"role": "user", "content": prompt}]
@@ -311,13 +312,13 @@ async def run_retrieval_iteration(
     )
 
     try:
-        client = get_llm_client()
+        client = get_async_llm_client()
 
         # Step 1: Generate search queries
         unfilled_text = "\n".join(f"- {item['description']}" for item in target_items)
         used_queries_text = "\n".join(f"- {q}" for q in used_queries[-10:]) or "None yet"
 
-        query_response = client.messages.create(
+        query_response = await client.messages.create(
             model=RESEARCH_MODEL,
             max_tokens=512,
             temperature=0.5,
@@ -423,7 +424,7 @@ async def run_retrieval_iteration(
         for i, r in enumerate(deduped_results[:15]):
             results_text += f"{i+1}. {r['title']}\n   URL: {r['url']}\n   {r['snippet']}\n\n"
 
-        eval_response = client.messages.create(
+        eval_response = await client.messages.create(
             model=RESEARCH_MODEL,
             max_tokens=256,
             temperature=0.2,
@@ -510,7 +511,7 @@ async def run_retrieval_iteration(
         for p in pages:
             pages_text += f"=== {p['title']} ({p['url']}) ===\n{p['content']}\n\n"
 
-        extract_response = client.messages.create(
+        extract_response = await client.messages.create(
             model=RESEARCH_MODEL,
             max_tokens=2048,
             temperature=0.2,
@@ -620,7 +621,7 @@ async def compile_final_answer(context: WorkflowContext) -> StepOutput:
     items = retrieval_data.get("items", [])
 
     try:
-        client = get_llm_client()
+        client = get_async_llm_client()
 
         # Build context from all findings
         findings_context = ""
@@ -644,7 +645,7 @@ async def compile_final_answer(context: WorkflowContext) -> StepOutput:
 
         Write in a clear, professional style."""
 
-        response = client.messages.create(
+        response = await client.messages.create(
             model="claude-sonnet-4-20250514",
             max_tokens=4096,
             messages=[{"role": "user", "content": prompt}]

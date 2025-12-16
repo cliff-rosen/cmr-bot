@@ -668,7 +668,14 @@ def execute_research_workflow(
 
     elif action == "run_iteration":
         if not workflow_state:
-            return ToolResult(text="Error: No workflow state provided")
+            return ToolResult(text="Error: No workflow state provided. You must pass the full workflow_state from the previous step.")
+
+        if "retrieval" not in workflow_state or "checklist" not in workflow_state:
+            return ToolResult(
+                text=f"Error: workflow_state is missing required fields for retrieval. "
+                     f"You must pass the complete workflow_state object from the 'research' workspace payload. "
+                     f"Current stage should be 'retrieval'. Received keys: {list(workflow_state.keys()) if isinstance(workflow_state, dict) else 'not a dict'}"
+            )
 
         # Run one retrieval iteration
         workflow = workflow_state
@@ -694,7 +701,14 @@ def execute_research_workflow(
 
     elif action == "compile":
         if not workflow_state:
-            return ToolResult(text="Error: No workflow state provided")
+            return ToolResult(text="Error: No workflow state provided. You must pass the full workflow_state from the previous step.")
+
+        if "question" not in workflow_state or "checklist" not in workflow_state:
+            return ToolResult(
+                text=f"Error: workflow_state is missing required fields for compilation. "
+                     f"You must pass the complete workflow_state object from the 'research' workspace payload. "
+                     f"Received keys: {list(workflow_state.keys()) if isinstance(workflow_state, dict) else 'not a dict'}"
+            )
 
         yield ToolProgress(
             stage="compiling",

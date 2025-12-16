@@ -680,9 +680,16 @@ export default function MainPage() {
         if (!activePayload || activePayload.type !== 'research' || !activePayload.research_data) return;
         const workflow = activePayload.research_data;
 
-        // Move to next stage and trigger LLM to continue
+        // Determine the appropriate action based on current stage
+        let action = 'approve_question';
+        if (workflow.stage === 'checklist') {
+            action = 'approve_checklist';
+        }
+
+        // Include the full workflow state so LLM can pass it to the tool
+        const workflowStateJson = JSON.stringify(workflow);
         sendMessage(
-            `Continue with the research workflow. Current stage: ${workflow.stage}. Please proceed to the next step.`,
+            `Please call research_workflow with action="${action}" and workflow_state=${workflowStateJson}`,
             InteractionType.ACTION_EXECUTED,
             {
                 action_identifier: 'research_proceed',
@@ -695,9 +702,10 @@ export default function MainPage() {
         if (!activePayload || activePayload.type !== 'research' || !activePayload.research_data) return;
         const workflow = activePayload.research_data;
 
-        // Start or resume retrieval iterations
+        // Include the full workflow state so LLM can pass it to the tool
+        const workflowStateJson = JSON.stringify(workflow);
         sendMessage(
-            `Run retrieval iterations for the research workflow.`,
+            `Please call research_workflow with action="run_iteration" and workflow_state=${workflowStateJson}`,
             InteractionType.ACTION_EXECUTED,
             {
                 action_identifier: 'research_run_retrieval',
@@ -724,9 +732,10 @@ export default function MainPage() {
         if (!activePayload || activePayload.type !== 'research' || !activePayload.research_data) return;
         const workflow = activePayload.research_data;
 
-        // Trigger compilation of final answer
+        // Include the full workflow state so LLM can pass it to the tool
+        const workflowStateJson = JSON.stringify(workflow);
         sendMessage(
-            `Compile the final answer for the research workflow based on the gathered findings.`,
+            `Please call research_workflow with action="compile" and workflow_state=${workflowStateJson}`,
             InteractionType.ACTION_EXECUTED,
             {
                 action_identifier: 'research_compile',
