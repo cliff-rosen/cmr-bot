@@ -704,12 +704,12 @@ def _try_serpapi_collection(
 
     tracker.start_step("search", f"SerpAPI {source} search")
 
-    # Use SerpAPI to find business and get reviews
+    # Use SerpAPI to find business and get reviews (with pagination)
     result = service.find_and_get_reviews(
         business_name=business_name,
         location=location,
         source=source,
-        num_reviews=20
+        num_reviews=30  # Get more reviews with pagination support
     )
 
     tracker.complete_step(
@@ -743,9 +743,10 @@ def _try_serpapi_collection(
     tracker.entity = Entity(
         name=biz.name,
         url=biz.url or "",
+        platform_id=biz.place_id,  # Store the platform ID for future lookups
         rating=biz.rating,
         review_count=biz.review_count,
-        match_confidence="high",
+        match_confidence="exact",  # SerpAPI gives us exact matches
         match_reason=f"SerpAPI match at {biz.address or 'N/A'}"
     )
     tracker.set_phase_conclusion(f"Found via SerpAPI: {biz.name}", "success")

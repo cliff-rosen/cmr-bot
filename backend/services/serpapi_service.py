@@ -136,56 +136,79 @@ class SerpApiService:
     def get_yelp_reviews(
         self,
         place_id: str,
-        num_reviews: int = 20
+        num_reviews: int = 20,
+        sort_by: Optional[str] = None
     ) -> SerpApiResult:
         """
-        Get reviews for a Yelp business.
+        Get reviews for a Yelp business with pagination support.
 
         Args:
             place_id: The Yelp biz_id (e.g., "WavvLdfdP6g8aZTtbBQHTw")
-            num_reviews: Number of reviews to fetch (max ~20 per page)
+            num_reviews: Number of reviews to fetch (will paginate to get this many)
+            sort_by: Optional sort order - "relevance_desc", "date_desc", "rating_desc", "rating_asc"
         """
         if not self.api_key:
             return SerpApiResult(success=False, error="SERPAPI_KEY not configured")
 
         try:
-            params = {
-                "engine": "yelp_reviews",
-                "place_id": place_id,
-            }
-
-            data = self._make_request(params)
-
-            reviews = []
-            for r in data.get("reviews", []):
-                review = SerpApiReview(
-                    rating=r.get("rating"),
-                    text=r.get("comment", {}).get("text", "") or r.get("text", ""),
-                    author=r.get("user", {}).get("name"),
-                    date=r.get("date"),
-                    source="yelp"
-                )
-                if review.text:
-                    reviews.append(review)
-
-            # Also get business info if available
-            biz_info = data.get("business_info", {})
+            all_reviews = []
             business = None
-            if biz_info:
-                business = SerpApiBusiness(
-                    name=biz_info.get("name", ""),
-                    place_id=place_id,
-                    rating=biz_info.get("rating"),
-                    review_count=biz_info.get("reviews"),
-                    address=biz_info.get("address"),
-                    url=biz_info.get("link"),
-                    source="yelp"
-                )
+            start = 0
+            per_page = 10  # Yelp typically returns ~10 per page
+            max_pages = (num_reviews // per_page) + 2
+
+            for page in range(max_pages):
+                params = {
+                    "engine": "yelp_reviews",
+                    "place_id": place_id,
+                    "start": start,
+                }
+                if sort_by:
+                    params["sortby"] = sort_by
+
+                data = self._make_request(params)
+
+                # Parse reviews from this page
+                page_reviews = data.get("reviews", [])
+                for r in page_reviews:
+                    review = SerpApiReview(
+                        rating=r.get("rating"),
+                        text=r.get("comment", {}).get("text", "") or r.get("text", ""),
+                        author=r.get("user", {}).get("name"),
+                        date=r.get("date"),
+                        source="yelp"
+                    )
+                    if review.text:
+                        all_reviews.append(review)
+
+                # Get business info from first page only
+                if page == 0:
+                    biz_info = data.get("business_info", {})
+                    if biz_info:
+                        business = SerpApiBusiness(
+                            name=biz_info.get("name", ""),
+                            place_id=place_id,
+                            rating=biz_info.get("rating"),
+                            review_count=biz_info.get("reviews"),
+                            address=biz_info.get("address"),
+                            url=biz_info.get("link"),
+                            source="yelp"
+                        )
+
+                # Check if we have enough reviews or no more pages
+                if len(all_reviews) >= num_reviews:
+                    break
+                if len(page_reviews) == 0:
+                    break  # No more reviews
+
+                start += len(page_reviews)
+
+            logger.info(f"SerpAPI: Fetched {len(all_reviews)} Yelp reviews over {page + 1} pages")
 
             return SerpApiResult(
                 success=True,
                 business=business,
-                reviews=reviews[:num_reviews],
+                reviews=all_reviews[:num_reviews],
                 raw_response=data
             )
 

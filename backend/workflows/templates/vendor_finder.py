@@ -603,15 +603,12 @@ async def enrich_company_info(context: WorkflowContext) -> AsyncGenerator[Union[
 
 async def find_reviews(context: WorkflowContext) -> AsyncGenerator[Union[StepProgress, StepOutput], None]:
     """
-    Step 5: Use the review collector agent to gather reviews.
+    Step 5: Collect reviews from Google (and Yelp when available) via SerpAPI.
 
-    This runs an autonomous agent that:
-    - Searches for business pages on Yelp, Google, etc.
-    - Fetches and reads review pages
-    - Makes decisions about what to search/fetch next
-    - Compiles review data with ratings, counts, and sample reviews
+    Uses SerpAPI for fast, reliable review collection with pagination support.
+    Falls back gracefully when sources are unavailable.
     """
-    from tools.builtin.review_collector import ReviewCollectorAgent
+    from services.serpapi_service import get_serpapi_service
 
     vendor_data = context.get_step_output("enrich_company_info")
     if not vendor_data:
@@ -626,6 +623,10 @@ async def find_reviews(context: WorkflowContext) -> AsyncGenerator[Union[StepPro
 
     yield StepProgress(message=f"Collecting reviews for {len(vendors)} vendors...", progress=0.1)
 
+    service = get_serpapi_service()
+    if not service.api_key:
+        logger.warning("SerpAPI key not configured - reviews will be limited")
+
     reviewed_vendors = []
 
     for i, vendor in enumerate(vendors):
@@ -633,90 +634,71 @@ async def find_reviews(context: WorkflowContext) -> AsyncGenerator[Union[StepPro
         location = vendor.get("location", "")
 
         yield StepProgress(
-            message=f"Agent collecting reviews: {vendor_name}",
+            message=f"Fetching reviews: {vendor_name}",
             progress=0.1 + (i / len(vendors)) * 0.8
         )
 
         reviews = []
 
-        try:
-            # Run the review collector agent
-            agent = ReviewCollectorAgent()
-            generator = agent.run(vendor_name, location)
-            collection_result = None
-
+        # Try Google first (most reliable via SerpAPI)
+        for source in ["google", "yelp"]:
             try:
-                while True:
-                    item = next(generator)
-                    # Log progress from the agent
-                    if hasattr(item, 'stage'):
-                        data = item.data or {}
-                        if item.stage.startswith("tool_"):
-                            tool = data.get("tool", "")
-                            tool_input = data.get("input", {})
-                            if tool == "search":
-                                logger.info(f"[REVIEW AGENT] {vendor_name}: search '{tool_input.get('query', '')}'")
-                            elif tool == "fetch":
-                                logger.info(f"[REVIEW AGENT] {vendor_name}: fetch {tool_input.get('url', '')}")
-                            elif tool == "report_findings":
-                                logger.info(f"[REVIEW AGENT] {vendor_name}: reporting findings")
+                logger.info(f"[REVIEWS] {vendor_name}: Fetching {source} reviews")
+
+                result = service.find_and_get_reviews(
+                    business_name=vendor_name,
+                    location=location or "USA",  # Default to USA if no location
+                    source=source,
+                    num_reviews=20
+                )
+
+                if result.success and result.business:
+                    biz = result.business
+                    rating = biz.rating
+                    review_count = biz.review_count or len(result.reviews)
+
+                    # Determine sentiment from rating
+                    if rating is not None:
+                        if rating >= 4.0:
+                            sentiment = "positive"
+                        elif rating >= 3.0:
+                            sentiment = "mixed"
                         else:
-                            logger.info(f"[REVIEW AGENT] {vendor_name}: [{item.stage}] {item.message}")
-            except StopIteration as e:
-                collection_result = e.value
+                            sentiment = "negative"
+                    else:
+                        sentiment = "unknown"
 
-            if collection_result and collection_result.data:
-                result_data = collection_result.data
+                    # Extract highlights/concerns from review text
+                    highlights = []
+                    concerns = []
+                    sample_quotes = []
 
-                # Convert agent results to our ReviewSummary format
-                for source_data in result_data.get('sources', []):
-                    source = source_data.get('source', 'unknown')
-                    rating = source_data.get('rating')
-                    review_count = source_data.get('review_count', 0)
+                    for review in result.reviews:
+                        text = review.text
+                        sample_quotes.append(text[:200])
 
-                    # Only include sources with actual data
-                    if rating is not None or review_count:
-                        # Determine sentiment from rating
-                        if rating is not None:
-                            if rating >= 4.0:
-                                sentiment = "positive"
-                            elif rating >= 3.0:
-                                sentiment = "mixed"
-                            else:
-                                sentiment = "negative"
-                        else:
-                            sentiment = "unknown"
+                        review_rating = review.rating or 3
+                        if review_rating >= 4:
+                            highlights.append(text[:100])
+                        elif review_rating <= 2:
+                            concerns.append(text[:100])
 
-                        # Extract sample review text as highlights/concerns
-                        highlights = []
-                        concerns = []
-                        sample_quotes = []
-                        for sample in source_data.get('sample_reviews', []):
-                            sample_rating = sample.get('rating', 3)
-                            sample_text = sample.get('text', '')
-                            sample_quotes.append(sample_text[:200])
-                            if sample_rating >= 4:
-                                highlights.append(sample_text[:100])
-                            elif sample_rating <= 2:
-                                concerns.append(sample_text[:100])
+                    reviews.append(ReviewSummary(
+                        source=source,
+                        rating=rating,
+                        review_count=review_count,
+                        sentiment=sentiment,
+                        highlights=highlights[:3],
+                        concerns=concerns[:3],
+                        sample_quotes=sample_quotes[:3]
+                    ))
 
-                        reviews.append(ReviewSummary(
-                            source=source,
-                            rating=rating,
-                            review_count=review_count,
-                            sentiment=sentiment,
-                            highlights=highlights[:3],
-                            concerns=concerns[:3],
-                            sample_quotes=sample_quotes[:3]
-                        ))
+                    logger.info(f"[REVIEWS] {vendor_name} - {source}: {rating}/5, {review_count} reviews, {len(result.reviews)} fetched")
+                else:
+                    logger.info(f"[REVIEWS] {vendor_name} - {source}: Not found ({result.error})")
 
-                        logger.info(f"[REVIEW AGENT] {vendor_name} - {source}: {rating}/5, {review_count} reviews")
-
-                # Log agent summary
-                logger.info(f"[REVIEW AGENT] {vendor_name}: {result_data.get('summary', 'No summary')}")
-
-        except Exception as e:
-            logger.warning(f"[REVIEW AGENT] Error collecting reviews for {vendor_name}: {e}")
+            except Exception as e:
+                logger.warning(f"[REVIEWS] {vendor_name} - {source}: Error - {e}")
 
         # Convert ReviewSummary to dicts for JSON serialization
         vendor["reviews"] = [asdict(r) for r in reviews]
