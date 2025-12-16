@@ -17,6 +17,7 @@ from workflows import (
     CheckpointAction,
     WorkflowStatus,
 )
+from schemas.workflow import WorkflowGraph
 
 logger = logging.getLogger(__name__)
 
@@ -41,7 +42,8 @@ class WorkflowListResponse(BaseModel):
 
 
 class StartWorkflowRequest(BaseModel):
-    workflow_id: str
+    workflow_id: Optional[str] = None  # Reference to registered template
+    workflow_graph: Optional[Dict[str, Any]] = None  # Inline graph definition
     initial_input: Dict[str, Any]
     conversation_id: Optional[int] = None
 
@@ -96,13 +98,44 @@ async def get_workflow_template(workflow_id: str):
 
 @router.post("/start", response_model=StartWorkflowResponse)
 async def start_workflow(request: StartWorkflowRequest):
-    """Start a new workflow instance."""
+    """
+    Start a new workflow instance.
+
+    Can accept either:
+    - workflow_id: Reference to a registered template
+    - workflow_graph: Inline graph definition (for agent-designed workflows)
+    """
     try:
-        instance = workflow_engine.create_instance(
-            workflow_id=request.workflow_id,
-            initial_input=request.initial_input,
-            conversation_id=request.conversation_id
-        )
+        if request.workflow_graph:
+            # Create instance from inline graph definition
+            graph = WorkflowGraph.from_dict(request.workflow_graph)
+
+            # Validate the graph
+            validation_errors = graph.validate()
+            if validation_errors:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Invalid workflow graph: {', '.join(validation_errors)}"
+                )
+
+            instance = workflow_engine.create_instance_from_graph(
+                graph=graph,
+                initial_input=request.initial_input,
+                conversation_id=request.conversation_id
+            )
+        elif request.workflow_id:
+            # Create instance from registered template
+            instance = workflow_engine.create_instance(
+                workflow_id=request.workflow_id,
+                initial_input=request.initial_input,
+                conversation_id=request.conversation_id
+            )
+        else:
+            raise HTTPException(
+                status_code=400,
+                detail="Either workflow_id or workflow_graph must be provided"
+            )
+
         return StartWorkflowResponse(
             instance_id=instance.id,
             workflow_id=instance.workflow_id,

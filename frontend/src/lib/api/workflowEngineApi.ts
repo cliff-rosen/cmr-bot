@@ -93,14 +93,20 @@ export async function getWorkflowTemplate(workflowId: string): Promise<WorkflowT
 
 /**
  * Start a new workflow instance.
+ *
+ * Can accept either:
+ * - workflowId: Reference to a registered template
+ * - workflowGraph: Inline graph definition (for agent-designed workflows)
  */
 export async function startWorkflow(
-    workflowId: string,
+    workflowId: string | null,
     initialInput: Record<string, any>,
-    conversationId?: number
+    conversationId?: number,
+    workflowGraph?: Record<string, any>
 ): Promise<{ instance_id: string; workflow_id: string; status: string }> {
     const response = await api.post('/api/workflows/start', {
         workflow_id: workflowId,
+        workflow_graph: workflowGraph,
         initial_input: initialInput,
         conversation_id: conversationId,
     });

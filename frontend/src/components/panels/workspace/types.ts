@@ -6,7 +6,7 @@ import {
     DocumentTextIcon, TableCellsIcon, CodeBracketIcon,
     ClipboardDocumentListIcon, PlayIcon, ArrowPathIcon, CheckCircleIcon,
     CpuChipIcon, PencilSquareIcon, Squares2X2Icon, BeakerIcon, StarIcon,
-    MagnifyingGlassCircleIcon
+    MagnifyingGlassCircleIcon, RectangleStackIcon
 } from '@heroicons/react/24/solid';
 import { ComponentType } from 'react';
 
@@ -130,6 +130,14 @@ export const payloadTypeConfig: Record<string, PayloadTypeConfig> = {
         bg: 'bg-indigo-50 dark:bg-indigo-900/20',
         border: 'border-indigo-200 dark:border-indigo-800',
         label: 'Entity Verification',
+        editable: false
+    },
+    workflow_graph: {
+        icon: RectangleStackIcon,
+        color: 'text-emerald-500',
+        bg: 'bg-emerald-50 dark:bg-emerald-900/20',
+        border: 'border-emerald-200 dark:border-emerald-800',
+        label: 'Workflow Design',
         editable: false
     }
 };

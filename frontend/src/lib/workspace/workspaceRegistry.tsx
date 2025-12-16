@@ -15,6 +15,7 @@ import ResearchWorkflowView from '../../components/panels/workspace/ResearchWork
 import ResearchResultView from '../../components/panels/workspace/ResearchResultView';
 import ReviewCollectionView from '../../components/panels/workspace/ReviewCollectionView';
 import EntityVerificationView from '../../components/panels/workspace/EntityVerificationView';
+import WorkflowGraphView from '../../components/panels/workspace/WorkflowGraphView';
 
 // Import workflow view components
 import WorkflowExecutionView from '../../components/panels/workspace/WorkflowExecutionView';
@@ -47,6 +48,9 @@ export const payloadViewRegistry: PayloadViewRegistry = {
 
     // Entity verification results (from verify_entity tool)
     'entity_verification': EntityVerificationView as React.ComponentType<PayloadViewProps>,
+
+    // Workflow graph design (from design_workflow tool)
+    'workflow_graph': WorkflowGraphView as React.ComponentType<PayloadViewProps>,
 
     // Standard types use StandardPayloadView (draft, summary, data, code)
     // These don't need explicit entries - they fall through to default

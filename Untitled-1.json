@@ -1,152 +1,323 @@
 {
-    "token": null,
-    "response_text": null,
+    "type": "complete",
     "payload": {
-        "message": "\n\nHere are the melanocortin PubMed results from the last week in table format:\n\n```payload\n{\n\"type\": \"data\",\n\"title\": \"Melanocortin PubMed Results - Last Week\",\n\"content\": \"| PMID | Date | Title | Authors | Journal | Focus |\\n|------|------|-------|---------|---------|-------|\\n| 41386534 | Dec 10, 2025 | Cross-species studies implicate the melanocortin 3 receptor more strongly in the control of pubertal development than energy balance | Duckett K, McClellan A, Corbin LJ | Molecular Metabolism | MC3R vs MC4R roles in pubertal development vs energy balance |\\n| 41380317 | Dec 7, 2025 | Novel miR-290 regulates melanogenesis in Liancheng white ducks via the PI3K/AKT signaling pathway | Xin Q, Shi W, Liu X | Poultry Science | MicroRNA regulation of melanin production in ducks |\\n| 41361717 | Dec 9, 2025 | In Vivo Gastric Expression of FTO and MC4R in Sleeve Gastrectomy Patients: Diagnostic Utility Without Predictive Value for Weight Loss | Hany M, ElDeeb MK, Elmongui E | Obesity Surgery | MC4R expression in gastric tissue and bariatric surgery outcomes |\\n\\n**Summary:** 3 publications found covering metabolic regulation (MC3R/MC4R), melanogenesis pathways, and bariatric surgery molecular markers.\"\n}\n```\n\nThe table shows all 3 melanocortin papers published in the last week, with their key details organized for easy comparison.",
-        "conversation_id": 132,
+        "message": "I'll design a workflow to find someone's LinkedIn profile using their name, title, and company information. This is a great use case for a structured workflow since it involves multiple search strategies and verification steps.[[tool:0]]\n\nPerfect! I've designed a workflow that will systematically find someone's LinkedIn profile using their name, title, and company. Here's how it works:\n\nThe workflow uses a multi-step approach to ensure we find the right person:\n\n1. **Search LinkedIn** - Uses targeted search strategies to find potential LinkedIn profiles\n2. **Verify Profile Match** - Confirms the profile matches the provided criteria (name, title, company)\n3. **Review Profile Match** - Gives you a chance to review and confirm the results\n\nThis workflow is particularly useful because LinkedIn searches can return multiple results, so we need to verify we've found the correct person before presenting the final result.\n\n```payload\n{\n  \"type\": \"plan\",\n  \"title\": \"LinkedIn Profile Finder\",\n  \"goal\": \"Find someone's LinkedIn profile from their name, title, and company\",\n  \"initial_input\": \"Person's name, job title, and company name\",\n  \"steps\": [\n    {\n      \"id\": \"search_linkedin\",\n      \"name\": \"Search LinkedIn\",\n      \"type\": \"execute\",\n      \"input_sources\": [\"user\"],\n      \"method\": \"Use web search with LinkedIn-specific queries to find the person's profile\",\n      \"output\": \"List of potential LinkedIn profile matches\"\n    },\n    {\n      \"id\": \"verify_profile\",\n      \"name\": \"Verify Profile Match\",\n      \"type\": \"execute\", \n      \"input_sources\": [\"search_linkedin\"],\n      \"method\": \"Analyze the found profiles to identify the best match based on name, title, and company\",\n      \"output\": \"Verified LinkedIn profile with confidence assessment\"\n    },\n    {\n      \"id\": \"review_results\",\n      \"name\": \"Review Profile Match\",\n      \"type\": \"checkpoint\",\n      \"input_sources\": [\"verify_profile\"],\n      \"method\": \"Present the found profile for user review and confirmation\",\n      \"output\": \"User-approved LinkedIn profile result\"\n    }\n  ]\n}\n```",
+        "conversation_id": 188,
         "suggested_values": null,
         "suggested_actions": null,
         "custom_payload": {
             "type": "tool_history",
             "data": [
                 {
-                    "tool_name": "pubmed_search",
+                    "tool_name": "design_workflow",
                     "input": {
-                        "query": "melanocortin",
-                        "date_range": "last_week",
-                        "max_results": 20
+                        "goal": "Find someone's LinkedIn profile from their name, title, and company",
+                        "initial_input": "Person's name, job title, and company name"
                     },
                     "output": {
-                        "success": true,
-                        "query": "melanocortin",
-                        "total_results": 3,
-                        "returned": 3,
-                        "articles": [
-                            {
-                                "pmid": "41386534",
-                                "title": "Cross-species studies implicate the melanocortin 3 receptor more strongly in the control of pubertal development than energy balance.",
-                                "authors": [
-                                    "Duckett K",
-                                    "McClellan A",
-                                    "Corbin LJ"
-                                ],
-                                "journal": "Molecular metabolism",
-                                "publication_date": "2025-Dec-10",
-                                "abstract": "Hypothalamic neurons expressing either POMC or AGRP sense nutritional state directly and indirectly and transmit these neuropeptide signals to other brain centres through the melanocortin 3 and 4 receptors. MC4R is primarily concerned with the control of appetite and energy expenditure while MC3R is more closely related to the control of linear growth and the timing of puberty. The role of MC3R in the long-term control of energy balance and body composition is less clear, particularly in humans. We have undertaken studies in humans, domestic dogs and mice with the goal of clarifying the relative impact of MC3R deficiency on energy balance, growth and sexual development. By studying three large consanguineously enriched cohorts, totalling approximately 300K people, we identified nine individuals who are homozygous for functionally null MC3R variants. The body mass index (BMI) of the homozygous MC3R variant carriers was not significantly different from that of age, sex and demographically matched controls, with six of the nine homozygotes having a BMI < 30kg/m2. We detected a canine MC3R missense variant (p.M320I) which is common in labrador retrievers and showed that this significantly impairs receptor signalling. Dogs homozygous for p.M320I were lighter and showed delayed pubertal development but were not significantly more obese than wild-type or heterozygous dogs. We also established that the lack of Mc3r delayed pubertal development in both male and female mice. Finally, we studied growth and pubertal trajectories of individuals carrying rare loss-of-function MC3R variants and found that male carriers had delayed peak weight velocity and genital development but had no evidence for excess body fat compared to non-carriers. Our results support MC3R having a conserved role across mammals in controlling growth and pubertal timing. While MC3R deficiency may influence linear growth and body composition, complete loss of MC3R does not result in a penetrant human obesity syndrome.",
-                                "url": "https://pubmed.ncbi.nlm.nih.gov/41386534/"
+                        "type": "workflow_graph",
+                        "workflow": {
+                            "id": "linkedin_profile_finder",
+                            "name": "LinkedIn Profile Finder",
+                            "description": "Find someone's LinkedIn profile using their name, title, and company",
+                            "icon": "user-search",
+                            "category": "research",
+                            "nodes": {
+                                "search_linkedin": {
+                                    "id": "search_linkedin",
+                                    "name": "Search LinkedIn",
+                                    "description": "Search for the person's LinkedIn profile",
+                                    "node_type": "execute",
+                                    "step_definition": {
+                                        "goal": "Find the person's LinkedIn profile using their name, title, and company",
+                                        "tools": [
+                                            "web_search"
+                                        ],
+                                        "input_fields": [
+                                            "person_name",
+                                            "job_title",
+                                            "company_name"
+                                        ],
+                                        "output_field": "search_results",
+                                        "prompt_template": "Search for LinkedIn profile of {person_name} who works as {job_title} at {company_name}. Look for their official LinkedIn profile URL and basic profile information."
+                                    }
+                                },
+                                "verify_profile": {
+                                    "id": "verify_profile",
+                                    "name": "Verify Profile Match",
+                                    "description": "Verify the found profile matches the search criteria",
+                                    "node_type": "execute",
+                                    "step_definition": {
+                                        "goal": "Verify that the found LinkedIn profile matches the provided name, title, and company",
+                                        "tools": [
+                                            "fetch_webpage"
+                                        ],
+                                        "input_fields": [
+                                            "search_results",
+                                            "person_name",
+                                            "job_title",
+                                            "company_name"
+                                        ],
+                                        "output_field": "verified_profile",
+                                        "prompt_template": "Verify that the LinkedIn profile from {search_results} matches {person_name} working as {job_title} at {company_name}. Extract key profile details and confirm the match."
+                                    }
+                                },
+                                "review_results": {
+                                    "id": "review_results",
+                                    "name": "Review Profile Match",
+                                    "description": "User reviews the found LinkedIn profile",
+                                    "node_type": "checkpoint",
+                                    "checkpoint_config": {
+                                        "title": "Review LinkedIn Profile",
+                                        "description": "Review the found LinkedIn profile to confirm it matches the person you're looking for",
+                                        "allowed_actions": [
+                                            "approve",
+                                            "reject"
+                                        ],
+                                        "editable_fields": []
+                                    }
+                                }
                             },
-                            {
-                                "pmid": "41380317",
-                                "title": "Novel miR-290 regulates melanogenesis in Liancheng white ducks via the PI3K/AKT signaling pathway.",
-                                "authors": [
-                                    "Xin Q",
-                                    "Shi W",
-                                    "Liu X"
-                                ],
-                                "journal": "Poultry science",
-                                "publication_date": "2025-Dec-07",
-                                "abstract": "This study aimed to investigate the role of a novel duck miR-290, which targets Phosphatidyqinositol-3 kinase (PI3K), in regulating melanogenesis in Liancheng white ducks. Differentially expressed miRNAs (DEmiRNA) associated with melanogenesis were first screened by transcriptome sequencing of mouth skin and skin from 130-day-old Liancheng white ducks. The interaction between novel miR-290 and the PI3K 3'UTR was verified by a dual-luciferase reporter assay. Primary duck melanocytes were then isolated from the mouth skin tissue, and the function of miR-290 was examined at the cellular level. The results revealed that novel miR-290 directly targeted PI3K, and the levels of p-PI3K and p-AKT were significantly decreased in the mouth skin compared with skin (P < 0.05), whereas p-GSK3β, Integrin-linked kinase (ILK), Microphthalmia-associated transcription factor (MITF), tyrosinase (TYR), and Melanocortin 1 Receptor (MC1R) were significantly increased in the mouth skin(P < 0.05). The isolated melanocytes were spindle-shaped and positive for DOPA and melanocytic markers.Overexpression of miR-290 significantly promoted melanocyte proliferation and melanin production (P < 0.01);(RT-qPCR) and Western blot analysis revealed that miR-290 inhibited the expression of PI3K and protein kinase B (AKT) (P < 0.05) and increased the expression of ILK, Glycogen Synthase Kinase 3β (GSK3β), MC1R, MITF, TYR, tyrosinase-related protein 1 (TYRP1), and tyrosinase-related protein 2 (TYRP2) (P < 0.05). In conclusion, this study identifies a novel duck miR-290 as a positive regulator of melanogenesis, which promotes melanocyte proliferation and melanin synthesis in Liancheng white ducks by suppressing PI3K/AKT signaling and activating downstream melanogenic genes.",
-                                "url": "https://pubmed.ncbi.nlm.nih.gov/41380317/"
-                            },
-                            {
-                                "pmid": "41361717",
-                                "title": "In Vivo Gastric Expression of FTO and MC4R in Sleeve Gastrectomy Patients: Diagnostic Utility Without Predictive Value for Weight Loss.",
-                                "authors": [
-                                    "Hany M",
-                                    "ElDeeb MK",
-                                    "Elmongui E"
-                                ],
-                                "journal": "Obesity surgery",
-                                "publication_date": "2025-Dec-09",
-                                "abstract": "The fat mass and obesity-associated (FTO) and melanocortin-4 receptor (MC4R) genes have been implicated in the pathophysiology of obesity. However, their regulatory behavior in human gastric tissue and association with postoperative weight loss following metabolic and bariatric surgery (MBS) remain unclear.In this prospective case-control study, gastric tissue from 50 patients with obesity undergoing laparoscopic sleeve gastrectomy and 48 non-obese controls was analyzed for FTO and MC4R mRNA expression using quantitative PCR. Adjusted Inverse propensity score weighting (IPSW-adjusted) and age-/sex-adjusted linear regression were applied. Receiver operating characteristic (ROC) curves were used to evaluate discriminatory thresholds. Correlation with 12-month percent total weight loss (%TWL) was assessed.FTO expression was significantly upregulated (mean fold-change: 4.68, p < 0.001) and MC4R downregulated (mean fold-change: - 0.91, p < 0.001) in patients with obesity. ROC analysis identified thresholds of > 1.515 for FTO (AUC = 1.00) and < 0.525 for MC4R (AUC = 1.00), both with high sensitivity and specificity. No significant correlation was observed between gene expression and %TWL at 12-month follow-up.Gastric expression of FTO and MC4R accurately discriminates between individuals with and without obesity but does not predict postoperative weight loss outcomes after sleeve gastrectomy. These findings indicate diagnostic potential, whereas prognostic value remains unsubstantial.",
-                                "url": "https://pubmed.ncbi.nlm.nih.gov/41361717/"
+                            "edges": [
+                                {
+                                    "from_node": "search_linkedin",
+                                    "to_node": "verify_profile"
+                                },
+                                {
+                                    "from_node": "verify_profile",
+                                    "to_node": "review_results"
+                                }
+                            ],
+                            "entry_node": "search_linkedin",
+                            "input_schema": {
+                                "type": "object",
+                                "properties": {
+                                    "person_name": {
+                                        "type": "string",
+                                        "description": "Full name of the person"
+                                    },
+                                    "job_title": {
+                                        "type": "string",
+                                        "description": "Their job title or position"
+                                    },
+                                    "company_name": {
+                                        "type": "string",
+                                        "description": "Name of their company"
+                                    }
+                                },
+                                "required": [
+                                    "person_name",
+                                    "job_title",
+                                    "company_name"
+                                ]
                             }
-                        ]
+                        },
+                        "summary": "## Workflow: LinkedIn Profile Finder\n\nFind someone's LinkedIn profile using their name, title, and company\n\n### Steps (3 nodes)\n\n- ⚙️ **Search LinkedIn**: Search for the person's LinkedIn profile\n- ⚙️ **Verify Profile Match**: Verify the found profile matches the search criteria\n- ⏸️ **Review Profile Match**: User reviews the found LinkedIn profile\n\n### Flow\nEntry: `search_linkedin`\n- search_linkedin → verify_profile\n- verify_profile → review_results\n"
                     },
                     "workspace_payload": {
-                        "type": "table",
-                        "title": "PubMed: melanocortin",
-                        "content": "Found 3 total results, showing 3",
-                        "table_data": {
-                            "columns": [
+                        "type": "workflow_graph",
+                        "title": "LinkedIn Profile Finder",
+                        "content": "## Workflow: LinkedIn Profile Finder\n\nFind someone's LinkedIn profile using their name, title, and company\n\n### Steps (3 nodes)\n\n- ⚙️ **Search LinkedIn**: Search for the person's LinkedIn profile\n- ⚙️ **Verify Profile Match**: Verify the found profile matches the search criteria\n- ⏸️ **Review Profile Match**: User reviews the found LinkedIn profile\n\n### Flow\nEntry: `search_linkedin`\n- search_linkedin → verify_profile\n- verify_profile → review_results\n",
+                        "workflow_graph_data": {
+                            "id": "linkedin_profile_finder",
+                            "name": "LinkedIn Profile Finder",
+                            "description": "Find someone's LinkedIn profile using their name, title, and company",
+                            "icon": "user-search",
+                            "category": "research",
+                            "nodes": {
+                                "search_linkedin": {
+                                    "id": "search_linkedin",
+                                    "name": "Search LinkedIn",
+                                    "description": "Search for the person's LinkedIn profile",
+                                    "node_type": "execute",
+                                    "step_definition": {
+                                        "goal": "Find the person's LinkedIn profile using their name, title, and company",
+                                        "tools": [
+                                            "web_search"
+                                        ],
+                                        "input_fields": [
+                                            "person_name",
+                                            "job_title",
+                                            "company_name"
+                                        ],
+                                        "output_field": "search_results",
+                                        "prompt_template": "Search for LinkedIn profile of {person_name} who works as {job_title} at {company_name}. Look for their official LinkedIn profile URL and basic profile information."
+                                    }
+                                },
+                                "verify_profile": {
+                                    "id": "verify_profile",
+                                    "name": "Verify Profile Match",
+                                    "description": "Verify the found profile matches the search criteria",
+                                    "node_type": "execute",
+                                    "step_definition": {
+                                        "goal": "Verify that the found LinkedIn profile matches the provided name, title, and company",
+                                        "tools": [
+                                            "fetch_webpage"
+                                        ],
+                                        "input_fields": [
+                                            "search_results",
+                                            "person_name",
+                                            "job_title",
+                                            "company_name"
+                                        ],
+                                        "output_field": "verified_profile",
+                                        "prompt_template": "Verify that the LinkedIn profile from {search_results} matches {person_name} working as {job_title} at {company_name}. Extract key profile details and confirm the match."
+                                    }
+                                },
+                                "review_results": {
+                                    "id": "review_results",
+                                    "name": "Review Profile Match",
+                                    "description": "User reviews the found LinkedIn profile",
+                                    "node_type": "checkpoint",
+                                    "checkpoint_config": {
+                                        "title": "Review LinkedIn Profile",
+                                        "description": "Review the found LinkedIn profile to confirm it matches the person you're looking for",
+                                        "allowed_actions": [
+                                            "approve",
+                                            "reject"
+                                        ],
+                                        "editable_fields": []
+                                    }
+                                }
+                            },
+                            "edges": [
                                 {
-                                    "key": "pmid",
-                                    "label": "PMID",
-                                    "type": "text",
-                                    "sortable": true,
-                                    "width": "80px"
+                                    "from_node": "search_linkedin",
+                                    "to_node": "verify_profile"
                                 },
                                 {
-                                    "key": "title",
-                                    "label": "Title",
-                                    "type": "text",
-                                    "sortable": true
-                                },
-                                {
-                                    "key": "authors_display",
-                                    "label": "Authors",
-                                    "type": "text",
-                                    "sortable": true
-                                },
-                                {
-                                    "key": "journal",
-                                    "label": "Journal",
-                                    "type": "text",
-                                    "sortable": true,
-                                    "filterable": true
-                                },
-                                {
-                                    "key": "publication_date",
-                                    "label": "Date",
-                                    "type": "text",
-                                    "sortable": true,
-                                    "width": "100px"
-                                },
-                                {
-                                    "key": "url",
-                                    "label": "Link",
-                                    "type": "link",
-                                    "sortable": false,
-                                    "width": "60px"
+                                    "from_node": "verify_profile",
+                                    "to_node": "review_results"
                                 }
                             ],
-                            "rows": [
-                                {
-                                    "pmid": "41386534",
-                                    "title": "Cross-species studies implicate the melanocortin 3 receptor more strongly in the control of pubertal development than energy balance.",
-                                    "authors_display": "Duckett K, McClellan A, Corbin LJ",
-                                    "journal": "Molecular metabolism",
-                                    "publication_date": "2025-Dec-10",
-                                    "url": "https://pubmed.ncbi.nlm.nih.gov/41386534/",
-                                    "abstract": "Hypothalamic neurons expressing either POMC or AGRP sense nutritional state directly and indirectly and transmit these neuropeptide signals to other brain centres through the melanocortin 3 and 4 receptors. MC4R is primarily concerned with the control of appetite and energy expenditure while MC3R is more closely related to the control of linear growth and the timing of puberty. The role of MC3R in the long-term control of energy balance and body composition is less clear, particularly in humans. We have undertaken studies in humans, domestic dogs and mice with the goal of clarifying the relative impact of MC3R deficiency on energy balance, growth and sexual development. By studying three large consanguineously enriched cohorts, totalling approximately 300K people, we identified nine individuals who are homozygous for functionally null MC3R variants. The body mass index (BMI) of the homozygous MC3R variant carriers was not significantly different from that of age, sex and demographically matched controls, with six of the nine homozygotes having a BMI < 30kg/m2. We detected a canine MC3R missense variant (p.M320I) which is common in labrador retrievers and showed that this significantly impairs receptor signalling. Dogs homozygous for p.M320I were lighter and showed delayed pubertal development but were not significantly more obese than wild-type or heterozygous dogs. We also established that the lack of Mc3r delayed pubertal development in both male and female mice. Finally, we studied growth and pubertal trajectories of individuals carrying rare loss-of-function MC3R variants and found that male carriers had delayed peak weight velocity and genital development but had no evidence for excess body fat compared to non-carriers. Our results support MC3R having a conserved role across mammals in controlling growth and pubertal timing. While MC3R deficiency may influence linear growth and body composition, complete loss of MC3R does not result in a penetrant human obesity syndrome."
+                            "entry_node": "search_linkedin",
+                            "input_schema": {
+                                "type": "object",
+                                "properties": {
+                                    "person_name": {
+                                        "type": "string",
+                                        "description": "Full name of the person"
+                                    },
+                                    "job_title": {
+                                        "type": "string",
+                                        "description": "Their job title or position"
+                                    },
+                                    "company_name": {
+                                        "type": "string",
+                                        "description": "Name of their company"
+                                    }
                                 },
-                                {
-                                    "pmid": "41380317",
-                                    "title": "Novel miR-290 regulates melanogenesis in Liancheng white ducks via the PI3K/AKT signaling pathway.",
-                                    "authors_display": "Xin Q, Shi W, Liu X",
-                                    "journal": "Poultry science",
-                                    "publication_date": "2025-Dec-07",
-                                    "url": "https://pubmed.ncbi.nlm.nih.gov/41380317/",
-                                    "abstract": "This study aimed to investigate the role of a novel duck miR-290, which targets Phosphatidyqinositol-3 kinase (PI3K), in regulating melanogenesis in Liancheng white ducks. Differentially expressed miRNAs (DEmiRNA) associated with melanogenesis were first screened by transcriptome sequencing of mouth skin and skin from 130-day-old Liancheng white ducks. The interaction between novel miR-290 and the PI3K 3'UTR was verified by a dual-luciferase reporter assay. Primary duck melanocytes were then isolated from the mouth skin tissue, and the function of miR-290 was examined at the cellular level. The results revealed that novel miR-290 directly targeted PI3K, and the levels of p-PI3K and p-AKT were significantly decreased in the mouth skin compared with skin (P < 0.05), whereas p-GSK3β, Integrin-linked kinase (ILK), Microphthalmia-associated transcription factor (MITF), tyrosinase (TYR), and Melanocortin 1 Receptor (MC1R) were significantly increased in the mouth skin(P < 0.05). The isolated melanocytes were spindle-shaped and positive for DOPA and melanocytic markers.Overexpression of miR-290 significantly promoted melanocyte proliferation and melanin production (P < 0.01);(RT-qPCR) and Western blot analysis revealed that miR-290 inhibited the expression of PI3K and protein kinase B (AKT) (P < 0.05) and increased the expression of ILK, Glycogen Synthase Kinase 3β (GSK3β), MC1R, MITF, TYR, tyrosinase-related protein 1 (TYRP1), and tyrosinase-related protein 2 (TYRP2) (P < 0.05). In conclusion, this study identifies a novel duck miR-290 as a positive regulator of melanogenesis, which promotes melanocyte proliferation and melanin synthesis in Liancheng white ducks by suppressing PI3K/AKT signaling and activating downstream melanogenic genes."
-                                },
-                                {
-                                    "pmid": "41361717",
-                                    "title": "In Vivo Gastric Expression of FTO and MC4R in Sleeve Gastrectomy Patients: Diagnostic Utility Without Predictive Value for Weight Loss.",
-                                    "authors_display": "Hany M, ElDeeb MK, Elmongui E",
-                                    "journal": "Obesity surgery",
-                                    "publication_date": "2025-Dec-09",
-                                    "url": "https://pubmed.ncbi.nlm.nih.gov/41361717/",
-                                    "abstract": "The fat mass and obesity-associated (FTO) and melanocortin-4 receptor (MC4R) genes have been implicated in the pathophysiology of obesity. However, their regulatory behavior in human gastric tissue and association with postoperative weight loss following metabolic and bariatric surgery (MBS) remain unclear.In this prospective case-control study, gastric tissue from 50 patients with obesity undergoing laparoscopic sleeve gastrectomy and 48 non-obese controls was analyzed for FTO and MC4R mRNA expression using quantitative PCR. Adjusted Inverse propensity score weighting (IPSW-adjusted) and age-/sex-adjusted linear regression were applied. Receiver operating characteristic (ROC) curves were used to evaluate discriminatory thresholds. Correlation with 12-month percent total weight loss (%TWL) was assessed.FTO expression was significantly upregulated (mean fold-change: 4.68, p < 0.001) and MC4R downregulated (mean fold-change: - 0.91, p < 0.001) in patients with obesity. ROC analysis identified thresholds of > 1.515 for FTO (AUC = 1.00) and < 0.525 for MC4R (AUC = 1.00), both with high sensitivity and specificity. No significant correlation was observed between gene expression and %TWL at 12-month follow-up.Gastric expression of FTO and MC4R accurately discriminates between individuals with and without obesity but does not predict postoperative weight loss outcomes after sleeve gastrectomy. These findings indicate diagnostic potential, whereas prognostic value remains unsubstantial."
-                                }
-                            ],
-                            "source": "pubmed_search"
+                                "required": [
+                                    "person_name",
+                                    "job_title",
+                                    "company_name"
+                                ]
+                            }
                         }
                     }
                 }
             ]
+        },
+        "workspace_payload": {
+            "type": "workflow_graph",
+            "title": "LinkedIn Profile Finder",
+            "content": "## Workflow: LinkedIn Profile Finder\n\nFind someone's LinkedIn profile using their name, title, and company\n\n### Steps (3 nodes)\n\n- ⚙️ **Search LinkedIn**: Search for the person's LinkedIn profile\n- ⚙️ **Verify Profile Match**: Verify the found profile matches the search criteria\n- ⏸️ **Review Profile Match**: User reviews the found LinkedIn profile\n\n### Flow\nEntry: `search_linkedin`\n- search_linkedin → verify_profile\n- verify_profile → review_results\n",
+            "workflow_graph_data": {
+                "id": "linkedin_profile_finder",
+                "name": "LinkedIn Profile Finder",
+                "description": "Find someone's LinkedIn profile using their name, title, and company",
+                "icon": "user-search",
+                "category": "research",
+                "nodes": {
+                    "search_linkedin": {
+                        "id": "search_linkedin",
+                        "name": "Search LinkedIn",
+                        "description": "Search for the person's LinkedIn profile",
+                        "node_type": "execute",
+                        "step_definition": {
+                            "goal": "Find the person's LinkedIn profile using their name, title, and company",
+                            "tools": [
+                                "web_search"
+                            ],
+                            "input_fields": [
+                                "person_name",
+                                "job_title",
+                                "company_name"
+                            ],
+                            "output_field": "search_results",
+                            "prompt_template": "Search for LinkedIn profile of {person_name} who works as {job_title} at {company_name}. Look for their official LinkedIn profile URL and basic profile information."
+                        }
+                    },
+                    "verify_profile": {
+                        "id": "verify_profile",
+                        "name": "Verify Profile Match",
+                        "description": "Verify the found profile matches the search criteria",
+                        "node_type": "execute",
+                        "step_definition": {
+                            "goal": "Verify that the found LinkedIn profile matches the provided name, title, and company",
+                            "tools": [
+                                "fetch_webpage"
+                            ],
+                            "input_fields": [
+                                "search_results",
+                                "person_name",
+                                "job_title",
+                                "company_name"
+                            ],
+                            "output_field": "verified_profile",
+                            "prompt_template": "Verify that the LinkedIn profile from {search_results} matches {person_name} working as {job_title} at {company_name}. Extract key profile details and confirm the match."
+                        }
+                    },
+                    "review_results": {
+                        "id": "review_results",
+                        "name": "Review Profile Match",
+                        "description": "User reviews the found LinkedIn profile",
+                        "node_type": "checkpoint",
+                        "checkpoint_config": {
+                            "title": "Review LinkedIn Profile",
+                            "description": "Review the found LinkedIn profile to confirm it matches the person you're looking for",
+                            "allowed_actions": [
+                                "approve",
+                                "reject"
+                            ],
+                            "editable_fields": []
+                        }
+                    }
+                },
+                "edges": [
+                    {
+                        "from_node": "search_linkedin",
+                        "to_node": "verify_profile"
+                    },
+                    {
+                        "from_node": "verify_profile",
+                        "to_node": "review_results"
+                    }
+                ],
+                "entry_node": "search_linkedin",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "person_name": {
+                            "type": "string",
+                            "description": "Full name of the person"
+                        },
+                        "job_title": {
+                            "type": "string",
+                            "description": "Their job title or position"
+                        },
+                        "company_name": {
+                            "type": "string",
+                            "description": "Name of their company"
+                        }
+                    },
+                    "required": [
+                        "person_name",
+                        "job_title",
+                        "company_name"
+                    ]
+                }
+            }
         }
-    },
-    "status": "complete",
-    "error": null,
-    "debug": null
+    }
 }

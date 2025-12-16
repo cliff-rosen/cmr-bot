@@ -490,11 +490,43 @@ export default function MainPage() {
         setSelectedTool(toolCall);
     };
 
-    // Agent payload handlers
-    const handleAcceptAgent = useCallback(async (payload: WorkspacePayload) => {
-        if (!payload.agent_data) return;
-
+    // Payload accept handler (agents, workflows, etc.)
+    const handleAcceptPayload = useCallback(async (payload: WorkspacePayload) => {
         try {
+            // Handle workflow_graph payloads - execute the workflow
+            if (payload.type === 'workflow_graph' && payload.workflow_graph_data) {
+                const workflowGraph = payload.workflow_graph_data;
+
+                // Start the workflow with the inline graph
+                const { handlers } = await startWorkflowWithUI(
+                    null, // No template ID
+                    { query: 'Execute designed workflow' }, // Initial input
+                    {
+                        setWorkflowState: setWorkflowInstance,
+                        setIsProcessing: setIsWorkflowProcessing,
+                        setCurrentEvent: setCurrentWorkflowEvent,
+                        conversationId: conversationId ?? undefined,
+                        showNotification: (message, type) => {
+                            toast({
+                                title: type === 'error' ? 'Error' : 'Success',
+                                description: message,
+                                variant: type === 'error' ? 'destructive' : 'default',
+                            });
+                        }
+                    },
+                    workflowGraph as Record<string, any> // Pass the inline graph
+                );
+
+                setWorkflowHandlers(handlers);
+
+                // Clear the payload (workflow view will take over)
+                setActivePayload(null);
+                return;
+            }
+
+            // Handle agent payloads
+            if (!payload.agent_data) return;
+
             if (payload.type === 'agent_create') {
                 // Create new agent
                 await agentApi.create({
@@ -528,15 +560,15 @@ export default function MainPage() {
                 });
             }
         } catch (error) {
-            console.error('Failed to save agent:', error);
-            sendMessage(`Failed to save agent: ${error instanceof Error ? error.message : 'Unknown error'}`, InteractionType.ACTION_EXECUTED, {
-                action_identifier: 'agent_save_failed'
+            console.error('Failed to process payload:', error);
+            sendMessage(`Failed to process: ${error instanceof Error ? error.message : 'Unknown error'}`, InteractionType.ACTION_EXECUTED, {
+                action_identifier: 'payload_accept_failed'
             });
         }
 
         // Clear the payload
         setActivePayload(null);
-    }, [sendMessage]);
+    }, [sendMessage, conversationId, toast]);
 
     const handleRejectAgent = useCallback(() => {
         setActivePayload(null);
@@ -753,7 +785,7 @@ export default function MainPage() {
                     onSavePayloadAsAsset={handleSavePayloadAsAsset}
                     isSavingAsset={isSavingAsset}
                     onPayloadEdit={handlePayloadEdit}
-                    onAcceptAgent={handleAcceptAgent}
+                    onAcceptAgent={handleAcceptPayload}
                     onRejectAgent={handleRejectAgent}
                     onUpdateResearchWorkflow={handleUpdateResearchWorkflow}
                     onResearchProceed={handleResearchProceed}

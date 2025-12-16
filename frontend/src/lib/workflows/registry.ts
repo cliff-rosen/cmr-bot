@@ -264,11 +264,16 @@ export function createWorkflowHandlers(
 
 /**
  * Start a workflow and return the initial state.
+ *
+ * Can accept either:
+ * - workflowId: Reference to a registered template
+ * - workflowGraph: Inline graph definition (for agent-designed workflows)
  */
 export async function startWorkflowWithUI(
-    workflowId: string,
+    workflowId: string | null,
     initialInput: Record<string, any>,
-    deps: WorkflowDeps
+    deps: WorkflowDeps,
+    workflowGraph?: Record<string, any>
 ): Promise<{ instanceId: string; handlers: WorkflowHandlers }> {
     // Indicate processing has started
     deps.setIsProcessing?.(true);
@@ -276,11 +281,12 @@ export async function startWorkflowWithUI(
     // Create abort controller for the initial run
     const abortController = new AbortController();
 
-    // Create the instance
+    // Create the instance (either from template or inline graph)
     const { instance_id } = await workflowApi.startWorkflow(
         workflowId,
         initialInput,
-        deps.conversationId
+        deps.conversationId,
+        workflowGraph
     );
 
     // Create handlers with the abort controller

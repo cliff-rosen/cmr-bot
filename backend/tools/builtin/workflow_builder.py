@@ -354,7 +354,9 @@ Return ONLY the JSON workflow graph. No other text. Follow the exact schema from
         # Build payload for workspace view
         workflow_payload = {
             "type": "workflow_graph",
-            "workflow": workflow_data
+            "title": workflow_data.get('name', 'Workflow Design'),
+            "content": summary,
+            "workflow_graph_data": workflow_data
         }
 
         return ToolResult(
@@ -362,11 +364,7 @@ Return ONLY the JSON workflow graph. No other text. Follow the exact schema from
 
 {summary}
 
-**To execute this workflow**, the user can approve it and it will be run through the workflow engine with checkpoints for review at each stage.
-
-```payload
-{json.dumps(workflow_payload, indent=2)}
-```""",
+**To execute this workflow**, you can run it from the workspace panel to test it.""",
             data={
                 "type": "workflow_graph",
                 "workflow": workflow_data,

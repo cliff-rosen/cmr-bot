@@ -43,7 +43,7 @@ export interface ToolCall {
     workspace_payload?: WorkspacePayload;  // Payload to display in workspace panel
 }
 
-export type WorkspacePayloadType = 'draft' | 'summary' | 'data' | 'code' | 'agent_create' | 'agent_update' | 'table' | 'research' | 'research_result';
+export type WorkspacePayloadType = 'draft' | 'summary' | 'data' | 'code' | 'agent_create' | 'agent_update' | 'table' | 'research' | 'research_result' | 'workflow_graph';
 
 // Table payload types for TABILIZER functionality
 export interface TableColumn {
@@ -92,6 +92,59 @@ export interface ResearchResultData {
     queries_used: string[];
 }
 
+// Workflow Graph types (from design_workflow tool)
+export interface WorkflowStepDefinition {
+    id: string;
+    name: string;
+    description: string;
+    goal: string;
+    tools: string[];
+    input_fields: string[];
+    output_field: string;
+    prompt_template?: string;
+    instructions?: string;
+    mode: 'llm' | 'tool' | 'llm_with_tools';
+}
+
+export interface WorkflowCheckpointConfig {
+    title: string;
+    description: string;
+    allowed_actions: string[];
+    editable_fields: string[];
+    auto_proceed?: boolean;
+    auto_proceed_timeout_seconds?: number;
+}
+
+export interface WorkflowNode {
+    id: string;
+    name: string;
+    description: string;
+    node_type: 'execute' | 'checkpoint';
+    step_definition?: WorkflowStepDefinition;
+    checkpoint_config?: WorkflowCheckpointConfig;
+    ui_component?: string;
+}
+
+export interface WorkflowEdge {
+    from_node: string;
+    to_node: string;
+    label?: string;
+    condition_expr?: string;
+}
+
+export interface WorkflowGraphData {
+    id: string;
+    name: string;
+    description: string;
+    nodes: Record<string, WorkflowNode>;
+    edges: WorkflowEdge[];
+    entry_node: string;
+    icon?: string;
+    category?: string;
+    input_schema?: Record<string, any>;
+    output_schema?: Record<string, any>;
+}
+
 export interface WorkspacePayload {
     type: WorkspacePayloadType;
     title: string;
@@ -106,6 +159,8 @@ export interface WorkspacePayload {
     research_data?: ResearchWorkflow;
     // Extended fields for research result (from deep_research tool)
     research_result_data?: ResearchResultData;
+    // Extended fields for workflow graph (from design_workflow tool)
+    workflow_graph_data?: WorkflowGraphData;
 }
 
 // ============================================================================
@@ -214,7 +269,7 @@ export interface ResearchSource {
     contribution: string;       // How this source contributed
 }
 
-const VALID_PAYLOAD_TYPES = ['draft', 'summary', 'data', 'code', 'agent_create', 'agent_update', 'table', 'research', 'research_result'];
+const VALID_PAYLOAD_TYPES = ['draft', 'summary', 'data', 'code', 'agent_create', 'agent_update', 'table', 'research', 'research_result', 'workflow_graph'];
 
 /**
  * Parse a workspace payload from message content.
@@ -224,9 +279,8 @@ const VALID_PAYLOAD_TYPES = ['draft', 'summary', 'data', 'code', 'agent_create',
 export function parseWorkspacePayload(content: string): { text: string; payload: WorkspacePayload | null } {
     // Try multiple patterns - LLM might format differently
     const patterns = [
-        /```payload\s*\n([\s\S]*?)\n```/,      // ```payload\n...\n```
-        /```payload\s+([\s\S]*?)```/,           // ```payload {...}```
-        /```json\s*\n(\{[\s\S]*?"type"\s*:\s*"(?:draft|summary|data|code|agent_create|agent_update)"[\s\S]*?\})\n```/, // ```json with type field
+        /```payload\s*\n?([\s\S]*?)```/,        // ```payload ... ``` (most permissive)
+        /```json\s*\n(\{[\s\S]*?"type"\s*:\s*"(?:draft|summary|data|code|agent_create|agent_update|workflow_graph|table|research|research_result)"[\s\S]*?\})\s*```/, // ```json with type field
     ];
 
     for (const regex of patterns) {
@@ -250,6 +304,11 @@ export function parseWorkspacePayload(content: string): { text: string; payload:
                 }
                 // agent_update also requires agent_id
                 if (payload.type === 'agent_update' && !payload.agent_data?.agent_id) {
+                    continue;
+                }
+            } else if (payload.type === 'workflow_graph') {
+                // Workflow graph payloads require title and workflow_graph_data
+                if (!payload.title || !payload.workflow_graph_data) {
                     continue;
                 }
             } else {
