@@ -15,7 +15,7 @@ from typing import Any, Dict, Generator
 from sqlalchemy.orm import Session
 import anthropic
 
-from tools.registry import ToolConfig, ToolResult, ToolProgress, register_tool, get_tool
+from tools.registry import ToolConfig, ToolResult, ToolProgress, register_tool, get_tool, get_all_tools
 from schemas.workflow import WorkflowGraph, StepNode, StepDefinition, Edge, CheckpointConfig, CheckpointAction
 
 
@@ -23,230 +23,209 @@ def _tool_exists(tool_name: str) -> bool:
     """Check if a tool exists in the tool registry."""
     return get_tool(tool_name) is not None
 
+
+def _get_available_tools_description() -> str:
+    """
+    Build a description of available tools for workflow steps.
+
+    Excludes tools that don't make sense inside workflow steps
+    (like design_workflow itself, or agent management tools).
+    """
+    # Tools to exclude from workflow steps
+    excluded_tools = {
+        "design_workflow",  # Can't nest workflow design
+        "create_agent",     # Agent management
+        "update_agent",
+        "delete_agent",
+        "list_agents",
+    }
+
+    tools = get_all_tools()
+    available = [t for t in tools if t.name not in excluded_tools]
+
+    if not available:
+        return "No tools currently available."
+
+    lines = []
+    for t in available:
+        # Truncate long descriptions
+        desc = t.description
+        if len(desc) > 150:
+            desc = desc[:147] + "..."
+        lines.append(f"- **{t.name}**: {desc}")
+
+    return "\n".join(lines)
+
 logger = logging.getLogger(__name__)
 
 WORKFLOW_BUILDER_MODEL = "claude-sonnet-4-20250514"
 WORKFLOW_BUILDER_MAX_TOKENS = 4096
+MAX_VALIDATION_RETRIES = 2
 
-# Comprehensive system prompt for the workflow builder agent
-WORKFLOW_BUILDER_SYSTEM_PROMPT = """You are a Workflow Architect - a specialized agent that designs executable graph-based workflows.
 
-## Your Role
-You design EXECUTABLE graph-based workflows that:
-1. Can be run by the workflow engine
-2. Include checkpoints for user review
-3. Use declarative step definitions (not code)
-4. Support loops and branching via edge conditions
+def _build_system_prompt(available_tools: str) -> str:
+    """Build the system prompt with dynamic tool list."""
+    return f"""You are a Workflow Architect that designs executable graph-based workflows.
 
-## Workflow Structure
+## CRITICAL: Output Format
 
-Workflows are DIRECTED GRAPHS with:
-- **Nodes**: Either "execute" (do something) or "checkpoint" (wait for user)
-- **Edges**: Define transitions between nodes
-- **Entry node**: Where execution starts
+You MUST output ONLY valid JSON matching this EXACT schema. No other text.
 
-## Node Types
+## Required JSON Structure
 
-### Execute Nodes
-Run a step using an LLM with optional tools.
 ```json
-{
-  "id": "research",
-  "name": "Research Topic",
-  "description": "Research the topic thoroughly",
-  "node_type": "execute",
-  "step_definition": {
-    "goal": "Research and summarize the topic",
-    "tools": ["web_search"],
-    "input_fields": ["user_query"],
-    "output_field": "research_results",
-    "prompt_template": "Research this topic: {user_query}"
-  }
-}
-```
-
-### Checkpoint Nodes
-Pause for user review/approval before continuing.
-```json
-{
-  "id": "review_results",
-  "name": "Review Results",
-  "description": "User reviews the research",
-  "node_type": "checkpoint",
-  "checkpoint_config": {
-    "title": "Review Research Results",
-    "description": "Review the findings and approve or request changes",
-    "allowed_actions": ["approve", "edit", "reject"],
-    "editable_fields": ["research_results"]
-  }
-}
-```
-
-## Available Tools for Steps
-
-- **web_search**: Search the web for information
-- **fetch_webpage**: Fetch and read a specific URL
-- **deep_research**: Comprehensive multi-source research
-- **map_reduce**: Process a list and aggregate results
-- **iterate**: Apply same operation to each item in a list
-
-## Edge Conditions
-
-For loops or branching, add `condition_expr` to edges:
-```json
-{"from_node": "process", "to_node": "process", "condition_expr": "items_remaining == True", "label": "continue"}
-{"from_node": "process", "to_node": "finalize", "condition_expr": "items_remaining == False", "label": "done"}
-```
-
-## Output Format
-
-Return a complete workflow graph as JSON:
-```json
-{
-  "id": "workflow_id",
-  "name": "Workflow Name",
-  "description": "What this workflow does",
-  "icon": "search",
-  "category": "research",
-
-  "nodes": {
-    "step_1": {
-      "id": "step_1",
-      "name": "Step Name",
-      "description": "What this step does",
-      "node_type": "execute",
-      "step_definition": {
-        "goal": "The goal of this step",
-        "tools": ["tool_name"],
-        "input_fields": ["field_from_context"],
-        "output_field": "result_field",
-        "prompt_template": "Instructions with {field_from_context}"
-      }
-    },
-    "review_1": {
-      "id": "review_1",
-      "name": "Review Step 1",
-      "description": "User reviews output",
-      "node_type": "checkpoint",
-      "checkpoint_config": {
-        "title": "Review",
-        "description": "Review and approve",
-        "allowed_actions": ["approve", "reject"],
-        "editable_fields": []
-      }
-    }
-  },
-
+{{
+  "id": "string (snake_case identifier)",
+  "name": "string (human readable name)",
+  "description": "string (what this workflow does)",
+  "nodes": {{
+    "node_id": {{
+      "id": "node_id (must match key)",
+      "name": "string",
+      "description": "string",
+      "node_type": "execute" | "checkpoint",
+      "step_definition": {{...}}  // REQUIRED for execute nodes
+      "checkpoint_config": {{...}} // REQUIRED for checkpoint nodes
+    }}
+  }},
   "edges": [
-    {"from_node": "step_1", "to_node": "review_1"}
+    {{"from_node": "node_id", "to_node": "node_id"}}
   ],
-
-  "entry_node": "step_1",
-
-  "input_schema": {
+  "entry_node": "node_id (must exist in nodes)",
+  "input_schema": {{
     "type": "object",
-    "properties": {
-      "query": {"type": "string", "description": "The user's request"}
-    },
-    "required": ["query"]
-  }
-}
+    "properties": {{"field_name": {{"type": "string", "description": "..."}}}},
+    "required": ["field_name"]
+  }}
+}}
 ```
+
+## Execute Node step_definition (REQUIRED fields)
+
+```json
+{{
+  "id": "string",
+  "name": "string",
+  "description": "string",
+  "goal": "string (what this step accomplishes)",
+  "tools": ["tool_name"],  // Array of tool names from Available Tools below
+  "input_fields": ["field_name"],  // Fields this step reads (see Data Flow Rules)
+  "output_field": "field_name",  // Where result is stored (see Data Flow Rules)
+  "mode": "llm_with_tools"
+}}
+```
+
+## Checkpoint Node checkpoint_config (REQUIRED fields)
+
+```json
+{{
+  "title": "string",
+  "description": "string",
+  "allowed_actions": ["approve", "edit", "reject"],
+  "editable_fields": ["field_name"]  // Fields user can modify
+}}
+```
+
+## DATA FLOW RULES (CRITICAL)
+
+Each step's `input_fields` MUST reference fields that exist when the step runs:
+
+1. **input_schema fields**: Available from workflow start (e.g., "query" if defined in input_schema)
+2. **Previous step output_field**: Available after that step completes
+
+Example valid data flow:
+- input_schema defines: "query"
+- Step A: input_fields=["query"], output_field="search_results"
+- Step B: input_fields=["query", "search_results"], output_field="analysis"
+  (Step B can use "query" from input AND "search_results" from Step A)
+
+INVALID: Referencing a field that doesn't exist or comes from a later step.
+
+## Available Tools
+
+Steps can use these tools (specify in step_definition.tools array):
+
+{available_tools}
+
+Use an empty array `"tools": []` for steps that only need LLM reasoning without tools.
 
 ## Design Principles
 
-1. **Add checkpoints after significant steps** - Let users review before proceeding
-2. **Keep step goals focused** - One clear objective per step
-3. **Use tools appropriately** - web_search for finding info, deep_research for comprehensive topics
-4. **Design for reusability** - Workflows can be saved as templates
-5. **2-5 execute nodes typical** - Don't over-engineer
+1. Add checkpoints after significant steps for user review
+2. Keep step goals focused - one clear objective per step
+3. 2-5 execute nodes is typical - don't over-engineer
+4. Use tools appropriate to the task
+5. Ensure data flows correctly between steps
 
-## Example: "Research and compare cloud providers"
+## Example
 
 ```json
-{
-  "id": "cloud_comparison",
-  "name": "Cloud Provider Comparison",
-  "description": "Research and compare cloud providers for a specific use case",
-
-  "nodes": {
-    "gather_requirements": {
-      "id": "gather_requirements",
-      "name": "Understand Requirements",
-      "description": "Extract comparison criteria from user request",
+{{
+  "id": "research_topic",
+  "name": "Research Topic",
+  "description": "Research a topic and compile findings",
+  "nodes": {{
+    "search": {{
+      "id": "search",
+      "name": "Search for Information",
+      "description": "Search the web for relevant information",
       "node_type": "execute",
-      "step_definition": {
-        "goal": "Extract what the user wants to compare and their criteria",
-        "tools": [],
-        "input_fields": ["user_query"],
-        "output_field": "criteria",
-        "prompt_template": "Extract comparison criteria from: {user_query}"
-      }
-    },
-    "review_criteria": {
-      "id": "review_criteria",
-      "name": "Review Criteria",
-      "description": "User confirms comparison criteria",
+      "step_definition": {{
+        "id": "search",
+        "name": "Search",
+        "description": "Search for information",
+        "goal": "Find relevant information about the topic",
+        "tools": ["web_search"],
+        "input_fields": ["query"],
+        "output_field": "search_results",
+        "mode": "llm_with_tools"
+      }}
+    }},
+    "review": {{
+      "id": "review",
+      "name": "Review Results",
+      "description": "User reviews search results",
       "node_type": "checkpoint",
-      "checkpoint_config": {
-        "title": "Review Comparison Criteria",
-        "description": "Confirm these are the right criteria to compare",
+      "checkpoint_config": {{
+        "title": "Review Search Results",
+        "description": "Review the search results before proceeding",
         "allowed_actions": ["approve", "edit", "reject"],
-        "editable_fields": ["criteria"]
-      }
-    },
-    "research_providers": {
-      "id": "research_providers",
-      "name": "Research Providers",
-      "description": "Research each cloud provider",
+        "editable_fields": ["search_results"]
+      }}
+    }},
+    "summarize": {{
+      "id": "summarize",
+      "name": "Summarize Findings",
+      "description": "Create a summary of the research",
       "node_type": "execute",
-      "step_definition": {
-        "goal": "Research each provider based on the criteria",
-        "tools": ["map_reduce", "web_search"],
-        "input_fields": ["criteria"],
-        "output_field": "provider_analysis",
-        "prompt_template": "Research cloud providers based on: {criteria}"
-      }
-    },
-    "synthesize": {
-      "id": "synthesize",
-      "name": "Synthesize Comparison",
-      "description": "Create final comparison and recommendation",
-      "node_type": "execute",
-      "step_definition": {
-        "goal": "Synthesize findings into comparison table and recommendation",
+      "step_definition": {{
+        "id": "summarize",
+        "name": "Summarize",
+        "description": "Summarize the findings",
+        "goal": "Create a clear summary of the research findings",
         "tools": [],
-        "input_fields": ["criteria", "provider_analysis"],
-        "output_field": "comparison",
-        "prompt_template": "Create a comparison based on criteria: {criteria} and research: {provider_analysis}"
-      }
-    },
-    "final_review": {
-      "id": "final_review",
-      "name": "Review Comparison",
-      "description": "User reviews final comparison",
-      "node_type": "checkpoint",
-      "checkpoint_config": {
-        "title": "Review Final Comparison",
-        "description": "Review the comparison and recommendation",
-        "allowed_actions": ["approve", "reject"],
-        "editable_fields": []
-      }
-    }
-  },
-
+        "input_fields": ["query", "search_results"],
+        "output_field": "summary",
+        "mode": "llm_with_tools"
+      }}
+    }}
+  }},
   "edges": [
-    {"from_node": "gather_requirements", "to_node": "review_criteria"},
-    {"from_node": "review_criteria", "to_node": "research_providers"},
-    {"from_node": "research_providers", "to_node": "synthesize"},
-    {"from_node": "synthesize", "to_node": "final_review"}
+    {{"from_node": "search", "to_node": "review"}},
+    {{"from_node": "review", "to_node": "summarize"}}
   ],
-
-  "entry_node": "gather_requirements"
-}
+  "entry_node": "search",
+  "input_schema": {{
+    "type": "object",
+    "properties": {{
+      "query": {{"type": "string", "description": "The research topic"}}
+    }},
+    "required": ["query"]
+  }}
+}}
 ```
 
-Now design an executable workflow graph for the user's request."""
+Output ONLY the JSON workflow. No explanations, no markdown formatting outside the JSON."""
 
 
 def execute_design_workflow(
@@ -259,6 +238,7 @@ def execute_design_workflow(
     Design an executable graph-based workflow for a given goal.
 
     Creates a WorkflowGraph that can be executed by the workflow engine.
+    Includes validation retry loop to fix errors.
     """
     goal = params.get("goal", "")
     initial_input = params.get("initial_input", "")
@@ -273,83 +253,127 @@ def execute_design_workflow(
         data={"goal": goal}
     )
 
-    # Build the user prompt
+    # Get available tools dynamically
+    available_tools = _get_available_tools_description()
+    system_prompt = _build_system_prompt(available_tools)
+
+    # Build the initial user prompt
     user_prompt = f"""Design an executable workflow graph for this task:
 
 **Goal**: {goal}
 """
-
     if initial_input:
         user_prompt += f"\n**Initial Input/Context**: {initial_input}\n"
-
     if constraints:
         user_prompt += f"\n**Constraints/Preferences**: {constraints}\n"
-
-    user_prompt += """
-Return ONLY the JSON workflow graph. No other text. Follow the exact schema from your instructions."""
 
     try:
         client = anthropic.Anthropic(api_key=os.getenv('ANTHROPIC_API_KEY'))
 
-        response = client.messages.create(
-            model=WORKFLOW_BUILDER_MODEL,
-            max_tokens=WORKFLOW_BUILDER_MAX_TOKENS,
-            temperature=0.3,
-            system=WORKFLOW_BUILDER_SYSTEM_PROMPT,
-            messages=[{"role": "user", "content": user_prompt}]
-        )
+        # Conversation messages for retry loop
+        messages = [{"role": "user", "content": user_prompt}]
 
-        response_text = response.content[0].text.strip()
+        workflow_data = None
+        validation_errors = []
 
-        # Parse the JSON response
-        workflow_data = _parse_workflow_json(response_text)
-
-        if not workflow_data:
-            yield ToolProgress(
-                stage="error",
-                message="Failed to parse workflow graph",
-                data={"raw_response": response_text[:500]}
-            )
-            return ToolResult(
-                text=f"Failed to parse workflow graph. Raw response:\n{response_text}",
-                data={"error": "parse_error", "raw": response_text}
+        # Retry loop for validation
+        for attempt in range(MAX_VALIDATION_RETRIES + 1):
+            response = client.messages.create(
+                model=WORKFLOW_BUILDER_MODEL,
+                max_tokens=WORKFLOW_BUILDER_MAX_TOKENS,
+                temperature=0.2 if attempt == 0 else 0.1,  # Lower temp on retries
+                system=system_prompt,
+                messages=messages
             )
 
-        # Convert to WorkflowGraph and validate
-        try:
-            workflow_graph = WorkflowGraph.from_dict(workflow_data)
+            response_text = response.content[0].text.strip()
 
-            # Structure validation
-            validation_errors = workflow_graph.validate()
+            # Parse the JSON response
+            workflow_data = _parse_workflow_json(response_text)
 
-            # Data flow validation (checks input_fields, output_field, tools)
-            data_flow_errors = workflow_graph.validate_data_flow(tool_validator=_tool_exists)
-            validation_errors.extend(data_flow_errors)
+            if not workflow_data:
+                if attempt < MAX_VALIDATION_RETRIES:
+                    yield ToolProgress(
+                        stage="retrying",
+                        message=f"Failed to parse JSON (attempt {attempt + 1}), retrying...",
+                        data={"attempt": attempt + 1}
+                    )
+                    # Add retry message to conversation
+                    messages.append({"role": "assistant", "content": response_text})
+                    messages.append({
+                        "role": "user",
+                        "content": "That response was not valid JSON. Please output ONLY the JSON workflow with no other text or markdown formatting."
+                    })
+                    continue
+                else:
+                    yield ToolProgress(
+                        stage="error",
+                        message="Failed to parse workflow graph after retries",
+                        data={"raw_response": response_text[:500]}
+                    )
+                    return ToolResult(
+                        text=f"Failed to parse workflow graph. Raw response:\n{response_text}",
+                        data={"error": "parse_error", "raw": response_text}
+                    )
 
-            if validation_errors:
-                # Separate warnings from errors
-                error_types = {
-                    "structure": [e for e in validation_errors if "node" in e.lower() or "edge" in e.lower() or "entry" in e.lower()],
-                    "data_flow": [e for e in validation_errors if "input_field" in e.lower() or "output" in e.lower()],
-                    "tools": [e for e in validation_errors if "tool" in e.lower()],
-                }
+            # Validate the workflow
+            try:
+                workflow_graph = WorkflowGraph.from_dict(workflow_data)
+                validation_errors = workflow_graph.validate()
+                data_flow_errors = workflow_graph.validate_data_flow(tool_validator=_tool_exists)
+                validation_errors.extend(data_flow_errors)
+            except Exception as e:
+                validation_errors = [f"Schema error: {str(e)}"]
 
+            if not validation_errors:
+                # Valid workflow!
                 yield ToolProgress(
-                    stage="validation_warning",
-                    message=f"Workflow has validation issues: {len(validation_errors)} issue(s) found",
+                    stage="validated",
+                    message="Workflow validated successfully",
+                    data={"attempt": attempt + 1}
+                )
+                break
+
+            # Validation failed - retry if we have attempts left
+            if attempt < MAX_VALIDATION_RETRIES:
+                yield ToolProgress(
+                    stage="validation_failed",
+                    message=f"Validation errors found (attempt {attempt + 1}), fixing...",
                     data={
                         "errors": validation_errors,
-                        "error_types": error_types
+                        "attempt": attempt + 1
                     }
                 )
-        except Exception as e:
-            logger.warning(f"Could not validate workflow graph: {e}")
-            validation_errors = [str(e)]
+
+                # Add the workflow and error feedback to conversation
+                messages.append({"role": "assistant", "content": response_text})
+                error_feedback = f"""Your workflow has validation errors that must be fixed:
+
+{chr(10).join(f'- {e}' for e in validation_errors)}
+
+Please fix these issues and output the corrected JSON workflow. Remember:
+- input_fields must reference fields from input_schema OR output_field from previous steps
+- tools must be from the available tools list
+- All required fields must be present"""
+                messages.append({"role": "user", "content": error_feedback})
+            else:
+                # Out of retries - report the errors
+                yield ToolProgress(
+                    stage="validation_warning",
+                    message=f"Workflow has {len(validation_errors)} validation issue(s) after {MAX_VALIDATION_RETRIES + 1} attempts",
+                    data={"errors": validation_errors}
+                )
+
+        if not workflow_data:
+            return ToolResult(
+                text="Failed to design a valid workflow after multiple attempts.",
+                data={"error": "design_failed"}
+            )
 
         yield ToolProgress(
             stage="complete",
             message=f"Designed workflow: {workflow_data.get('name', 'Untitled')}",
-            data={"nodes": len(workflow_data.get('nodes', {}))}
+            data={"nodes": len(workflow_data.get('nodes', {})), "validation_errors": len(validation_errors)}
         )
 
         # Build a summary for the user
