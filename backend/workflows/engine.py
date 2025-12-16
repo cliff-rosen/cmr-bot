@@ -25,9 +25,11 @@ from schemas.workflow import (
     StepState,
     StepOutput,
     StepProgress,
+    StepDefinition,
     CheckpointAction,
 )
 from .registry import workflow_registry
+from .dynamic_executor import execute_dynamic_step
 
 logger = logging.getLogger(__name__)
 
@@ -270,21 +272,94 @@ class WorkflowEngine:
 
         Edges are evaluated in order. The first edge with a matching condition
         (or no condition) is taken.
+
+        Supports both Python function conditions and string expression conditions.
         """
         outgoing_edges = graph.get_outgoing_edges(from_node_id)
 
         for edge in outgoing_edges:
-            if edge.condition is None:
-                # No condition = always take this edge
+            # No condition = always take this edge
+            if edge.condition is None and edge.condition_expr is None:
                 return edge.to_node
-            try:
-                if edge.condition(context):
-                    return edge.to_node
-            except Exception as e:
-                logger.error(f"Error evaluating edge condition {from_node_id} -> {edge.to_node}: {e}")
-                continue
+
+            # Python function condition
+            if edge.condition is not None:
+                try:
+                    if edge.condition(context):
+                        return edge.to_node
+                except Exception as e:
+                    logger.error(f"Error evaluating edge condition {from_node_id} -> {edge.to_node}: {e}")
+                    continue
+
+            # String expression condition (for declarative workflows)
+            if edge.condition_expr is not None:
+                try:
+                    if self._evaluate_condition_expr(edge.condition_expr, context):
+                        return edge.to_node
+                except Exception as e:
+                    logger.error(f"Error evaluating condition_expr '{edge.condition_expr}': {e}")
+                    continue
 
         return None  # No valid edge = end of workflow
+
+    def _evaluate_condition_expr(self, expr: str, context: WorkflowContext) -> bool:
+        """
+        Evaluate a condition expression string.
+
+        Supports simple expressions like:
+        - "variable_name == True"
+        - "variable_name == 'value'"
+        - "variable_name != False"
+        - "variable_name"  (truthy check)
+
+        Uses context.variables and context.step_data for lookups.
+        """
+        expr = expr.strip()
+
+        # Build evaluation context from variables and step_data
+        eval_context = {
+            **context.variables,
+            **context.step_data,
+        }
+
+        # Simple equality checks
+        if " == " in expr:
+            left, right = expr.split(" == ", 1)
+            left_val = eval_context.get(left.strip())
+            right_val = self._parse_value(right.strip())
+            return left_val == right_val
+
+        if " != " in expr:
+            left, right = expr.split(" != ", 1)
+            left_val = eval_context.get(left.strip())
+            right_val = self._parse_value(right.strip())
+            return left_val != right_val
+
+        # Truthy check
+        return bool(eval_context.get(expr))
+
+    def _parse_value(self, value_str: str) -> Any:
+        """Parse a value string into a Python value."""
+        value_str = value_str.strip()
+        if value_str == "True":
+            return True
+        if value_str == "False":
+            return False
+        if value_str == "None":
+            return None
+        if value_str.startswith("'") and value_str.endswith("'"):
+            return value_str[1:-1]
+        if value_str.startswith('"') and value_str.endswith('"'):
+            return value_str[1:-1]
+        try:
+            return int(value_str)
+        except ValueError:
+            pass
+        try:
+            return float(value_str)
+        except ValueError:
+            pass
+        return value_str
 
     async def _execute_graph(
         self,
@@ -404,11 +479,15 @@ class WorkflowEngine:
         )
 
         try:
-            if not node.execute_fn:
-                raise ValueError(f"Node {node.id} has no execute function")
-
-            # Execute the node function
-            result = node.execute_fn(instance.context)
+            # Determine how to execute this node
+            if node.execute_fn:
+                # Traditional: Python function
+                result = node.execute_fn(instance.context)
+            elif node.step_definition:
+                # Declarative: Execute via generic executor
+                result = execute_dynamic_step(node.step_definition, instance.context)
+            else:
+                raise ValueError(f"Node {node.id} has no execute_fn or step_definition")
 
             # Check if result is an async generator (yields progress)
             if hasattr(result, '__anext__'):

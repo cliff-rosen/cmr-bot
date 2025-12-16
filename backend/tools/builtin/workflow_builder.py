@@ -1,10 +1,11 @@
 """
 Workflow Builder Tool
 
-A specialized agent that designs optimal multi-step workflows.
-When the main agent decides a workflow is needed, it calls this tool
-to get a well-designed plan that leverages advanced patterns like
-MapReduce, parallel processing, and multi-source inputs.
+A specialized agent that designs graph-based workflows that can be executed
+by the workflow engine. Creates declarative workflow definitions with:
+- StepNodes (execute or checkpoint)
+- Edges (with optional conditions)
+- StepDefinitions (declarative step configs)
 """
 
 import json
@@ -15,6 +16,7 @@ from sqlalchemy.orm import Session
 import anthropic
 
 from tools.registry import ToolConfig, ToolResult, ToolProgress, register_tool
+from schemas.workflow import WorkflowGraph, StepNode, StepDefinition, Edge, CheckpointConfig, CheckpointAction
 
 logger = logging.getLogger(__name__)
 
@@ -22,204 +24,224 @@ WORKFLOW_BUILDER_MODEL = "claude-sonnet-4-20250514"
 WORKFLOW_BUILDER_MAX_TOKENS = 4096
 
 # Comprehensive system prompt for the workflow builder agent
-WORKFLOW_BUILDER_SYSTEM_PROMPT = """You are a Workflow Architect - a specialized agent that designs optimal multi-step workflows.
+WORKFLOW_BUILDER_SYSTEM_PROMPT = """You are a Workflow Architect - a specialized agent that designs executable graph-based workflows.
 
 ## Your Role
-When given a complex task, you design a workflow plan that:
-1. Breaks the task into logical steps
-2. Chooses the best tools and patterns for each step
-3. Optimizes for parallelism and efficiency
-4. Structures data flow between steps
+You design EXECUTABLE graph-based workflows that:
+1. Can be run by the workflow engine
+2. Include checkpoints for user review
+3. Use declarative step definitions (not code)
+4. Support loops and branching via edge conditions
 
-## Available Tools (for steps to use)
+## Workflow Structure
 
-### Research & Information Gathering
-- **deep_research**: Comprehensive research on a topic. Automatically searches, fetches pages, extracts info, and synthesizes findings. Use for single research topics.
-- **web_search**: Quick web search. Returns search results with titles, URLs, snippets.
-- **fetch_webpage**: Fetch and extract content from a URL.
+Workflows are DIRECTED GRAPHS with:
+- **Nodes**: Either "execute" (do something) or "checkpoint" (wait for user)
+- **Edges**: Define transitions between nodes
+- **Entry node**: Where execution starts
 
-### List Processing (VERY IMPORTANT)
-- **iterate**: Process each item in a list with the same operation (LLM prompt or tool call). Runs in PARALLEL.
-  - Use when: You need to apply the same operation to multiple items independently
-  - Example: "Summarize each of these 5 documents"
+## Node Types
 
-- **map_reduce**: Two-phase processing: MAP each item in parallel, then REDUCE all results into one output.
-  - Use when: You need to process multiple items AND combine/aggregate the results
-  - Example: "Research 5 companies and compare them" → Map: research each, Reduce: synthesize comparison
-  - Example: "Analyze these papers and identify common themes" → Map: extract themes from each, Reduce: find commonalities
-  - THIS IS YOUR MOST POWERFUL TOOL FOR MULTI-ITEM TASKS WITH SYNTHESIS
-
-### Memory & Assets
-- **save_memory**: Save information to long-term memory
-- **recall_memory**: Retrieve information from memory
-- **list_assets**: List user's saved assets
-- **get_asset**: Retrieve a specific asset
-
-## Workflow Patterns
-
-### Pattern 1: Simple Sequential
-Use when steps must happen in order and each depends on the previous.
-```
-Step 1 → Step 2 → Step 3
+### Execute Nodes
+Run a step using an LLM with optional tools.
+```json
+{
+  "id": "research",
+  "name": "Research Topic",
+  "description": "Research the topic thoroughly",
+  "node_type": "execute",
+  "step_definition": {
+    "goal": "Research and summarize the topic",
+    "tools": ["web_search"],
+    "input_fields": ["user_query"],
+    "output_field": "research_results",
+    "prompt_template": "Research this topic: {user_query}"
+  }
+}
 ```
 
-### Pattern 2: Parallel Independent (use iterate)
-Use when the same operation applies to multiple items independently.
-```
-[Item1, Item2, Item3] → iterate(operation) → [Result1, Result2, Result3]
+### Checkpoint Nodes
+Pause for user review/approval before continuing.
+```json
+{
+  "id": "review_results",
+  "name": "Review Results",
+  "description": "User reviews the research",
+  "node_type": "checkpoint",
+  "checkpoint_config": {
+    "title": "Review Research Results",
+    "description": "Review the findings and approve or request changes",
+    "allowed_actions": ["approve", "edit", "reject"],
+    "editable_fields": ["research_results"]
+  }
+}
 ```
 
-### Pattern 3: MapReduce (use map_reduce)
-Use when you need to process multiple items AND synthesize/aggregate results.
-```
-[Item1, Item2, Item3] → map(analyze each) → reduce(combine findings) → Final Result
-```
-**THIS IS CRITICAL**: When the user wants to research/analyze MULTIPLE things and get a COMBINED answer, use map_reduce!
+## Available Tools for Steps
 
-### Pattern 4: Multi-Source Inputs
-Steps can pull from multiple prior steps using `input_sources` array.
-```
-Step 1 (user input) ─┐
-                     ├→ Step 3 (combines both)
-Step 2 (user input) ─┘
+- **web_search**: Search the web for information
+- **fetch_webpage**: Fetch and read a specific URL
+- **deep_research**: Comprehensive multi-source research
+- **map_reduce**: Process a list and aggregate results
+- **iterate**: Apply same operation to each item in a list
+
+## Edge Conditions
+
+For loops or branching, add `condition_expr` to edges:
+```json
+{"from_node": "process", "to_node": "process", "condition_expr": "items_remaining == True", "label": "continue"}
+{"from_node": "process", "to_node": "finalize", "condition_expr": "items_remaining == False", "label": "done"}
 ```
 
 ## Output Format
 
-Return a JSON workflow plan:
+Return a complete workflow graph as JSON:
 ```json
 {
-  "title": "Short descriptive title",
-  "goal": "What this workflow accomplishes",
-  "steps": [
-    {
+  "id": "workflow_id",
+  "name": "Workflow Name",
+  "description": "What this workflow does",
+  "icon": "search",
+  "category": "research",
+
+  "nodes": {
+    "step_1": {
+      "id": "step_1",
+      "name": "Step Name",
       "description": "What this step does",
-      "input_description": "What input this step needs",
-      "input_sources": ["user"],  // or [1, 2] for prior steps, or ["user", 1]
-      "output_description": "What this step produces",
-      "method": {
-        "approach": "How to accomplish this step",
-        "tools": ["tool_name"],  // Tools this step should use
-        "reasoning": "Why this approach"
-      }
-    }
-  ]
-}
-```
-
-## Decision Guide: When to Use What
-
-| Scenario | Pattern | Why |
-|----------|---------|-----|
-| Research one topic deeply | deep_research | Single comprehensive research |
-| Research N topics, report each | iterate + deep_research | Parallel independent research |
-| Research N topics, COMPARE/COMBINE | map_reduce | Need synthesis across all |
-| Analyze document | Single step | Just one item |
-| Analyze N documents separately | iterate | Independent parallel analysis |
-| Analyze N documents, find patterns | map_reduce | Need to aggregate findings |
-| Transform a list | iterate | Apply same transform to each |
-| Aggregate a list | map_reduce | Combine into summary/stats |
-
-## Critical Rules
-
-1. **ALWAYS use map_reduce** when the user wants to:
-   - Compare multiple things
-   - Find common themes/patterns across items
-   - Aggregate or synthesize information from multiple sources
-   - Get ONE answer derived from MANY inputs
-
-2. **Use iterate** when:
-   - Processing items independently
-   - Each result stands alone
-   - No combination/synthesis needed
-
-3. **Multi-source inputs** when:
-   - A step needs data from multiple prior steps
-   - You're merging different types of information
-
-4. Keep workflows concise - typically 2-4 steps
-5. Prefer parallel processing when possible
-6. Each step should have a clear, singular purpose
-
-## Examples
-
-### Example 1: "Compare AWS, GCP, and Azure for startups"
-BAD: Three sequential research steps, then compare
-GOOD: Single map_reduce step
-```json
-{
-  "title": "Cloud Provider Comparison",
-  "goal": "Compare AWS, GCP, and Azure for startup use cases",
-  "steps": [
-    {
-      "description": "Research and compare cloud providers",
-      "input_description": "List of cloud providers to compare",
-      "input_sources": ["user"],
-      "output_description": "Comparative analysis with recommendation",
-      "method": {
-        "approach": "Use map_reduce: map researches each provider's startup offerings, reduce synthesizes into comparison",
-        "tools": ["map_reduce"],
-        "reasoning": "map_reduce is ideal for researching multiple items and synthesizing findings"
-      }
-    }
-  ]
-}
-```
-
-### Example 2: "Summarize each of these 5 articles"
-```json
-{
-  "title": "Article Summaries",
-  "goal": "Create individual summaries for each article",
-  "steps": [
-    {
-      "description": "Summarize each article",
-      "input_description": "List of articles to summarize",
-      "input_sources": ["user"],
-      "output_description": "Individual summaries for each article",
-      "method": {
-        "approach": "Use iterate with LLM prompt to summarize each article independently",
-        "tools": ["iterate"],
-        "reasoning": "iterate is perfect for applying the same operation to multiple items without synthesis"
-      }
-    }
-  ]
-}
-```
-
-### Example 3: "Research quantum computing, then find companies working on it"
-```json
-{
-  "title": "Quantum Computing Research & Companies",
-  "goal": "Understand quantum computing and identify key players",
-  "steps": [
-    {
-      "description": "Research quantum computing fundamentals",
-      "input_description": "Topic: quantum computing",
-      "input_sources": ["user"],
-      "output_description": "Comprehensive overview of quantum computing",
-      "method": {
-        "approach": "Deep research on quantum computing concepts and state of the field",
-        "tools": ["deep_research"],
-        "reasoning": "Need thorough understanding before identifying companies"
+      "node_type": "execute",
+      "step_definition": {
+        "goal": "The goal of this step",
+        "tools": ["tool_name"],
+        "input_fields": ["field_from_context"],
+        "output_field": "result_field",
+        "prompt_template": "Instructions with {field_from_context}"
       }
     },
-    {
-      "description": "Identify and research key companies",
-      "input_description": "Quantum computing context from step 1",
-      "input_sources": [1],
-      "output_description": "Analysis of major quantum computing companies",
-      "method": {
-        "approach": "Use map_reduce to research each major company and compare their approaches",
-        "tools": ["map_reduce"],
-        "reasoning": "Multiple companies to research with comparison needed"
+    "review_1": {
+      "id": "review_1",
+      "name": "Review Step 1",
+      "description": "User reviews output",
+      "node_type": "checkpoint",
+      "checkpoint_config": {
+        "title": "Review",
+        "description": "Review and approve",
+        "allowed_actions": ["approve", "reject"],
+        "editable_fields": []
       }
     }
-  ]
+  },
+
+  "edges": [
+    {"from_node": "step_1", "to_node": "review_1"}
+  ],
+
+  "entry_node": "step_1",
+
+  "input_schema": {
+    "type": "object",
+    "properties": {
+      "query": {"type": "string", "description": "The user's request"}
+    },
+    "required": ["query"]
+  }
 }
 ```
 
-Now design an optimal workflow for the user's request. Think carefully about whether map_reduce should be used."""
+## Design Principles
+
+1. **Add checkpoints after significant steps** - Let users review before proceeding
+2. **Keep step goals focused** - One clear objective per step
+3. **Use tools appropriately** - web_search for finding info, deep_research for comprehensive topics
+4. **Design for reusability** - Workflows can be saved as templates
+5. **2-5 execute nodes typical** - Don't over-engineer
+
+## Example: "Research and compare cloud providers"
+
+```json
+{
+  "id": "cloud_comparison",
+  "name": "Cloud Provider Comparison",
+  "description": "Research and compare cloud providers for a specific use case",
+
+  "nodes": {
+    "gather_requirements": {
+      "id": "gather_requirements",
+      "name": "Understand Requirements",
+      "description": "Extract comparison criteria from user request",
+      "node_type": "execute",
+      "step_definition": {
+        "goal": "Extract what the user wants to compare and their criteria",
+        "tools": [],
+        "input_fields": ["user_query"],
+        "output_field": "criteria",
+        "prompt_template": "Extract comparison criteria from: {user_query}"
+      }
+    },
+    "review_criteria": {
+      "id": "review_criteria",
+      "name": "Review Criteria",
+      "description": "User confirms comparison criteria",
+      "node_type": "checkpoint",
+      "checkpoint_config": {
+        "title": "Review Comparison Criteria",
+        "description": "Confirm these are the right criteria to compare",
+        "allowed_actions": ["approve", "edit", "reject"],
+        "editable_fields": ["criteria"]
+      }
+    },
+    "research_providers": {
+      "id": "research_providers",
+      "name": "Research Providers",
+      "description": "Research each cloud provider",
+      "node_type": "execute",
+      "step_definition": {
+        "goal": "Research each provider based on the criteria",
+        "tools": ["map_reduce", "web_search"],
+        "input_fields": ["criteria"],
+        "output_field": "provider_analysis",
+        "prompt_template": "Research cloud providers based on: {criteria}"
+      }
+    },
+    "synthesize": {
+      "id": "synthesize",
+      "name": "Synthesize Comparison",
+      "description": "Create final comparison and recommendation",
+      "node_type": "execute",
+      "step_definition": {
+        "goal": "Synthesize findings into comparison table and recommendation",
+        "tools": [],
+        "input_fields": ["criteria", "provider_analysis"],
+        "output_field": "comparison",
+        "prompt_template": "Create a comparison based on criteria: {criteria} and research: {provider_analysis}"
+      }
+    },
+    "final_review": {
+      "id": "final_review",
+      "name": "Review Comparison",
+      "description": "User reviews final comparison",
+      "node_type": "checkpoint",
+      "checkpoint_config": {
+        "title": "Review Final Comparison",
+        "description": "Review the comparison and recommendation",
+        "allowed_actions": ["approve", "reject"],
+        "editable_fields": []
+      }
+    }
+  },
+
+  "edges": [
+    {"from_node": "gather_requirements", "to_node": "review_criteria"},
+    {"from_node": "review_criteria", "to_node": "research_providers"},
+    {"from_node": "research_providers", "to_node": "synthesize"},
+    {"from_node": "synthesize", "to_node": "final_review"}
+  ],
+
+  "entry_node": "gather_requirements"
+}
+```
+
+Now design an executable workflow graph for the user's request."""
 
 
 def execute_design_workflow(
@@ -229,10 +251,9 @@ def execute_design_workflow(
     context: Dict[str, Any]
 ) -> Generator[ToolProgress, None, ToolResult]:
     """
-    Design an optimal workflow for a given goal.
+    Design an executable graph-based workflow for a given goal.
 
-    This is a specialized agent that creates workflow plans leveraging
-    advanced patterns like MapReduce, parallel processing, etc.
+    Creates a WorkflowGraph that can be executed by the workflow engine.
     """
     goal = params.get("goal", "")
     initial_input = params.get("initial_input", "")
@@ -243,15 +264,15 @@ def execute_design_workflow(
 
     yield ToolProgress(
         stage="analyzing",
-        message="Analyzing task and designing workflow...",
+        message="Designing executable workflow graph...",
         data={"goal": goal}
     )
 
     # Build the user prompt
-    user_prompt = f"""Design an optimal workflow for this task:
+    user_prompt = f"""Design an executable workflow graph for this task:
 
-    **Goal**: {goal}
-    """
+**Goal**: {goal}
+"""
 
     if initial_input:
         user_prompt += f"\n**Initial Input/Context**: {initial_input}\n"
@@ -260,7 +281,7 @@ def execute_design_workflow(
         user_prompt += f"\n**Constraints/Preferences**: {constraints}\n"
 
     user_prompt += """
-    Return ONLY the JSON workflow plan, no other text. The JSON should follow the exact format specified in your instructions."""
+Return ONLY the JSON workflow graph. No other text. Follow the exact schema from your instructions."""
 
     try:
         client = anthropic.Anthropic(api_key=os.getenv('ANTHROPIC_API_KEY'))
@@ -276,61 +297,82 @@ def execute_design_workflow(
         response_text = response.content[0].text.strip()
 
         # Parse the JSON response
-        workflow_plan = _parse_workflow_json(response_text)
+        workflow_data = _parse_workflow_json(response_text)
 
-        if not workflow_plan:
+        if not workflow_data:
             yield ToolProgress(
                 stage="error",
-                message="Failed to parse workflow plan",
+                message="Failed to parse workflow graph",
                 data={"raw_response": response_text[:500]}
             )
             return ToolResult(
-                text=f"Failed to parse workflow plan. Raw response:\n{response_text}",
+                text=f"Failed to parse workflow graph. Raw response:\n{response_text}",
                 data={"error": "parse_error", "raw": response_text}
             )
 
-        # Validate the workflow structure
-        validation_errors = _validate_workflow(workflow_plan)
-        if validation_errors:
-            yield ToolProgress(
-                stage="validation_warning",
-                message=f"Workflow has validation issues: {', '.join(validation_errors)}",
-                data={"errors": validation_errors}
-            )
+        # Convert to WorkflowGraph and validate
+        try:
+            workflow_graph = WorkflowGraph.from_dict(workflow_data)
+            validation_errors = workflow_graph.validate()
+
+            if validation_errors:
+                yield ToolProgress(
+                    stage="validation_warning",
+                    message=f"Workflow has validation issues: {', '.join(validation_errors)}",
+                    data={"errors": validation_errors}
+                )
+        except Exception as e:
+            logger.warning(f"Could not validate workflow graph: {e}")
+            validation_errors = [str(e)]
 
         yield ToolProgress(
             stage="complete",
-            message=f"Designed workflow: {workflow_plan.get('title', 'Untitled')}",
-            data={"steps": len(workflow_plan.get('steps', []))}
+            message=f"Designed workflow: {workflow_data.get('name', 'Untitled')}",
+            data={"nodes": len(workflow_data.get('nodes', {}))}
         )
 
-        # Build the payload JSON that the agent should present to the user
-        plan_payload = {
-            "type": "plan",
-            "title": workflow_plan.get("title", "Workflow Plan"),
-            "goal": workflow_plan.get("goal", goal),
-            "initial_input": initial_input or goal,
-            "steps": workflow_plan.get("steps", [])
+        # Build a summary for the user
+        nodes = workflow_data.get("nodes", {})
+        edges = workflow_data.get("edges", [])
+
+        summary = f"## Workflow: {workflow_data.get('name', 'Untitled')}\n\n"
+        summary += f"{workflow_data.get('description', '')}\n\n"
+        summary += f"### Steps ({len(nodes)} nodes)\n\n"
+
+        for node_id, node in nodes.items():
+            node_type_icon = "⚙️" if node.get("node_type") == "execute" else "⏸️"
+            summary += f"- {node_type_icon} **{node.get('name', node_id)}**: {node.get('description', '')}\n"
+
+        summary += f"\n### Flow\n"
+        summary += f"Entry: `{workflow_data.get('entry_node', 'unknown')}`\n"
+        for edge in edges:
+            arrow = f"{edge.get('from_node')} → {edge.get('to_node')}"
+            if edge.get('condition_expr'):
+                arrow += f" (if {edge.get('condition_expr')})"
+            summary += f"- {arrow}\n"
+
+        # Build payload for workspace view
+        workflow_payload = {
+            "type": "workflow_graph",
+            "workflow": workflow_data
         }
 
-        payload_json = json.dumps(plan_payload, indent=2)
-
-        # Return with explicit instructions to present as payload
         return ToolResult(
-            text=f"""I've designed a workflow plan for this task.
+            text=f"""I've designed an executable workflow graph.
 
-            **IMPORTANT**: You must now present this plan to the user for approval. Include the following payload block at the end of your response:
+{summary}
 
-            ```payload
-            {payload_json}
-            ```
+**To execute this workflow**, the user can approve it and it will be run through the workflow engine with checkpoints for review at each stage.
 
-            Briefly explain the workflow approach to the user, then include the payload above. Do NOT execute any steps yet - wait for the user to approve the plan first.""",
+```payload
+{json.dumps(workflow_payload, indent=2)}
+```""",
             data={
-                "type": "workflow_plan",
-                "workflow": workflow_plan,
-                "payload": plan_payload
-            }
+                "type": "workflow_graph",
+                "workflow": workflow_data,
+                "summary": summary
+            },
+            workspace_payload=workflow_payload
         )
 
     except Exception as e:
@@ -368,60 +410,73 @@ def _parse_workflow_json(text: str) -> Dict[str, Any] | None:
 
 
 def _validate_workflow(workflow: Dict[str, Any]) -> list[str]:
-    """Validate workflow structure and return list of errors."""
+    """Validate workflow graph structure and return list of errors."""
     errors = []
 
-    if not workflow.get("title"):
-        errors.append("Missing title")
+    if not workflow.get("name"):
+        errors.append("Missing name")
 
-    if not workflow.get("goal"):
-        errors.append("Missing goal")
+    if not workflow.get("entry_node"):
+        errors.append("Missing entry_node")
 
-    steps = workflow.get("steps", [])
-    if not steps:
-        errors.append("No steps defined")
+    nodes = workflow.get("nodes", {})
+    if not nodes:
+        errors.append("No nodes defined")
         return errors
 
-    for i, step in enumerate(steps):
-        step_num = i + 1
+    # Check entry node exists
+    if workflow.get("entry_node") and workflow["entry_node"] not in nodes:
+        errors.append(f"Entry node '{workflow['entry_node']}' not in nodes")
 
-        if not step.get("description"):
-            errors.append(f"Step {step_num}: missing description")
+    # Validate each node
+    for node_id, node in nodes.items():
+        if not node.get("node_type"):
+            errors.append(f"Node '{node_id}': missing node_type")
+            continue
 
-        if not step.get("input_sources"):
-            errors.append(f"Step {step_num}: missing input_sources")
-        else:
-            # Validate input_sources references
-            for source in step.get("input_sources", []):
-                if source != "user" and isinstance(source, int):
-                    if source < 1 or source >= step_num:
-                        errors.append(f"Step {step_num}: invalid input_source {source}")
+        if node["node_type"] == "execute":
+            if not node.get("step_definition"):
+                errors.append(f"Node '{node_id}': execute node missing step_definition")
+            else:
+                step_def = node["step_definition"]
+                if not step_def.get("goal"):
+                    errors.append(f"Node '{node_id}': step_definition missing goal")
 
-        method = step.get("method", {})
-        if not method.get("approach"):
-            errors.append(f"Step {step_num}: missing method.approach")
-        if not method.get("tools"):
-            errors.append(f"Step {step_num}: missing method.tools")
+        elif node["node_type"] == "checkpoint":
+            if not node.get("checkpoint_config"):
+                errors.append(f"Node '{node_id}': checkpoint node missing checkpoint_config")
+
+    # Validate edges
+    edges = workflow.get("edges", [])
+    for i, edge in enumerate(edges):
+        if not edge.get("from_node"):
+            errors.append(f"Edge {i}: missing from_node")
+        elif edge["from_node"] not in nodes:
+            errors.append(f"Edge {i}: from_node '{edge['from_node']}' not in nodes")
+
+        if not edge.get("to_node"):
+            errors.append(f"Edge {i}: missing to_node")
+        elif edge["to_node"] not in nodes:
+            errors.append(f"Edge {i}: to_node '{edge['to_node']}' not in nodes")
 
     return errors
 
 
 DESIGN_WORKFLOW_TOOL = ToolConfig(
     name="design_workflow",
-    description="""Design an optimal multi-step workflow to accomplish a complex task.
+    description="""Design an executable graph-based workflow to accomplish a complex task.
 
 Use this tool when:
 - A task requires multiple coordinated steps
-- Research or analysis of multiple items is needed
-- Parallel processing could be beneficial
-- Data needs to flow between steps
+- User review/approval is needed at certain stages
+- The workflow should be reusable as a template
 
-This tool is a specialized workflow architect that knows about advanced patterns like:
-- MapReduce for processing lists and aggregating results
-- Parallel iteration for independent operations
-- Multi-source inputs for combining data from multiple steps
+This tool creates an executable workflow graph with:
+- Execute nodes: Steps that perform work using LLM + tools
+- Checkpoint nodes: Pause points for user review
+- Edges with conditions: Support for loops and branching
 
-It will design an efficient workflow plan that can then be executed step by step.""",
+The workflow can be executed by the workflow engine with real-time progress updates.""",
     input_schema={
         "type": "object",
         "properties": {
@@ -443,42 +498,22 @@ It will design an efficient workflow plan that can then be executed step by step
     output_schema={
         "type": "object",
         "properties": {
-            "type": {"type": "string", "const": "workflow_plan"},
+            "type": {"type": "string", "const": "workflow_graph"},
             "workflow": {
                 "type": "object",
-                "description": "The designed workflow",
+                "description": "The designed workflow graph",
                 "properties": {
-                    "title": {"type": "string", "description": "Workflow title"},
-                    "goal": {"type": "string", "description": "Workflow goal"},
-                    "steps": {
-                        "type": "array",
-                        "description": "Workflow steps",
-                        "items": {
-                            "type": "object",
-                            "properties": {
-                                "description": {"type": "string"},
-                                "input_description": {"type": "string"},
-                                "input_sources": {"type": "array"},
-                                "output_description": {"type": "string"},
-                                "method": {
-                                    "type": "object",
-                                    "properties": {
-                                        "approach": {"type": "string"},
-                                        "tools": {"type": "array", "items": {"type": "string"}},
-                                        "reasoning": {"type": "string"}
-                                    }
-                                }
-                            }
-                        }
-                    }
+                    "id": {"type": "string"},
+                    "name": {"type": "string"},
+                    "description": {"type": "string"},
+                    "nodes": {"type": "object"},
+                    "edges": {"type": "array"},
+                    "entry_node": {"type": "string"}
                 }
             },
-            "payload": {
-                "type": "object",
-                "description": "Payload to present to user for approval"
-            }
+            "summary": {"type": "string", "description": "Human-readable summary"}
         },
-        "required": ["type", "workflow", "payload"]
+        "required": ["type", "workflow"]
     },
     executor=execute_design_workflow,
     category="workflow",
