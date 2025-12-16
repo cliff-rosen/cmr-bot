@@ -108,6 +108,8 @@ export default function MainPage() {
     // Workflow testing state - tracks the graph being tested so we can accept it later
     const [testingWorkflowGraph, setTestingWorkflowGraph] = useState<Record<string, any> | null>(null);
     const [currentWorkflowEvent, setCurrentWorkflowEvent] = useState<WorkflowEvent | null>(null);
+    const [workflowTestError, setWorkflowTestError] = useState<string | null>(null);
+    const [isWorkflowTestRunning, setIsWorkflowTestRunning] = useState(false);
 
     // Content state
     const [selectedToolHistory, setSelectedToolHistory] = useState<ToolCall[] | null>(null);
@@ -579,6 +581,10 @@ export default function MainPage() {
 
     // Workflow testing handler
     const handleTestWorkflow = useCallback(async (workflow: Record<string, any>, inputs: Record<string, any>) => {
+        // Clear any previous error and mark as running
+        setWorkflowTestError(null);
+        setIsWorkflowTestRunning(true);
+
         try {
             // Save the workflow graph for later acceptance
             setTestingWorkflowGraph(workflow);
@@ -593,27 +599,39 @@ export default function MainPage() {
                     setCurrentEvent: setCurrentWorkflowEvent,
                     conversationId: conversationId ?? undefined,
                     showNotification: (message, type) => {
-                        toast({
-                            title: type === 'error' ? 'Error' : 'Success',
-                            description: message,
-                            variant: type === 'error' ? 'destructive' : 'default',
-                        });
+                        // Don't show toast for errors - we'll show them inline
+                        if (type !== 'error') {
+                            toast({
+                                title: 'Success',
+                                description: message,
+                            });
+                        }
                     }
                 },
                 workflow // Pass the inline graph
             );
 
             setWorkflowHandlers(handlers);
+            setIsWorkflowTestRunning(false);
 
             // Clear the design payload (workflow execution view will take over)
             setActivePayload(null);
         } catch (error) {
             console.error('Failed to test workflow:', error);
-            // Error already shown via showNotification in startWorkflowWithUI
+            // Extract error message and display inline
+            const errorMessage = error instanceof Error ? error.message : 'Failed to start workflow';
+            setWorkflowTestError(errorMessage);
+            setIsWorkflowTestRunning(false);
             // Reset processing state in case it wasn't reset
             setIsWorkflowProcessing(false);
+            // Keep the activePayload so the workflow graph stays visible with the error
         }
     }, [conversationId, toast]);
+
+    // Clear workflow test error
+    const handleClearWorkflowTestError = useCallback(() => {
+        setWorkflowTestError(null);
+    }, []);
 
     // Accept workflow template handler (stub - saves to local state only for now)
     const handleAcceptWorkflowTemplate = useCallback(async (workflow: Record<string, any>) => {
@@ -873,6 +891,9 @@ export default function MainPage() {
                     onCloseWorkflowInstance={handleCloseWorkflowInstance}
                     testingWorkflowGraph={testingWorkflowGraph}
                     onAcceptWorkflowTemplate={handleAcceptWorkflowTemplate}
+                    workflowTestError={workflowTestError}
+                    onClearWorkflowTestError={handleClearWorkflowTestError}
+                    isWorkflowTestRunning={isWorkflowTestRunning}
                 />
             </div>
 

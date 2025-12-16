@@ -105,6 +105,9 @@ export interface PayloadViewProps {
     onReject?: () => void;
     // Workflow graph testing (for design_workflow tool)
     onTest?: (workflow: any, inputs: Record<string, any>) => void;
+    testError?: string | null;
+    onClearError?: () => void;
+    isTestRunning?: boolean;
     // Research workflow specific (for LLM-orchestrated research)
     onUpdateWorkflow?: (workflow: any) => void;
     onProceed?: () => void;

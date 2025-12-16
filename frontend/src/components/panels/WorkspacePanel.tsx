@@ -40,6 +40,10 @@ interface WorkspacePanelProps {
     // Workflow testing/accept props
     testingWorkflowGraph?: Record<string, any> | null;
     onAcceptWorkflowTemplate?: (workflow: Record<string, any>) => void;
+    // Workflow test error state
+    workflowTestError?: string | null;
+    onClearWorkflowTestError?: () => void;
+    isWorkflowTestRunning?: boolean;
 }
 
 export default function WorkspacePanel({
@@ -67,6 +71,9 @@ export default function WorkspacePanel({
     onCloseWorkflowInstance,
     testingWorkflowGraph,
     onAcceptWorkflowTemplate,
+    workflowTestError,
+    onClearWorkflowTestError,
+    isWorkflowTestRunning = false,
 }: WorkspacePanelProps) {
 
     // Determine workspace mode using single function
@@ -153,6 +160,9 @@ export default function WorkspacePanel({
                         onReject={onRejectAgent}
                         // Workflow graph testing callback
                         onTest={onTestWorkflow}
+                        testError={workflowTestError}
+                        onClearError={onClearWorkflowTestError}
+                        isTestRunning={isWorkflowTestRunning}
                         // Research workflow callbacks
                         onUpdateWorkflow={onUpdateResearchWorkflow}
                         onProceed={onResearchProceed}

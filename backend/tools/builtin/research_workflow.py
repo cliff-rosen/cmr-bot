@@ -604,7 +604,14 @@ def execute_research_workflow(
 
     elif action == "approve_question":
         if not workflow_state:
-            return ToolResult(text="Error: No workflow state provided")
+            return ToolResult(text="Error: No workflow state provided. You must pass the full workflow_state from the previous step.")
+
+        if "question" not in workflow_state:
+            return ToolResult(
+                text=f"Error: workflow_state is missing 'question' field. "
+                     f"You must pass the complete workflow_state object from the 'research' workspace payload. "
+                     f"Received keys: {list(workflow_state.keys()) if isinstance(workflow_state, dict) else 'not a dict'}"
+            )
 
         yield ToolProgress(
             stage="building_checklist",
@@ -635,7 +642,14 @@ def execute_research_workflow(
 
     elif action == "approve_checklist":
         if not workflow_state:
-            return ToolResult(text="Error: No workflow state provided")
+            return ToolResult(text="Error: No workflow state provided. You must pass the full workflow_state from the previous step.")
+
+        if "checklist" not in workflow_state:
+            return ToolResult(
+                text=f"Error: workflow_state is missing 'checklist' field. "
+                     f"You must pass the complete workflow_state object from the 'research' workspace payload. "
+                     f"Current stage should be 'checklist'. Received keys: {list(workflow_state.keys()) if isinstance(workflow_state, dict) else 'not a dict'}"
+            )
 
         # Mark checklist as approved and initialize retrieval
         workflow_state["checklist"]["approved"] = True

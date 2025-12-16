@@ -19,7 +19,8 @@ import {
     ArrowDownIcon,
     LightBulbIcon,
     QuestionMarkCircleIcon,
-    CodeBracketIcon,
+    XMarkIcon,
+    ArrowPathIcon,
 } from '@heroicons/react/24/solid';
 import {
     WorkflowNode,
@@ -32,6 +33,9 @@ import { PayloadViewProps } from '../../../lib/workspace/workspaceMode';
 
 interface WorkflowGraphViewProps extends PayloadViewProps {
     onTest?: (workflow: WorkflowGraphData, inputs: Record<string, any>) => void;
+    testError?: string | null;
+    onClearError?: () => void;
+    isTestRunning?: boolean;
 }
 
 // Step type styling
@@ -394,7 +398,7 @@ function DataFlowSummary({ workflow }: { workflow: WorkflowGraphData }) {
     );
 }
 
-export default function WorkflowGraphView({ payload, onTest }: WorkflowGraphViewProps) {
+export default function WorkflowGraphView({ payload, onTest, testError, onClearError, isTestRunning }: WorkflowGraphViewProps) {
     const [expandedNodes, setExpandedNodes] = useState<Set<string>>(new Set());
     const [showDataFlow, setShowDataFlow] = useState(true);
     const [showAllEdges, setShowAllEdges] = useState(false);
@@ -527,20 +531,59 @@ export default function WorkflowGraphView({ payload, onTest }: WorkflowGraphView
                     </div>
                     {onTest && (
                         <button
-                            onClick={handleTest}
-                            disabled={!canTest}
+                            onClick={() => {
+                                onClearError?.();
+                                handleTest();
+                            }}
+                            disabled={!canTest || isTestRunning}
                             className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors flex-shrink-0 ${
-                                canTest
+                                canTest && !isTestRunning
                                     ? 'bg-blue-600 hover:bg-blue-700 text-white'
                                     : 'bg-gray-300 dark:bg-gray-700 text-gray-500 cursor-not-allowed'
                             }`}
                         >
-                            <BeakerIcon className="h-4 w-4" />
-                            Test
+                            {isTestRunning ? (
+                                <>
+                                    <ArrowPathIcon className="h-4 w-4 animate-spin" />
+                                    Starting...
+                                </>
+                            ) : (
+                                <>
+                                    <BeakerIcon className="h-4 w-4" />
+                                    Test
+                                </>
+                            )}
                         </button>
                     )}
                 </div>
             </div>
+
+            {/* Test Error Display */}
+            {testError && (
+                <div className="mx-4 mt-2 p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl">
+                    <div className="flex items-start gap-3">
+                        <ExclamationTriangleIcon className="h-5 w-5 text-red-600 dark:text-red-400 flex-shrink-0 mt-0.5" />
+                        <div className="flex-1 min-w-0">
+                            <h4 className="font-medium text-red-900 dark:text-red-200 mb-1">
+                                Workflow Validation Failed
+                            </h4>
+                            <p className="text-sm text-red-700 dark:text-red-300 whitespace-pre-wrap break-words">
+                                {testError}
+                            </p>
+                            <p className="mt-3 text-sm text-red-600 dark:text-red-400">
+                                The workflow has validation errors and cannot be executed. You may need to ask the assistant to fix the workflow design.
+                            </p>
+                        </div>
+                        <button
+                            onClick={onClearError}
+                            className="p-1 text-red-400 hover:text-red-600 dark:text-red-500 dark:hover:text-red-300"
+                            title="Dismiss"
+                        >
+                            <XMarkIcon className="h-5 w-5" />
+                        </button>
+                    </div>
+                </div>
+            )}
 
             {/* Content */}
             <div className="flex-1 overflow-y-auto p-4 space-y-4">
