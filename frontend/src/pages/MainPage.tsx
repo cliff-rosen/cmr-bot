@@ -564,9 +564,9 @@ export default function MainPage() {
             }
         } catch (error) {
             console.error('Failed to process payload:', error);
-            sendMessage(`Failed to process: ${error instanceof Error ? error.message : 'Unknown error'}`, InteractionType.ACTION_EXECUTED, {
-                action_identifier: 'payload_accept_failed'
-            });
+            // Error already shown via showNotification in startWorkflowWithUI for workflows
+            // Reset processing state in case it wasn't reset
+            setIsWorkflowProcessing(false);
         }
 
         // Clear the payload
@@ -609,11 +609,9 @@ export default function MainPage() {
             setActivePayload(null);
         } catch (error) {
             console.error('Failed to test workflow:', error);
-            toast({
-                title: 'Error',
-                description: `Failed to test workflow: ${error instanceof Error ? error.message : 'Unknown error'}`,
-                variant: 'destructive',
-            });
+            // Error already shown via showNotification in startWorkflowWithUI
+            // Reset processing state in case it wasn't reset
+            setIsWorkflowProcessing(false);
         }
     }, [conversationId, toast]);
 

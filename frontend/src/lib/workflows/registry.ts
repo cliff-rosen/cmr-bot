@@ -282,12 +282,26 @@ export async function startWorkflowWithUI(
     const abortController = new AbortController();
 
     // Create the instance (either from template or inline graph)
-    const { instance_id } = await workflowApi.startWorkflow(
-        workflowId,
-        initialInput,
-        deps.conversationId,
-        workflowGraph
-    );
+    let instance_id: string;
+    try {
+        const result = await workflowApi.startWorkflow(
+            workflowId,
+            initialInput,
+            deps.conversationId,
+            workflowGraph
+        );
+        instance_id = result.instance_id;
+    } catch (err) {
+        // Reset processing state before re-throwing
+        deps.setIsProcessing?.(false);
+
+        // Extract error message from Axios error structure
+        const axiosError = err as { response?: { data?: { detail?: string } }; message?: string };
+        const errorMessage = axiosError.response?.data?.detail || axiosError.message || 'Failed to start workflow';
+        deps.showNotification?.(errorMessage, 'error');
+
+        throw new Error(errorMessage);
+    }
 
     // Create handlers with the abort controller
     const handlers = createWorkflowHandlers(instance_id, deps, abortController);

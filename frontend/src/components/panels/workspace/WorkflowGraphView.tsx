@@ -378,8 +378,8 @@ function DataFlowSummary({ workflow }: { workflow: WorkflowGraphData }) {
                 <div>
                     <span className="text-gray-500 dark:text-gray-400">Produced Fields:</span>
                     <div className="space-y-1 mt-1">
-                        {outputFields.map(({ field, node, stepType }) => (
-                            <div key={field} className="flex items-center gap-2">
+                        {outputFields.map(({ field, node, stepType }, idx) => (
+                            <div key={`${node}-${field}-${idx}`} className="flex items-center gap-2">
                                 <code className="px-1.5 py-0.5 bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-300 rounded">
                                     {field}
                                 </code>
