@@ -462,13 +462,26 @@ export default function ReviewAnalysisView({
 }: ReviewAnalysisViewProps) {
     const [showThemes, setShowThemes] = useState(true);
 
-    // Parse the data from the payload
-    const data: ReviewAnalysisData | null = payload.data?.data || payload.data;
+    // Parse the data from the payload - handle various nesting patterns
+    let data: ReviewAnalysisData | null = null;
+
+    if (payload.data) {
+        // Could be nested as payload.data.data or directly as payload.data
+        if (payload.data.business_name) {
+            data = payload.data as ReviewAnalysisData;
+        } else if (payload.data.data?.business_name) {
+            data = payload.data.data as ReviewAnalysisData;
+        }
+    }
 
     if (!data || !data.business_name) {
+        console.error('ReviewAnalysisView: Invalid data structure', payload);
         return (
             <div className="p-4 text-gray-500 dark:text-gray-400">
-                Invalid review analysis data
+                <p>Invalid review analysis data</p>
+                <pre className="mt-2 text-xs overflow-auto max-h-40">
+                    {JSON.stringify(payload, null, 2)}
+                </pre>
             </div>
         );
     }

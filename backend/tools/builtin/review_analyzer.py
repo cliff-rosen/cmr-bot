@@ -622,7 +622,12 @@ def execute_review_analyzer(
     return ToolResult(
         text=_format_text_output(result),
         data=result.to_dict(),
-        workspace_payload={"type": "review_analysis", "data": result.to_dict()}
+        workspace_payload={
+            "type": "review_analysis",
+            "title": f"Review Analysis: {business.name}",
+            "content": verdict.summary if verdict else "Analysis complete",
+            "data": result.to_dict()
+        }
     )
 
 
