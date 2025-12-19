@@ -459,6 +459,235 @@ class SerpApiService:
         )
 
 
+    # =========================================================================
+    # Negative Review Collection (for Human-Intuition Analysis)
+    # =========================================================================
+
+    def get_all_negative_reviews(
+        self,
+        place_id: str,
+        source: Literal["yelp", "google"],
+        max_reviews: int = 100,
+        include_2_star_if_few_1_star: bool = True,
+        min_1_star_threshold: int = 5
+    ) -> SerpApiResult:
+        """
+        Fetch ALL 1-star reviews, and optionally 2-star if fewer than threshold.
+
+        Strategy:
+        1. Fetch with rating_asc sort (lowest first)
+        2. Paginate to collect all 1-star reviews
+        3. If < min_1_star_threshold one-star, also collect 2-star
+        4. Client-side filter since SerpAPI doesn't filter by rating
+
+        Args:
+            place_id: The business ID (Yelp biz_id or Google data_id)
+            source: "yelp" or "google"
+            max_reviews: Maximum total negative reviews to fetch
+            include_2_star_if_few_1_star: Whether to include 2-star if few 1-star
+            min_1_star_threshold: If fewer 1-star than this, include 2-star
+
+        Returns:
+            SerpApiResult with negative reviews sorted by rating (1-star first)
+        """
+        if not self.api_key:
+            return SerpApiResult(success=False, error="SERPAPI_KEY not configured")
+
+        try:
+            all_reviews = []
+            business = None
+            one_star_count = 0
+            two_star_count = 0
+
+            # Determine sort parameter based on source
+            sort_param = "rating_asc" if source == "yelp" else "ratingLow"
+
+            # Pagination variables
+            start = 0
+            next_token = None
+            per_page = 10
+            max_pages = (max_reviews // per_page) + 5  # Extra pages for safety
+            seen_higher_than_2_star = False
+
+            for page in range(max_pages):
+                # Make API request
+                if source == "yelp":
+                    params = {
+                        "engine": "yelp_reviews",
+                        "place_id": place_id,
+                        "start": start,
+                        "sortby": sort_param
+                    }
+                    data = self._make_request(params)
+                    page_reviews = data.get("reviews", [])
+
+                    # Get business info from first page
+                    if page == 0:
+                        biz_info = data.get("business_info", {})
+                        if biz_info:
+                            business = SerpApiBusiness(
+                                name=biz_info.get("name", ""),
+                                place_id=place_id,
+                                rating=biz_info.get("rating"),
+                                review_count=biz_info.get("reviews"),
+                                address=biz_info.get("address"),
+                                url=biz_info.get("link"),
+                                source="yelp"
+                            )
+
+                    start += len(page_reviews)
+
+                else:  # google
+                    params = {
+                        "engine": "google_maps_reviews",
+                        "data_id": place_id,
+                        "sort_by": sort_param
+                    }
+                    if next_token:
+                        params["next_page_token"] = next_token
+
+                    data = self._make_request(params)
+                    page_reviews = data.get("reviews", [])
+
+                    # Get business info from first page
+                    if page == 0:
+                        place_info = data.get("place_info", {})
+                        if place_info:
+                            business = SerpApiBusiness(
+                                name=place_info.get("title", ""),
+                                place_id=place_id,
+                                rating=place_info.get("rating"),
+                                review_count=place_info.get("reviews"),
+                                address=place_info.get("address"),
+                                source="google"
+                            )
+
+                    # Get next page token for Google
+                    pagination = data.get("serpapi_pagination", {})
+                    next_token = pagination.get("next_page_token")
+
+                # Process reviews from this page
+                for r in page_reviews:
+                    rating = r.get("rating")
+                    if rating is None:
+                        continue
+
+                    # Stop if we've seen ratings > 2 and we have enough 1-star
+                    if rating > 2:
+                        seen_higher_than_2_star = True
+                        if one_star_count >= min_1_star_threshold or not include_2_star_if_few_1_star:
+                            # We have enough 1-star reviews, stop
+                            break
+                        continue  # Skip 3+ star reviews
+
+                    # Collect 1-star reviews
+                    if rating == 1:
+                        one_star_count += 1
+                    # Collect 2-star only if we don't have enough 1-star
+                    elif rating == 2:
+                        if not include_2_star_if_few_1_star:
+                            continue
+                        if one_star_count >= min_1_star_threshold:
+                            continue  # Skip 2-star if we have enough 1-star
+                        two_star_count += 1
+
+                    # Extract review text
+                    if source == "yelp":
+                        text = r.get("comment", {}).get("text", "") or r.get("text", "")
+                    else:
+                        text = r.get("snippet", "") or r.get("extracted_snippet", {}).get("original", "")
+
+                    if text:
+                        review = SerpApiReview(
+                            rating=rating,
+                            text=text,
+                            author=r.get("user", {}).get("name"),
+                            date=r.get("date"),
+                            source=source
+                        )
+                        all_reviews.append(review)
+
+                # Check stopping conditions
+                if len(all_reviews) >= max_reviews:
+                    break
+                if len(page_reviews) == 0:
+                    break
+                if source == "google" and not next_token:
+                    break
+                if seen_higher_than_2_star and one_star_count >= min_1_star_threshold:
+                    break
+
+            # Sort reviews: 1-star first, then 2-star
+            all_reviews.sort(key=lambda r: r.rating or 5)
+
+            logger.info(
+                f"SerpAPI: Fetched {len(all_reviews)} negative reviews "
+                f"({one_star_count} 1-star, {two_star_count} 2-star) over {page + 1} pages"
+            )
+
+            return SerpApiResult(
+                success=True,
+                business=business,
+                reviews=all_reviews[:max_reviews],
+                raw_response=data
+            )
+
+        except httpx.HTTPStatusError as e:
+            logger.error(f"SerpAPI HTTP error: {e}")
+            return SerpApiResult(success=False, error=f"HTTP error: {e.response.status_code}")
+        except Exception as e:
+            logger.error(f"SerpAPI error: {e}")
+            return SerpApiResult(success=False, error=str(e))
+
+    def get_positive_sample(
+        self,
+        place_id: str,
+        source: Literal["yelp", "google"],
+        num_reviews: int = 20
+    ) -> SerpApiResult:
+        """
+        Fetch a sample of 5-star reviews for authenticity analysis.
+
+        Args:
+            place_id: The business ID
+            source: "yelp" or "google"
+            num_reviews: Number of 5-star reviews to sample
+
+        Returns:
+            SerpApiResult with sampled positive reviews
+        """
+        if not self.api_key:
+            return SerpApiResult(success=False, error="SERPAPI_KEY not configured")
+
+        try:
+            # Use rating_desc to get highest-rated first
+            sort_param = "rating_desc" if source == "yelp" else "ratingHigh"
+
+            if source == "yelp":
+                result = self.get_yelp_reviews(place_id, num_reviews * 2, sort_param)
+            else:
+                result = self.get_google_reviews(place_id, num_reviews * 2, sort_param)
+
+            if not result.success:
+                return result
+
+            # Filter to only 5-star reviews
+            five_star_reviews = [r for r in result.reviews if r.rating == 5]
+
+            logger.info(f"SerpAPI: Sampled {len(five_star_reviews[:num_reviews])} 5-star reviews")
+
+            return SerpApiResult(
+                success=True,
+                business=result.business,
+                reviews=five_star_reviews[:num_reviews],
+                raw_response=result.raw_response
+            )
+
+        except Exception as e:
+            logger.error(f"SerpAPI error: {e}")
+            return SerpApiResult(success=False, error=str(e))
+
+
 # Singleton instance
 _service: Optional[SerpApiService] = None
 

@@ -43,7 +43,7 @@ export interface ToolCall {
     workspace_payload?: WorkspacePayload;  // Payload to display in workspace panel
 }
 
-export type WorkspacePayloadType = 'draft' | 'summary' | 'data' | 'code' | 'agent_create' | 'agent_update' | 'table' | 'research' | 'research_result' | 'workflow_graph';
+export type WorkspacePayloadType = 'draft' | 'summary' | 'data' | 'code' | 'agent_create' | 'agent_update' | 'table' | 'research' | 'research_result' | 'workflow_graph' | 'review_collection' | 'review_analysis';
 
 // Table payload types for TABILIZER functionality
 export interface TableColumn {
@@ -156,6 +156,81 @@ export interface WorkflowGraphData {
     output_schema?: Record<string, any>;
 }
 
+// ============================================================================
+// Review Analysis Types (Human-Intuition Based Analysis)
+// ============================================================================
+
+export interface RatingDistribution {
+    stars_1: number;
+    stars_2: number;
+    stars_3: number;
+    stars_4: number;
+    stars_5: number;
+    total: number;
+    percent_1_star: number;
+    percent_2_star: number;
+    percent_negative: number;
+    percent_positive: number;
+}
+
+export interface ComplaintTheme {
+    theme: string;
+    frequency: number;
+    severity: 'critical' | 'moderate' | 'minor';
+    example_quotes: string[];
+    recent_trend: 'increasing' | 'stable' | 'decreasing' | 'unknown';
+}
+
+export interface AnomalyFlag {
+    type: 'fake_positive' | 'review_burst' | 'generic_text' | 'competitor_attack' | 'incentivized';
+    description: string;
+    evidence: string[];
+    confidence: 'high' | 'medium' | 'low';
+}
+
+export interface HumanIntuitionVerdict {
+    recommendation: 'trustworthy' | 'proceed_with_caution' | 'significant_concerns' | 'avoid';
+    confidence: number;
+    summary: string;
+    key_concerns: string[];
+    positive_signals: string[];
+    red_flags: string[];
+    overall_health_score: number;
+}
+
+export interface ReviewArtifact {
+    rating: number | null;
+    text: string;
+    author?: string;
+    date?: string;
+}
+
+export interface AnalysisJourney {
+    started_at: string;
+    completed_at: string;
+    duration_ms: number;
+    phases: { name: string; started_at: string }[];
+    api_calls: number;
+    reviews_analyzed: number;
+}
+
+export interface ReviewAnalysisData {
+    business_name: string;
+    business_url: string;
+    business_rating: number | null;
+    business_review_count: number | null;
+    source: 'yelp' | 'google';
+    rating_distribution: RatingDistribution;
+    negative_reviews: ReviewArtifact[];
+    one_star_count: number;
+    two_star_count: number;
+    positive_sample: ReviewArtifact[];
+    complaint_themes: ComplaintTheme[];
+    anomalies: AnomalyFlag[];
+    verdict: HumanIntuitionVerdict | null;
+    journey: AnalysisJourney;
+}
+
 export interface WorkspacePayload {
     type: WorkspacePayloadType;
     title: string;
@@ -172,6 +247,8 @@ export interface WorkspacePayload {
     research_result_data?: ResearchResultData;
     // Extended fields for workflow graph (from design_workflow tool)
     workflow_graph_data?: WorkflowGraphData;
+    // Extended fields for review analysis (from analyze_reviews tool)
+    review_analysis_data?: ReviewAnalysisData;
 }
 
 // ============================================================================
@@ -280,7 +357,7 @@ export interface ResearchSource {
     contribution: string;       // How this source contributed
 }
 
-const VALID_PAYLOAD_TYPES = ['draft', 'summary', 'data', 'code', 'agent_create', 'agent_update', 'table', 'research', 'research_result', 'workflow_graph'];
+const VALID_PAYLOAD_TYPES = ['draft', 'summary', 'data', 'code', 'agent_create', 'agent_update', 'table', 'research', 'research_result', 'workflow_graph', 'review_collection', 'review_analysis'];
 
 /**
  * Parse a workspace payload from message content.

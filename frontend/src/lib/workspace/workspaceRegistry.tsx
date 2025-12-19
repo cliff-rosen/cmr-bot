@@ -14,6 +14,7 @@ import TablePayloadView from '../../components/panels/workspace/TablePayloadView
 import ResearchWorkflowView from '../../components/panels/workspace/ResearchWorkflowView';
 import ResearchResultView from '../../components/panels/workspace/ResearchResultView';
 import ReviewCollectionView from '../../components/panels/workspace/ReviewCollectionView';
+import ReviewAnalysisView from '../../components/panels/workspace/ReviewAnalysisView';
 import EntityVerificationView from '../../components/panels/workspace/EntityVerificationView';
 import WorkflowGraphView from '../../components/panels/workspace/WorkflowGraphView';
 
@@ -45,6 +46,9 @@ export const payloadViewRegistry: PayloadViewRegistry = {
 
     // Review collection results (from collect_reviews tool)
     'review_collection': ReviewCollectionView as React.ComponentType<PayloadViewProps>,
+
+    // Review analysis results (from analyze_reviews tool)
+    'review_analysis': ReviewAnalysisView as React.ComponentType<PayloadViewProps>,
 
     // Entity verification results (from verify_entity tool)
     'entity_verification': EntityVerificationView as React.ComponentType<PayloadViewProps>,

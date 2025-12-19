@@ -19,7 +19,7 @@ const productionSettings: Settings = {
 
 const developmentSettings: Settings = {
     // Use the current host for the API URL in development
-    apiUrl: isLocalhost ? 'http://localhost:8000' : `http://${currentHost}:8000`,
+    apiUrl: isLocalhost ? 'http://localhost:8001' : `http://${currentHost}:8001`,
     appName: 'CMR Bot (Dev)',
     logoUrl: '/kh-logo.png'
 };

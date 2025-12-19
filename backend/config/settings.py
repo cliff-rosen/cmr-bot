@@ -9,7 +9,7 @@ load_dotenv(override=True)
 class Settings(BaseSettings):
     APP_NAME: str = "CMR Bot"
     SETTING_VERSION: str = "0.0.1"
-    FRONTEND_URL: str = "http://localhost:5173"
+    FRONTEND_URL: str = "http://localhost:3000"
 
     # Database settings
     DB_HOST: str = os.getenv("DB_HOST")
