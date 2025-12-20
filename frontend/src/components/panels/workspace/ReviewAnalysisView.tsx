@@ -467,14 +467,15 @@ export default function ReviewAnalysisView({
 
     if (payload.data) {
         // Could be nested as payload.data.data or directly as payload.data
-        if (payload.data.business_name) {
+        // Check for rating_distribution as a more reliable indicator of our data structure
+        if (payload.data.rating_distribution) {
             data = payload.data as ReviewAnalysisData;
-        } else if (payload.data.data?.business_name) {
+        } else if (payload.data.data?.rating_distribution) {
             data = payload.data.data as ReviewAnalysisData;
         }
     }
 
-    if (!data || !data.business_name) {
+    if (!data) {
         console.error('ReviewAnalysisView: Invalid data structure', payload);
         return (
             <div className="p-4 text-gray-500 dark:text-gray-400">
@@ -492,7 +493,7 @@ export default function ReviewAnalysisView({
             <div className="flex items-start justify-between">
                 <div>
                     <h2 className="text-xl font-bold text-gray-900 dark:text-white">
-                        {data.business_name}
+                        {data.business_name || 'Business Analysis'}
                     </h2>
                     <div className="flex items-center gap-3 mt-1 text-sm text-gray-500 dark:text-gray-400">
                         <span className="uppercase font-medium">{data.source}</span>
