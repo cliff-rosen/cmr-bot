@@ -613,9 +613,12 @@ def execute_review_analyzer(
         journey=journey
     )
 
+    # Use result.business_name for consistency (fallback to input if empty)
+    display_name = result.business_name or business_name
+
     yield ToolProgress(
         stage="complete",
-        message=f"Analysis complete for {business.name}",
+        message=f"Analysis complete for {display_name or 'business'}",
         data={"success": True}
     )
 
@@ -624,7 +627,7 @@ def execute_review_analyzer(
         data=result.to_dict(),
         workspace_payload={
             "type": "review_analysis",
-            "title": f"Review Analysis: {business.name}",
+            "title": f"Review Analysis: {display_name}" if display_name else "Review Analysis",
             "content": verdict.summary if verdict else "Analysis complete",
             "data": result.to_dict()
         }
