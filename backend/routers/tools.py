@@ -265,3 +265,149 @@ async def search_gmail(
     except Exception as e:
         logger.error(f"Gmail search error: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================================
+# LLM Testing
+# ============================================================================
+
+class LLMTestRequest(BaseModel):
+    """Request model for LLM testing."""
+    model: str
+    context: str
+    questions: List[str]  # All questions sent together
+
+
+class LLMTestResponse(BaseModel):
+    """Response model for LLM test."""
+    success: bool
+    model: str
+    raw_response: str  # Full response text
+    parsed_answers: List[str]  # Individual answers extracted
+    latency_ms: int
+    error: Optional[str] = None
+
+
+def parse_answers(response_text: str, num_questions: int) -> List[str]:
+    """
+    Parse individual answers from a multi-question response.
+
+    Handles formats like:
+    - "1. Yes\n2. No\n3. Unclear"
+    - "Yes\nNo\nUnclear"
+    - "1) Yes 2) No 3) Unclear"
+    """
+    import re
+
+    lines = response_text.strip().split('\n')
+    answers = []
+
+    for line in lines:
+        line = line.strip()
+        if not line:
+            continue
+
+        # Remove common prefixes: "1.", "1)", "1:", "Q1:", etc.
+        cleaned = re.sub(r'^(?:Q?\d+[\.\)\:]?\s*)', '', line, flags=re.IGNORECASE).strip()
+
+        if cleaned:
+            answers.append(cleaned)
+
+    # If we got fewer answers than questions, pad with empty strings
+    while len(answers) < num_questions:
+        answers.append("")
+
+    # If we got more, truncate
+    return answers[:num_questions]
+
+
+@router.post("/test-llm", response_model=LLMTestResponse)
+async def test_llm(
+    request: LLMTestRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+) -> LLMTestResponse:
+    """
+    Test an LLM with a context and multiple questions sent together.
+
+    This endpoint sends all questions in a single prompt to test how the model
+    handles multiple questions at once. Used for benchmarking and comparing LLMs.
+    """
+    import time
+    import os
+    import anthropic
+
+    start_time = time.time()
+
+    try:
+        # Currently only Claude models are supported
+        if request.model.startswith('claude'):
+            client = anthropic.Anthropic(api_key=os.getenv('ANTHROPIC_API_KEY'))
+
+            # Map frontend model IDs to actual model names
+            model_map = {
+                'claude-sonnet-4': 'claude-sonnet-4-20250514',
+                'claude-haiku-3.5': 'claude-3-5-haiku-20241022',
+            }
+            model_name = model_map.get(request.model, request.model)
+
+            # Build the prompt with all questions
+            questions_text = "\n".join(
+                f"{i+1}. {q}" for i, q in enumerate(request.questions)
+            )
+
+            prompt = f"""{request.context}
+
+Questions:
+
+{questions_text}"""
+
+            response = client.messages.create(
+                model=model_name,
+                max_tokens=500,
+                messages=[
+                    {"role": "user", "content": prompt}
+                ]
+            )
+
+            # Extract text response
+            response_text = ""
+            for block in response.content:
+                if hasattr(block, 'text'):
+                    response_text += block.text
+
+            latency_ms = int((time.time() - start_time) * 1000)
+
+            # Parse individual answers
+            parsed_answers = parse_answers(response_text, len(request.questions))
+
+            return LLMTestResponse(
+                success=True,
+                model=request.model,
+                raw_response=response_text.strip(),
+                parsed_answers=parsed_answers,
+                latency_ms=latency_ms
+            )
+
+        else:
+            # Other models not yet implemented
+            return LLMTestResponse(
+                success=False,
+                model=request.model,
+                raw_response="",
+                parsed_answers=[],
+                latency_ms=0,
+                error=f"Model '{request.model}' is not yet supported"
+            )
+
+    except Exception as e:
+        latency_ms = int((time.time() - start_time) * 1000)
+        logger.error(f"LLM test error: {e}", exc_info=True)
+        return LLMTestResponse(
+            success=False,
+            model=request.model,
+            raw_response="",
+            parsed_answers=[],
+            latency_ms=latency_ms,
+            error=str(e)
+        )

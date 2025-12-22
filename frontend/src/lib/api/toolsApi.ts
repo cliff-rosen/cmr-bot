@@ -91,6 +91,25 @@ export interface GmailSearchResponse {
     error?: string;
 }
 
+// ============================================================================
+// LLM Testing
+// ============================================================================
+
+export interface LLMTestRequest {
+    model: string;
+    context: string;
+    questions: string[];  // All questions sent together
+}
+
+export interface LLMTestResponse {
+    success: boolean;
+    model: string;
+    raw_response: string;  // Full response text
+    parsed_answers: string[];  // Individual answers extracted
+    latency_ms: number;
+    error?: string;
+}
+
 export const toolsApi = {
     /**
      * List all available tools with their documentation
@@ -114,6 +133,14 @@ export const toolsApi = {
      */
     async searchGmail(request: GmailSearchRequest): Promise<GmailSearchResponse> {
         const response = await api.post('/api/tools/gmail/search', request);
+        return response.data;
+    },
+
+    /**
+     * Test an LLM with a context and question
+     */
+    async testLLM(request: LLMTestRequest): Promise<LLMTestResponse> {
+        const response = await api.post('/api/tools/test-llm', request);
         return response.data;
     }
 };
