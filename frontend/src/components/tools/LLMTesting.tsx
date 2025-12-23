@@ -89,22 +89,28 @@ Dr. Sarah Chen joined Meridian Pharmaceuticals in 2019 as Head of Research. Unde
     },
     {
         id: 'logical-reasoning-1',
-        name: 'Logical Reasoning: Conditionals',
-        description: 'Tests if-then logic and contrapositive reasoning',
+        name: 'Logical Reasoning: Deduction',
+        description: 'Tests provability, contradiction, and underdetermination',
         icon: LightBulbIcon,
         category: 'reasoning',
-        context: `Answer each question with exactly one word: Yes, No, or Unclear.
+        context: `Use ONLY the following rules. Do not use outside knowledge.
 
-Given the following rules:
-1. If it rains, the ground gets wet.
-2. If the ground is wet, the flowers bloom.
-3. If John goes outside without an umbrella when it rains, he gets wet.
-4. John never takes his umbrella when the sun is shining.`,
+RULES:
+1. All dogs are mammals.
+2. All mammals are warm-blooded.
+3. Fido is a dog.
+4. Tweety is a bird.
+
+Answer each question with exactly one word: Yes, No, or Unknown.
+- "Yes" = provable from the rules
+- "No" = contradicted by the rules
+- "Unknown" = neither provable nor contradicted`,
         questions: [
-            { id: 'q1', question: 'If it rains, will the flowers bloom?', expectedAnswer: 'Yes', answerType: 'exact' },
-            { id: 'q2', question: 'If the flowers are not blooming, did it rain?', expectedAnswer: 'No', answerType: 'exact' },
-            { id: 'q3', question: 'If John is wet, did it definitely rain?', expectedAnswer: 'Unclear', answerType: 'exact' },
-            { id: 'q4', question: 'If the sun is shining and John goes outside, will he get wet from rain?', expectedAnswer: 'No', answerType: 'exact' }
+            { id: 'q1', question: 'Is Fido a mammal?', expectedAnswer: 'Yes', answerType: 'exact' },
+            { id: 'q2', question: 'Is Fido warm-blooded?', expectedAnswer: 'Yes', answerType: 'exact' },
+            { id: 'q3', question: 'Is Tweety warm-blooded?', expectedAnswer: 'Unknown', answerType: 'exact' },
+            { id: 'q4', question: 'Is Tweety a mammal?', expectedAnswer: 'Unknown', answerType: 'exact' },
+            { id: 'q5', question: 'Can something be a dog and not be warm-blooded?', expectedAnswer: 'No', answerType: 'exact' }
         ]
     },
     {

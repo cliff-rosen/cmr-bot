@@ -1,9 +1,20 @@
 from abc import ABC, abstractmethod
 from typing import List, Dict, Optional, Any, AsyncGenerator
+from dataclasses import dataclass
 import time
 import logging
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class LLMTestResponse:
+    """Response from LLM testing methods."""
+    text: str
+    model_id: str
+    input_tokens: Optional[int] = None
+    output_tokens: Optional[int] = None
+    latency_ms: Optional[int] = None
 
 
 class LLMProvider(ABC):
@@ -62,6 +73,54 @@ class LLMProvider(ABC):
     async def close(self):
         """Cleanup resources"""
         pass
+
+    async def complete_multi_question(
+        self,
+        model_id: str,
+        context: str,
+        questions: List[str],
+        max_tokens: int = 2000,
+        temperature: float = 0.0
+    ) -> LLMTestResponse:
+        """
+        Send context with multiple questions and get responses.
+        Used by LLM testing tool to test how models handle cognitive load.
+
+        Args:
+            model_id: The model ID to use
+            context: The context/instructions
+            questions: List of questions to answer
+            max_tokens: Maximum tokens in response
+            temperature: Sampling temperature
+
+        Returns:
+            LLMTestResponse with the model's text response containing all answers
+        """
+        start_time = time.time()
+
+        # Build prompt with numbered questions
+        questions_text = "\n".join(f"{i+1}. {q}" for i, q in enumerate(questions))
+        prompt = f"""{context}
+
+        Questions:
+
+        {questions_text}"""
+
+        # Use the existing generate method
+        text = await self.generate(
+            prompt=prompt,
+            model=model_id,
+            max_tokens=max_tokens,
+            temperature=temperature
+        )
+
+        latency_ms = int((time.time() - start_time) * 1000)
+
+        return LLMTestResponse(
+            text=text.strip() if text else "",
+            model_id=model_id,
+            latency_ms=latency_ms
+        )
 
     def _log_request_stats(self,
                            method: str,

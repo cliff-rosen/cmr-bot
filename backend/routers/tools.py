@@ -271,10 +271,11 @@ async def search_gmail(
 # LLM Testing
 # ============================================================================
 
-from services.llm_providers import (
-    get_provider_for_model_id,
+from services.llm import (
+    get_provider,
     get_available_models,
-    get_model,
+    get_configured_providers,
+    get_model_provider,
     ModelInfo
 )
 
@@ -397,9 +398,9 @@ async def test_llm(
     Supports all configured providers: Anthropic, OpenAI, and Google.
     """
     try:
-        # Get the model config
-        model_config = get_model(request.model)
-        if not model_config:
+        # Get the provider for this model
+        provider_name = get_model_provider(request.model)
+        if not provider_name:
             return LLMTestResponse(
                 success=False,
                 model=request.model,
@@ -409,8 +410,8 @@ async def test_llm(
                 error=f"Unknown model: {request.model}"
             )
 
-        # Get the provider
-        provider = get_provider_for_model_id(request.model)
+        # Get the provider instance
+        provider = get_provider(provider_name)
         if not provider:
             return LLMTestResponse(
                 success=False,
@@ -418,25 +419,14 @@ async def test_llm(
                 raw_response="",
                 parsed_answers=[],
                 latency_ms=0,
-                error=f"No provider found for model: {request.model}"
-            )
-
-        # Check if provider is configured
-        if not provider.is_configured():
-            return LLMTestResponse(
-                success=False,
-                model=request.model,
-                raw_response="",
-                parsed_answers=[],
-                latency_ms=0,
-                error=f"Provider '{provider.name}' is not configured. Please set the API key in your .env file."
+                error=f"Provider '{provider_name}' is not configured. Please set the API key in your .env file."
             )
 
         # Call the provider
         # Use 2000 tokens to allow room for multi-question responses
         # (Reasoning models will auto-boost this further in their providers)
         response = await provider.complete_multi_question(
-            model_id=model_config.api_model_id,
+            model_id=request.model,
             context=request.context,
             questions=request.questions,
             max_tokens=2000,
