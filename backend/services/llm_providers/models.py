@@ -115,7 +115,8 @@ MODELS: Dict[str, ModelConfig] = {
         context_window=128000,
         max_output_tokens=8192,
         uses_max_completion_tokens=True,
-        notes="Balanced GPT-5 variant"
+        supports_temperature=False,
+        notes="Balanced GPT-5 variant - no temperature control"
     ),
     "gpt-4.1": ModelConfig(
         id="gpt-4.1",
