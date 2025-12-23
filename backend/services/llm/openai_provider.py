@@ -37,6 +37,7 @@ class OpenAIProvider(LLMProvider):
         prompt: Optional[str] = None,
         max_tokens: Optional[int] = None,
         temperature: Optional[float] = None,
+        reasoning_effort: Optional[str] = None,
         stream: bool = False,
         **kwargs
     ) -> Dict[str, Any]:
@@ -60,7 +61,13 @@ class OpenAIProvider(LLMProvider):
             else:
                 params["max_tokens"] = max_tokens
 
-        # Temperature - only add if model supports it
+        # Reasoning effort - required for GPT-5 models to control reasoning vs temperature
+        if config and config.supports_reasoning_effort:
+            effort = reasoning_effort or config.default_reasoning_effort
+            if effort:
+                params["reasoning_effort"] = effort
+
+        # Temperature - only works when reasoning_effort="none" for GPT-5 models
         if temperature is not None:
             if not config or config.supports_temperature:
                 params["temperature"] = temperature
