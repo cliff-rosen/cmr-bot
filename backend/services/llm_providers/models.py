@@ -170,15 +170,18 @@ MODELS: Dict[str, ModelConfig] = {
 
     # -------------------------------------------------------------------------
     # GOOGLE
+    # Note: Pro models are "thinking" models that use tokens for reasoning
+    # They need higher max_tokens to allow room for both thinking + output
     # -------------------------------------------------------------------------
     "gemini-3-pro": ModelConfig(
         id="gemini-3-pro",
         display_name="Gemini 3 Pro",
         provider=Provider.GOOGLE,
         api_model_id="gemini-3-pro-preview",
+        is_reasoning=True,
         context_window=200000,
-        max_output_tokens=8192,
-        notes="Latest Google reasoning model"
+        max_output_tokens=65536,
+        notes="Thinking model - uses tokens for reasoning"
     ),
     "gemini-3-flash": ModelConfig(
         id="gemini-3-flash",
@@ -194,9 +197,10 @@ MODELS: Dict[str, ModelConfig] = {
         display_name="Gemini 2.5 Pro",
         provider=Provider.GOOGLE,
         api_model_id="gemini-2.5-pro",
+        is_reasoning=True,
         context_window=1000000,
-        max_output_tokens=8192,
-        notes="1M context window"
+        max_output_tokens=65536,
+        notes="Thinking model - 1M context window"
     ),
     "gemini-2.5-flash": ModelConfig(
         id="gemini-2.5-flash",
