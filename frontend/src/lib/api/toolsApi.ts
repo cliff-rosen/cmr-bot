@@ -95,6 +95,21 @@ export interface GmailSearchResponse {
 // LLM Testing
 // ============================================================================
 
+export interface LLMModelInfo {
+    id: string;
+    display_name: string;
+    provider: string;
+    is_configured: boolean;
+    is_reasoning: boolean;
+    context_window: number;
+    notes?: string;
+}
+
+export interface LLMModelsResponse {
+    models: LLMModelInfo[];
+    configured_providers: string[];
+}
+
 export interface LLMTestRequest {
     model: string;
     context: string;
@@ -107,6 +122,8 @@ export interface LLMTestResponse {
     raw_response: string;  // Full response text
     parsed_answers: string[];  // Individual answers extracted
     latency_ms: number;
+    input_tokens?: number;
+    output_tokens?: number;
     error?: string;
 }
 
@@ -137,7 +154,15 @@ export const toolsApi = {
     },
 
     /**
-     * Test an LLM with a context and question
+     * List all available LLM models for testing
+     */
+    async listLLMModels(): Promise<LLMModelsResponse> {
+        const response = await api.get('/api/tools/llm-models');
+        return response.data;
+    },
+
+    /**
+     * Test an LLM with a context and questions
      */
     async testLLM(request: LLMTestRequest): Promise<LLMTestResponse> {
         const response = await api.post('/api/tools/test-llm', request);

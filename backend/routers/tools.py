@@ -271,6 +271,65 @@ async def search_gmail(
 # LLM Testing
 # ============================================================================
 
+from services.llm_providers import (
+    get_provider_for_model_id,
+    get_available_models,
+    get_model,
+    ModelInfo
+)
+
+
+class LLMModelInfo(BaseModel):
+    """Information about an available LLM model."""
+    id: str
+    display_name: str
+    provider: str
+    is_configured: bool
+    is_reasoning: bool
+    context_window: int
+    notes: Optional[str] = None
+
+
+class LLMModelsResponse(BaseModel):
+    """Response containing available LLM models."""
+    models: List[LLMModelInfo]
+    configured_providers: List[str]
+
+
+@router.get("/llm-models", response_model=LLMModelsResponse)
+async def list_llm_models(
+    current_user: User = Depends(get_current_user)
+) -> LLMModelsResponse:
+    """
+    List all available LLM models for testing.
+
+    Returns models from all providers (Anthropic, OpenAI, Google) with
+    information about which ones are configured (have API keys).
+    """
+    models = get_available_models()
+
+    model_infos = [
+        LLMModelInfo(
+            id=m.id,
+            display_name=m.display_name,
+            provider=m.provider,
+            is_configured=m.is_configured,
+            is_reasoning=m.is_reasoning,
+            context_window=m.context_window,
+            notes=m.notes
+        )
+        for m in models
+    ]
+
+    # Get list of configured providers
+    configured = list(set(m.provider for m in models if m.is_configured))
+
+    return LLMModelsResponse(
+        models=model_infos,
+        configured_providers=configured
+    )
+
+
 class LLMTestRequest(BaseModel):
     """Request model for LLM testing."""
     model: str
@@ -285,6 +344,8 @@ class LLMTestResponse(BaseModel):
     raw_response: str  # Full response text
     parsed_answers: List[str]  # Individual answers extracted
     latency_ms: int
+    input_tokens: Optional[int] = None
+    output_tokens: Optional[int] = None
     error: Optional[str] = None
 
 
@@ -332,82 +393,74 @@ async def test_llm(
 
     This endpoint sends all questions in a single prompt to test how the model
     handles multiple questions at once. Used for benchmarking and comparing LLMs.
+
+    Supports all configured providers: Anthropic, OpenAI, and Google.
     """
-    import time
-    import os
-    import anthropic
-
-    start_time = time.time()
-
     try:
-        # Currently only Claude models are supported
-        if request.model.startswith('claude'):
-            client = anthropic.Anthropic(api_key=os.getenv('ANTHROPIC_API_KEY'))
-
-            # Map frontend model IDs to actual model names
-            model_map = {
-                'claude-sonnet-4': 'claude-sonnet-4-20250514',
-                'claude-haiku-3.5': 'claude-3-5-haiku-20241022',
-            }
-            model_name = model_map.get(request.model, request.model)
-
-            # Build the prompt with all questions
-            questions_text = "\n".join(
-                f"{i+1}. {q}" for i, q in enumerate(request.questions)
-            )
-
-            prompt = f"""{request.context}
-
-Questions:
-
-{questions_text}"""
-
-            response = client.messages.create(
-                model=model_name,
-                max_tokens=500,
-                messages=[
-                    {"role": "user", "content": prompt}
-                ]
-            )
-
-            # Extract text response
-            response_text = ""
-            for block in response.content:
-                if hasattr(block, 'text'):
-                    response_text += block.text
-
-            latency_ms = int((time.time() - start_time) * 1000)
-
-            # Parse individual answers
-            parsed_answers = parse_answers(response_text, len(request.questions))
-
-            return LLMTestResponse(
-                success=True,
-                model=request.model,
-                raw_response=response_text.strip(),
-                parsed_answers=parsed_answers,
-                latency_ms=latency_ms
-            )
-
-        else:
-            # Other models not yet implemented
+        # Get the model config
+        model_config = get_model(request.model)
+        if not model_config:
             return LLMTestResponse(
                 success=False,
                 model=request.model,
                 raw_response="",
                 parsed_answers=[],
                 latency_ms=0,
-                error=f"Model '{request.model}' is not yet supported"
+                error=f"Unknown model: {request.model}"
             )
 
+        # Get the provider
+        provider = get_provider_for_model_id(request.model)
+        if not provider:
+            return LLMTestResponse(
+                success=False,
+                model=request.model,
+                raw_response="",
+                parsed_answers=[],
+                latency_ms=0,
+                error=f"No provider found for model: {request.model}"
+            )
+
+        # Check if provider is configured
+        if not provider.is_configured():
+            return LLMTestResponse(
+                success=False,
+                model=request.model,
+                raw_response="",
+                parsed_answers=[],
+                latency_ms=0,
+                error=f"Provider '{provider.name}' is not configured. Please set the API key in your .env file."
+            )
+
+        # Call the provider
+        response = await provider.complete_multi_question(
+            model_id=model_config.api_model_id,
+            context=request.context,
+            questions=request.questions,
+            max_tokens=500,
+            temperature=0.0
+        )
+
+        # Parse individual answers
+        parsed_answers = parse_answers(response.text, len(request.questions))
+
+        return LLMTestResponse(
+            success=True,
+            model=request.model,
+            raw_response=response.text,
+            parsed_answers=parsed_answers,
+            latency_ms=response.latency_ms or 0,
+            input_tokens=response.input_tokens,
+            output_tokens=response.output_tokens
+        )
+
     except Exception as e:
-        latency_ms = int((time.time() - start_time) * 1000)
         logger.error(f"LLM test error: {e}", exc_info=True)
         return LLMTestResponse(
             success=False,
             model=request.model,
             raw_response="",
             parsed_answers=[],
-            latency_ms=latency_ms,
+            latency_ms=0,
             error=str(e)
         )

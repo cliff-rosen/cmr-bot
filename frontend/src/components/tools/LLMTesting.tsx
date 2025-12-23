@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import {
     PlayIcon,
     PlusIcon,
@@ -10,9 +10,14 @@ import {
     BeakerIcon,
     DocumentTextIcon,
     LightBulbIcon,
-    CalculatorIcon
+    CalculatorIcon,
+    ExclamationTriangleIcon,
+    ExclamationCircleIcon,
+    ChevronDownIcon,
+    ChevronRightIcon,
+    ClockIcon
 } from '@heroicons/react/24/solid';
-import { toolsApi } from '../../lib/api/toolsApi';
+import { toolsApi, LLMModelInfo } from '../../lib/api/toolsApi';
 
 // ============================================================================
 // Types
@@ -24,7 +29,7 @@ interface TestQuestion {
     id: string;
     question: string;
     expectedAnswer?: string;
-    expectedAnswers?: string[];  // For one_of type
+    expectedAnswers?: string[];
     answerType: AnswerType;
 }
 
@@ -41,18 +46,19 @@ interface TestTemplate {
 interface TestResult {
     questionId: string;
     response: string;
-    isCorrect: boolean | null;  // null for free_response
+    isCorrect: boolean | null;
     expectedAnswer?: string;
 }
 
 interface ModelResult {
     modelId: string;
     modelName: string;
+    provider: string;
     results: TestResult[];
-    rawResponse: string;  // Full LLM response
+    rawResponse: string;
     totalCorrect: number;
     totalQuestions: number;
-    latencyMs: number;  // Single request latency
+    latencyMs: number;
     status: 'pending' | 'running' | 'complete' | 'error';
     error?: string;
 }
@@ -74,42 +80,17 @@ Paragraph:
 
 Dr. Sarah Chen joined Meridian Pharmaceuticals in 2019 as Head of Research. Under her leadership, the company's R&D budget increased by 40%, and three new drug candidates entered clinical trials. In 2022, she was promoted to Chief Scientific Officer. The company's stock price doubled during her tenure, though industry analysts attributed much of this growth to favorable market conditions. Dr. Chen holds patents for two cancer treatment compounds and previously worked at Stanford Medical Center.`,
         questions: [
-            {
-                id: 'q1',
-                question: 'Did Dr. Chen work at Meridian Pharmaceuticals before 2019?',
-                expectedAnswer: 'No',
-                answerType: 'exact'
-            },
-            {
-                id: 'q2',
-                question: 'Is Dr. Chen currently the Chief Scientific Officer?',
-                expectedAnswer: 'Unclear',
-                answerType: 'exact'
-            },
-            {
-                id: 'q3',
-                question: 'Did the R&D budget increase after Dr. Chen joined?',
-                expectedAnswer: 'Yes',
-                answerType: 'exact'
-            },
-            {
-                id: 'q4',
-                question: 'Was the stock price growth entirely due to Dr. Chen\'s leadership?',
-                expectedAnswer: 'No',
-                answerType: 'exact'
-            },
-            {
-                id: 'q5',
-                question: 'Does Dr. Chen have experience with cancer research?',
-                expectedAnswer: 'Yes',
-                answerType: 'exact'
-            }
+            { id: 'q1', question: 'Did Dr. Chen work at Meridian Pharmaceuticals before 2019?', expectedAnswer: 'No', answerType: 'exact' },
+            { id: 'q2', question: 'Is Dr. Chen currently the Chief Scientific Officer?', expectedAnswer: 'Unclear', answerType: 'exact' },
+            { id: 'q3', question: 'Did the R&D budget increase after Dr. Chen joined?', expectedAnswer: 'Yes', answerType: 'exact' },
+            { id: 'q4', question: 'Was the stock price growth entirely due to Dr. Chen\'s leadership?', expectedAnswer: 'No', answerType: 'exact' },
+            { id: 'q5', question: 'Does Dr. Chen have experience with cancer research?', expectedAnswer: 'Yes', answerType: 'exact' }
         ]
     },
     {
         id: 'logical-reasoning-1',
-        name: 'Logical Reasoning: Conditional Statements',
-        description: 'Tests understanding of if-then logic and contrapositive reasoning',
+        name: 'Logical Reasoning: Conditionals',
+        description: 'Tests if-then logic and contrapositive reasoning',
         icon: LightBulbIcon,
         category: 'reasoning',
         context: `Answer each question with exactly one word: Yes, No, or Unclear.
@@ -120,106 +101,108 @@ Given the following rules:
 3. If John goes outside without an umbrella when it rains, he gets wet.
 4. John never takes his umbrella when the sun is shining.`,
         questions: [
-            {
-                id: 'q1',
-                question: 'If it rains, will the flowers bloom?',
-                expectedAnswer: 'Yes',
-                answerType: 'exact'
-            },
-            {
-                id: 'q2',
-                question: 'If the flowers are not blooming, did it rain?',
-                expectedAnswer: 'No',
-                answerType: 'exact'
-            },
-            {
-                id: 'q3',
-                question: 'If John is wet, did it definitely rain?',
-                expectedAnswer: 'Unclear',
-                answerType: 'exact'
-            },
-            {
-                id: 'q4',
-                question: 'If the sun is shining and John goes outside, will he get wet from rain?',
-                expectedAnswer: 'No',
-                answerType: 'exact'
-            }
+            { id: 'q1', question: 'If it rains, will the flowers bloom?', expectedAnswer: 'Yes', answerType: 'exact' },
+            { id: 'q2', question: 'If the flowers are not blooming, did it rain?', expectedAnswer: 'No', answerType: 'exact' },
+            { id: 'q3', question: 'If John is wet, did it definitely rain?', expectedAnswer: 'Unclear', answerType: 'exact' },
+            { id: 'q4', question: 'If the sun is shining and John goes outside, will he get wet from rain?', expectedAnswer: 'No', answerType: 'exact' }
         ]
     },
     {
         id: 'math-word-problems',
         name: 'Math Word Problems',
-        description: 'Tests arithmetic and problem-solving with real-world scenarios',
+        description: 'Tests arithmetic and problem-solving',
         icon: CalculatorIcon,
         category: 'reasoning',
         context: `Solve each problem. Give only the numerical answer (no units or explanation).`,
         questions: [
-            {
-                id: 'q1',
-                question: 'A store sells apples for $2 each and oranges for $3 each. If you buy 4 apples and 3 oranges, how much do you spend in total?',
-                expectedAnswer: '17',
-                answerType: 'exact'
-            },
-            {
-                id: 'q2',
-                question: 'A train travels at 60 mph. How many miles does it travel in 2.5 hours?',
-                expectedAnswer: '150',
-                answerType: 'exact'
-            },
-            {
-                id: 'q3',
-                question: 'If 15% of a number is 45, what is the number?',
-                expectedAnswer: '300',
-                answerType: 'exact'
-            },
-            {
-                id: 'q4',
-                question: 'A rectangle has a perimeter of 24 cm and a width of 4 cm. What is its length in cm?',
-                expectedAnswer: '8',
-                answerType: 'exact'
-            }
+            { id: 'q1', question: 'A store sells apples for $2 each and oranges for $3 each. If you buy 4 apples and 3 oranges, how much do you spend in total?', expectedAnswer: '17', answerType: 'exact' },
+            { id: 'q2', question: 'A train travels at 60 mph. How many miles does it travel in 2.5 hours?', expectedAnswer: '150', answerType: 'exact' },
+            { id: 'q3', question: 'If 15% of a number is 45, what is the number?', expectedAnswer: '300', answerType: 'exact' },
+            { id: 'q4', question: 'A rectangle has a perimeter of 24 cm and a width of 4 cm. What is its length in cm?', expectedAnswer: '8', answerType: 'exact' }
         ]
     }
 ];
 
 // ============================================================================
-// Available Models (expandable)
+// Provider Config
 // ============================================================================
 
-interface ModelConfig {
-    id: string;
-    name: string;
-    provider: string;
-    available: boolean;
-}
-
-const AVAILABLE_MODELS: ModelConfig[] = [
-    { id: 'claude-sonnet-4', name: 'Claude Sonnet 4', provider: 'Anthropic', available: true },
-    { id: 'claude-haiku-3.5', name: 'Claude Haiku 3.5', provider: 'Anthropic', available: false },
-    { id: 'gpt-4o', name: 'GPT-4o', provider: 'OpenAI', available: false },
-    { id: 'gpt-4o-mini', name: 'GPT-4o Mini', provider: 'OpenAI', available: false },
-    { id: 'gemini-pro', name: 'Gemini Pro', provider: 'Google', available: false },
-];
+const PROVIDER_CONFIG: Record<string, { displayName: string; color: string; bgClass: string }> = {
+    anthropic: { displayName: 'Anthropic', color: 'orange', bgClass: 'bg-orange-500' },
+    openai: { displayName: 'OpenAI', color: 'green', bgClass: 'bg-emerald-500' },
+    google: { displayName: 'Google', color: 'blue', bgClass: 'bg-blue-500' },
+};
 
 // ============================================================================
-// Component
+// Main Component
 // ============================================================================
 
 export default function LLMTesting() {
+    // UI State
+    const [templatesExpanded, setTemplatesExpanded] = useState(true);
+    const [selectedResultId, setSelectedResultId] = useState<string | null>(null);
+
+    // Test State
     const [selectedTemplate, setSelectedTemplate] = useState<TestTemplate | null>(null);
-    const [selectedModels, setSelectedModels] = useState<Set<string>>(new Set(['claude-sonnet-4']));
+    const [selectedModels, setSelectedModels] = useState<Set<string>>(new Set());
     const [isRunning, setIsRunning] = useState(false);
     const [results, setResults] = useState<ModelResult[]>([]);
 
-    // Custom test state
+    // Model State
+    const [availableModels, setAvailableModels] = useState<LLMModelInfo[]>([]);
+    const [configuredProviders, setConfiguredProviders] = useState<string[]>([]);
+    const [isLoadingModels, setIsLoadingModels] = useState(true);
+    const [modelLoadError, setModelLoadError] = useState<string | null>(null);
+
+    // Custom Test State
     const [customContext, setCustomContext] = useState('');
     const [customQuestions, setCustomQuestions] = useState<TestQuestion[]>([]);
     const [showCustomForm, setShowCustomForm] = useState(false);
 
+    // Fetch models on mount
+    useEffect(() => {
+        const fetchModels = async () => {
+            try {
+                setIsLoadingModels(true);
+                const response = await toolsApi.listLLMModels();
+                setAvailableModels(response.models);
+                setConfiguredProviders(response.configured_providers);
+                const firstConfigured = response.models.find(m => m.is_configured);
+                if (firstConfigured) {
+                    setSelectedModels(new Set([firstConfigured.id]));
+                }
+            } catch (error) {
+                setModelLoadError(error instanceof Error ? error.message : 'Failed to load models');
+            } finally {
+                setIsLoadingModels(false);
+            }
+        };
+        fetchModels();
+    }, []);
+
+    // Group models by provider
+    const modelsByProvider = useMemo(() => {
+        const grouped: Record<string, LLMModelInfo[]> = {};
+        for (const model of availableModels) {
+            if (!grouped[model.provider]) grouped[model.provider] = [];
+            grouped[model.provider].push(model);
+        }
+        return grouped;
+    }, [availableModels]);
+
+    // Auto-select first result when results come in
+    useEffect(() => {
+        if (results.length > 0 && !selectedResultId) {
+            setSelectedResultId(results[0].modelId);
+        }
+    }, [results, selectedResultId]);
+
     const handleSelectTemplate = (template: TestTemplate) => {
         setSelectedTemplate(template);
         setResults([]);
+        setSelectedResultId(null);
         setShowCustomForm(false);
+        setTemplatesExpanded(false);
     };
 
     const handleToggleModel = (modelId: string) => {
@@ -237,570 +220,503 @@ export default function LLMTesting() {
 
         setIsRunning(true);
         setResults([]);
+        setSelectedResultId(null);
 
-        // Initialize results for each model
-        const initialResults: ModelResult[] = Array.from(selectedModels).map(modelId => ({
-            modelId,
-            modelName: AVAILABLE_MODELS.find(m => m.id === modelId)?.name || modelId,
-            results: [],
-            rawResponse: '',
-            totalCorrect: 0,
-            totalQuestions: selectedTemplate.questions.length,
-            latencyMs: 0,
-            status: 'pending'
-        }));
+        const initialResults: ModelResult[] = Array.from(selectedModels).map(modelId => {
+            const model = availableModels.find(m => m.id === modelId);
+            return {
+                modelId,
+                modelName: model?.display_name || modelId,
+                provider: model?.provider || 'unknown',
+                results: [],
+                rawResponse: '',
+                totalCorrect: 0,
+                totalQuestions: selectedTemplate.questions.length,
+                latencyMs: 0,
+                status: 'pending'
+            };
+        });
         setResults(initialResults);
+        setSelectedResultId(initialResults[0]?.modelId || null);
 
-        // Run tests for each model - ALL QUESTIONS SENT AT ONCE
         for (const modelId of selectedModels) {
-            const modelConfig = AVAILABLE_MODELS.find(m => m.id === modelId);
-            if (!modelConfig?.available) continue;
+            const modelConfig = availableModels.find(m => m.id === modelId);
+            if (!modelConfig?.is_configured) continue;
 
-            // Update status to running
             setResults(prev => prev.map(r =>
                 r.modelId === modelId ? { ...r, status: 'running' } : r
             ));
+            setSelectedResultId(modelId);
 
             try {
-                // Send ALL questions in a single request
                 const data = await toolsApi.testLLM({
                     model: modelId,
                     context: selectedTemplate.context,
                     questions: selectedTemplate.questions.map(q => q.question)
                 });
 
-                if (!data.success) {
-                    throw new Error(data.error || 'LLM test failed');
-                }
+                if (!data.success) throw new Error(data.error || 'LLM test failed');
 
-                // Match parsed answers to questions
                 const modelResults: TestResult[] = selectedTemplate.questions.map((question, index) => {
                     const llmResponse = data.parsed_answers[index]?.trim() || '';
-
-                    // Check correctness
                     let isCorrect: boolean | null = null;
                     if (question.answerType === 'exact' && question.expectedAnswer) {
                         isCorrect = llmResponse.toLowerCase() === question.expectedAnswer.toLowerCase();
                     } else if (question.answerType === 'contains' && question.expectedAnswer) {
                         isCorrect = llmResponse.toLowerCase().includes(question.expectedAnswer.toLowerCase());
                     } else if (question.answerType === 'one_of' && question.expectedAnswers) {
-                        isCorrect = question.expectedAnswers.some(a =>
-                            llmResponse.toLowerCase() === a.toLowerCase()
-                        );
+                        isCorrect = question.expectedAnswers.some(a => llmResponse.toLowerCase() === a.toLowerCase());
                     }
-
-                    return {
-                        questionId: question.id,
-                        response: llmResponse,
-                        isCorrect,
-                        expectedAnswer: question.expectedAnswer
-                    };
+                    return { questionId: question.id, response: llmResponse, isCorrect, expectedAnswer: question.expectedAnswer };
                 });
 
                 const totalCorrect = modelResults.filter(r => r.isCorrect === true).length;
 
-                // Update with complete results
                 setResults(prev => prev.map(r =>
                     r.modelId === modelId ? {
-                        ...r,
-                        results: modelResults,
-                        rawResponse: data.raw_response,
-                        totalCorrect,
-                        latencyMs: data.latency_ms,
-                        status: 'complete'
+                        ...r, results: modelResults, rawResponse: data.raw_response,
+                        totalCorrect, latencyMs: data.latency_ms, status: 'complete'
                     } : r
                 ));
-
             } catch (error) {
                 setResults(prev => prev.map(r =>
-                    r.modelId === modelId ? {
-                        ...r,
-                        status: 'error',
-                        error: error instanceof Error ? error.message : 'Unknown error'
-                    } : r
+                    r.modelId === modelId ? { ...r, status: 'error', error: error instanceof Error ? error.message : 'Unknown error' } : r
                 ));
             }
         }
-
         setIsRunning(false);
     };
 
     const addCustomQuestion = () => {
-        setCustomQuestions([
-            ...customQuestions,
-            {
-                id: `custom-${Date.now()}`,
-                question: '',
-                expectedAnswer: '',
-                answerType: 'exact'
-            }
-        ]);
-    };
-
-    const updateCustomQuestion = (id: string, updates: Partial<TestQuestion>) => {
-        setCustomQuestions(prev =>
-            prev.map(q => q.id === id ? { ...q, ...updates } : q)
-        );
-    };
-
-    const removeCustomQuestion = (id: string) => {
-        setCustomQuestions(prev => prev.filter(q => q.id !== id));
+        setCustomQuestions([...customQuestions, { id: `custom-${Date.now()}`, question: '', expectedAnswer: '', answerType: 'exact' }]);
     };
 
     const handleCreateCustomTest = () => {
         if (!customContext.trim() || customQuestions.length === 0) return;
-
         const customTemplate: TestTemplate = {
-            id: `custom-${Date.now()}`,
-            name: 'Custom Test',
-            description: 'User-defined test',
-            icon: BeakerIcon,
-            category: 'custom',
-            context: customContext,
+            id: `custom-${Date.now()}`, name: 'Custom Test', description: 'User-defined test',
+            icon: BeakerIcon, category: 'custom', context: customContext,
             questions: customQuestions.filter(q => q.question.trim())
         };
-
         setSelectedTemplate(customTemplate);
         setShowCustomForm(false);
         setResults([]);
+        setTemplatesExpanded(false);
     };
 
+    const selectedResult = results.find(r => r.modelId === selectedResultId);
+
     return (
-        <div className="space-y-6">
-            {/* Test Templates */}
-            <div className="bg-white dark:bg-gray-800 rounded-lg shadow">
-                <div className="p-6 border-b border-gray-200 dark:border-gray-700">
-                    <h2 className="text-xl font-semibold text-gray-900 dark:text-white">
-                        Test Templates
-                    </h2>
-                    <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-                        Select a predefined test or create your own
-                    </p>
-                </div>
-
-                <div className="p-6">
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                        {TEST_TEMPLATES.map((template) => {
-                            const Icon = template.icon;
-                            const isSelected = selectedTemplate?.id === template.id;
-                            return (
-                                <button
-                                    key={template.id}
-                                    onClick={() => handleSelectTemplate(template)}
-                                    className={`text-left p-4 rounded-lg border-2 transition-all ${
-                                        isSelected
-                                            ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20'
-                                            : 'border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-600'
-                                    }`}
-                                >
-                                    <div className="flex items-start gap-3">
-                                        <div className={`p-2 rounded-lg ${
-                                            isSelected
-                                                ? 'bg-blue-100 dark:bg-blue-800'
-                                                : 'bg-gray-100 dark:bg-gray-700'
-                                        }`}>
-                                            <Icon className={`h-5 w-5 ${
-                                                isSelected
-                                                    ? 'text-blue-600 dark:text-blue-400'
-                                                    : 'text-gray-500 dark:text-gray-400'
-                                            }`} />
-                                        </div>
-                                        <div>
-                                            <h3 className="font-medium text-gray-900 dark:text-white">
-                                                {template.name}
-                                            </h3>
-                                            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                                                {template.description}
-                                            </p>
-                                            <span className="inline-block mt-2 px-2 py-0.5 text-xs rounded-full bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400">
-                                                {template.questions.length} questions
-                                            </span>
-                                        </div>
-                                    </div>
-                                </button>
-                            );
-                        })}
-
-                        {/* Create Custom */}
-                        <button
-                            onClick={() => {
-                                setShowCustomForm(true);
-                                setSelectedTemplate(null);
-                            }}
-                            className={`text-left p-4 rounded-lg border-2 border-dashed transition-all ${
-                                showCustomForm
-                                    ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20'
-                                    : 'border-gray-300 dark:border-gray-600 hover:border-gray-400 dark:hover:border-gray-500'
-                            }`}
-                        >
-                            <div className="flex items-start gap-3">
-                                <div className={`p-2 rounded-lg ${
-                                    showCustomForm
-                                        ? 'bg-blue-100 dark:bg-blue-800'
-                                        : 'bg-gray-100 dark:bg-gray-700'
-                                }`}>
-                                    <PlusIcon className={`h-5 w-5 ${
-                                        showCustomForm
-                                            ? 'text-blue-600 dark:text-blue-400'
-                                            : 'text-gray-500 dark:text-gray-400'
-                                    }`} />
-                                </div>
-                                <div>
-                                    <h3 className="font-medium text-gray-900 dark:text-white">
-                                        Create Custom Test
-                                    </h3>
-                                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                                        Define your own context and questions
-                                    </p>
-                                </div>
-                            </div>
-                        </button>
+        <div className="h-full flex flex-col">
+            {/* Collapsible Templates Section */}
+            <div className="bg-white dark:bg-gray-800 rounded-lg shadow mb-4">
+                <button
+                    onClick={() => setTemplatesExpanded(!templatesExpanded)}
+                    className="w-full p-4 flex items-center justify-between text-left"
+                >
+                    <div className="flex items-center gap-2">
+                        {templatesExpanded ? <ChevronDownIcon className="h-5 w-5 text-gray-500" /> : <ChevronRightIcon className="h-5 w-5 text-gray-500" />}
+                        <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Test Templates</h2>
+                        {selectedTemplate && !templatesExpanded && (
+                            <span className="ml-2 px-2 py-0.5 text-xs rounded-full bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300">
+                                {selectedTemplate.name}
+                            </span>
+                        )}
                     </div>
-                </div>
+                </button>
+
+                {templatesExpanded && (
+                    <div className="px-4 pb-4">
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                            {TEST_TEMPLATES.map((template) => {
+                                const Icon = template.icon;
+                                const isSelected = selectedTemplate?.id === template.id;
+                                return (
+                                    <button
+                                        key={template.id}
+                                        onClick={() => handleSelectTemplate(template)}
+                                        className={`text-left p-3 rounded-lg border-2 transition-all ${
+                                            isSelected ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20' : 'border-gray-200 dark:border-gray-700 hover:border-gray-300'
+                                        }`}
+                                    >
+                                        <div className="flex items-center gap-2 mb-1">
+                                            <Icon className={`h-4 w-4 ${isSelected ? 'text-blue-600' : 'text-gray-500'}`} />
+                                            <span className="font-medium text-sm text-gray-900 dark:text-white truncate">{template.name}</span>
+                                        </div>
+                                        <p className="text-xs text-gray-500 line-clamp-1">{template.description}</p>
+                                    </button>
+                                );
+                            })}
+                            <button
+                                onClick={() => { setShowCustomForm(true); setSelectedTemplate(null); setTemplatesExpanded(false); }}
+                                className="text-left p-3 rounded-lg border-2 border-dashed border-gray-300 dark:border-gray-600 hover:border-gray-400"
+                            >
+                                <div className="flex items-center gap-2 mb-1">
+                                    <PlusIcon className="h-4 w-4 text-gray-500" />
+                                    <span className="font-medium text-sm text-gray-900 dark:text-white">Custom Test</span>
+                                </div>
+                                <p className="text-xs text-gray-500">Define your own</p>
+                            </button>
+                        </div>
+                    </div>
+                )}
             </div>
 
-            {/* Custom Test Form */}
-            {showCustomForm && (
-                <div className="bg-white dark:bg-gray-800 rounded-lg shadow">
-                    <div className="p-6 border-b border-gray-200 dark:border-gray-700">
-                        <h2 className="text-xl font-semibold text-gray-900 dark:text-white">
-                            Create Custom Test
-                        </h2>
-                    </div>
-
-                    <div className="p-6 space-y-4">
-                        <div>
-                            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                                Context / Instructions
-                            </label>
-                            <textarea
-                                value={customContext}
-                                onChange={(e) => setCustomContext(e.target.value)}
-                                rows={6}
-                                placeholder="Enter the context, paragraph, or instructions the LLM should use..."
-                                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+            {/* Main Content Area: Two Columns */}
+            <div className="flex-1 flex gap-4 min-h-0">
+                {/* Left Column: Test Setup */}
+                <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+                    <div className="flex-1 bg-white dark:bg-gray-800 rounded-lg shadow overflow-auto">
+                        {showCustomForm ? (
+                            <CustomTestForm
+                                context={customContext}
+                                questions={customQuestions}
+                                onContextChange={setCustomContext}
+                                onAddQuestion={addCustomQuestion}
+                                onUpdateQuestion={(id, updates) => setCustomQuestions(prev => prev.map(q => q.id === id ? { ...q, ...updates } : q))}
+                                onRemoveQuestion={(id) => setCustomQuestions(prev => prev.filter(q => q.id !== id))}
+                                onCreate={handleCreateCustomTest}
+                                onCancel={() => setShowCustomForm(false)}
                             />
-                        </div>
-
-                        <div>
-                            <div className="flex items-center justify-between mb-2">
-                                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                                    Questions
-                                </label>
-                                <button
-                                    onClick={addCustomQuestion}
-                                    className="flex items-center gap-1 text-sm text-blue-600 dark:text-blue-400 hover:text-blue-700"
-                                >
-                                    <PlusIcon className="h-4 w-4" />
-                                    Add Question
-                                </button>
+                        ) : selectedTemplate ? (
+                            <TestSetupPanel
+                                template={selectedTemplate}
+                                modelsByProvider={modelsByProvider}
+                                configuredProviders={configuredProviders}
+                                selectedModels={selectedModels}
+                                isLoadingModels={isLoadingModels}
+                                modelLoadError={modelLoadError}
+                                isRunning={isRunning}
+                                onToggleModel={handleToggleModel}
+                                onRunTest={handleRunTest}
+                            />
+                        ) : (
+                            <div className="flex items-center justify-center h-full text-gray-400 dark:text-gray-500">
+                                <p>Select a test template to begin</p>
                             </div>
-
-                            <div className="space-y-3">
-                                {customQuestions.map((q, index) => (
-                                    <div key={q.id} className="flex gap-3 items-start p-3 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
-                                        <span className="text-sm font-medium text-gray-500 mt-2">
-                                            {index + 1}.
-                                        </span>
-                                        <div className="flex-1 space-y-2">
-                                            <input
-                                                type="text"
-                                                value={q.question}
-                                                onChange={(e) => updateCustomQuestion(q.id, { question: e.target.value })}
-                                                placeholder="Question..."
-                                                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-gray-900 dark:text-white text-sm"
-                                            />
-                                            <div className="flex gap-2">
-                                                <input
-                                                    type="text"
-                                                    value={q.expectedAnswer || ''}
-                                                    onChange={(e) => updateCustomQuestion(q.id, { expectedAnswer: e.target.value })}
-                                                    placeholder="Expected answer (optional)"
-                                                    className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-gray-900 dark:text-white text-sm"
-                                                />
-                                                <select
-                                                    value={q.answerType}
-                                                    onChange={(e) => updateCustomQuestion(q.id, { answerType: e.target.value as AnswerType })}
-                                                    className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-gray-900 dark:text-white text-sm"
-                                                >
-                                                    <option value="exact">Exact match</option>
-                                                    <option value="contains">Contains</option>
-                                                    <option value="free_response">Free response</option>
-                                                </select>
-                                            </div>
-                                        </div>
-                                        <button
-                                            onClick={() => removeCustomQuestion(q.id)}
-                                            className="p-1 text-gray-400 hover:text-red-500"
-                                        >
-                                            <TrashIcon className="h-4 w-4" />
-                                        </button>
-                                    </div>
-                                ))}
-
-                                {customQuestions.length === 0 && (
-                                    <p className="text-sm text-gray-400 dark:text-gray-500 text-center py-4">
-                                        No questions added yet
-                                    </p>
-                                )}
-                            </div>
-                        </div>
-
-                        <div className="flex justify-end">
-                            <button
-                                onClick={handleCreateCustomTest}
-                                disabled={!customContext.trim() || customQuestions.length === 0}
-                                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
-                            >
-                                Create Test
-                            </button>
-                        </div>
+                        )}
                     </div>
                 </div>
-            )}
 
-            {/* Selected Test Preview & Model Selection */}
-            {selectedTemplate && (
-                <div className="bg-white dark:bg-gray-800 rounded-lg shadow">
-                    <div className="p-6 border-b border-gray-200 dark:border-gray-700">
-                        <div className="flex items-center justify-between">
-                            <div>
-                                <h2 className="text-xl font-semibold text-gray-900 dark:text-white">
-                                    {selectedTemplate.name}
-                                </h2>
-                                <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-                                    {selectedTemplate.questions.length} questions
-                                </p>
-                            </div>
-                            <button
-                                onClick={handleRunTest}
-                                disabled={isRunning || selectedModels.size === 0}
-                                className="flex items-center gap-2 px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50"
-                            >
-                                {isRunning ? (
-                                    <>
-                                        <ArrowPathIcon className="h-5 w-5 animate-spin" />
-                                        Running...
-                                    </>
-                                ) : (
-                                    <>
-                                        <PlayIcon className="h-5 w-5" />
-                                        Run Test
-                                    </>
-                                )}
-                            </button>
-                        </div>
+                {/* Right Column: Results */}
+                <div className="w-96 flex flex-col bg-white dark:bg-gray-800 rounded-lg shadow overflow-hidden">
+                    <div className="p-3 border-b border-gray-200 dark:border-gray-700">
+                        <h3 className="font-semibold text-gray-900 dark:text-white">Results</h3>
                     </div>
 
-                    <div className="p-6">
-                        {/* Model Selection */}
-                        <div className="mb-6">
-                            <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
-                                Select Models to Test
-                            </h3>
-                            <div className="flex flex-wrap gap-2">
-                                {AVAILABLE_MODELS.map((model) => {
-                                    const isSelected = selectedModels.has(model.id);
+                    {results.length === 0 ? (
+                        <div className="flex-1 flex items-center justify-center text-gray-400 dark:text-gray-500 text-sm">
+                            <p>Run a test to see results</p>
+                        </div>
+                    ) : (
+                        <>
+                            {/* Model Tabs */}
+                            <div className="flex border-b border-gray-200 dark:border-gray-700 overflow-x-auto">
+                                {results.map((r) => {
+                                    const providerConfig = PROVIDER_CONFIG[r.provider] || { bgClass: 'bg-gray-500' };
+                                    const isActive = r.modelId === selectedResultId;
+                                    const scorePercent = r.totalQuestions > 0 ? Math.round((r.totalCorrect / r.totalQuestions) * 100) : 0;
+
                                     return (
                                         <button
-                                            key={model.id}
-                                            onClick={() => model.available && handleToggleModel(model.id)}
-                                            disabled={!model.available}
-                                            className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
-                                                !model.available
-                                                    ? 'bg-gray-100 dark:bg-gray-700 text-gray-400 cursor-not-allowed'
-                                                    : isSelected
-                                                        ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 border-2 border-blue-500'
-                                                        : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
+                                            key={r.modelId}
+                                            onClick={() => setSelectedResultId(r.modelId)}
+                                            className={`flex-shrink-0 px-3 py-2 text-xs font-medium border-b-2 transition-colors ${
+                                                isActive
+                                                    ? 'border-blue-500 text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/20'
+                                                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700'
                                             }`}
                                         >
-                                            {model.name}
-                                            {!model.available && (
-                                                <span className="ml-1 text-xs opacity-70">(coming soon)</span>
-                                            )}
+                                            <div className="flex items-center gap-2">
+                                                <span className={`w-2 h-2 rounded-full ${providerConfig.bgClass}`} />
+                                                <span className="truncate max-w-[100px]">{r.modelName}</span>
+                                                {r.status === 'running' && <ArrowPathIcon className="h-3 w-3 animate-spin text-blue-500" />}
+                                                {r.status === 'complete' && (
+                                                    <span className={`${scorePercent >= 80 ? 'text-green-600' : scorePercent >= 50 ? 'text-yellow-600' : 'text-red-600'}`}>
+                                                        {scorePercent}%
+                                                    </span>
+                                                )}
+                                                {r.status === 'error' && <ExclamationCircleIcon className="h-3 w-3 text-red-500" />}
+                                            </div>
                                         </button>
                                     );
                                 })}
                             </div>
-                        </div>
 
-                        {/* Context Preview */}
-                        <div className="mb-6">
-                            <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                                Context
-                            </h3>
-                            <div className="p-4 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
-                                <pre className="text-sm text-gray-700 dark:text-gray-300 whitespace-pre-wrap font-sans">
-                                    {selectedTemplate.context}
-                                </pre>
+                            {/* Selected Result Detail */}
+                            <div className="flex-1 overflow-auto">
+                                {selectedResult && (
+                                    <ResultDetail result={selectedResult} questions={selectedTemplate?.questions || []} />
+                                )}
                             </div>
-                        </div>
+                        </>
+                    )}
+                </div>
+            </div>
+        </div>
+    );
+}
 
-                        {/* Questions Preview */}
-                        <div>
-                            <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                                Questions
-                            </h3>
-                            <div className="space-y-2">
-                                {selectedTemplate.questions.map((q, index) => (
-                                    <div key={q.id} className="flex items-start gap-3 p-3 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
-                                        <span className="text-sm font-medium text-gray-500">
-                                            {index + 1}.
-                                        </span>
-                                        <div className="flex-1">
-                                            <p className="text-sm text-gray-900 dark:text-white">
-                                                {q.question}
-                                            </p>
-                                            {q.expectedAnswer && (
-                                                <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                                                    Expected: <span className="font-mono">{q.expectedAnswer}</span>
-                                                </p>
-                                            )}
-                                        </div>
+// ============================================================================
+// Test Setup Panel
+// ============================================================================
+
+function TestSetupPanel({
+    template, modelsByProvider, configuredProviders, selectedModels,
+    isLoadingModels, modelLoadError, isRunning, onToggleModel, onRunTest
+}: {
+    template: TestTemplate;
+    modelsByProvider: Record<string, LLMModelInfo[]>;
+    configuredProviders: string[];
+    selectedModels: Set<string>;
+    isLoadingModels: boolean;
+    modelLoadError: string | null;
+    isRunning: boolean;
+    onToggleModel: (id: string) => void;
+    onRunTest: () => void;
+}) {
+    return (
+        <div className="p-4 space-y-4">
+            {/* Header with Run Button */}
+            <div className="flex items-center justify-between">
+                <div>
+                    <h2 className="text-lg font-semibold text-gray-900 dark:text-white">{template.name}</h2>
+                    <p className="text-sm text-gray-500">{template.questions.length} questions</p>
+                </div>
+                <button
+                    onClick={onRunTest}
+                    disabled={isRunning || selectedModels.size === 0}
+                    className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 text-sm font-medium"
+                >
+                    {isRunning ? <><ArrowPathIcon className="h-4 w-4 animate-spin" />Running...</> : <><PlayIcon className="h-4 w-4" />Run Test</>}
+                </button>
+            </div>
+
+            {/* Model Selection */}
+            <div>
+                <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Select Models</h3>
+                {isLoadingModels ? (
+                    <div className="flex items-center gap-2 text-gray-500 text-sm"><ArrowPathIcon className="h-4 w-4 animate-spin" />Loading...</div>
+                ) : modelLoadError ? (
+                    <div className="flex items-center gap-2 text-red-500 text-sm"><ExclamationCircleIcon className="h-4 w-4" />{modelLoadError}</div>
+                ) : (
+                    <div className="space-y-3">
+                        {Object.entries(modelsByProvider).map(([provider, models]) => {
+                            const config = PROVIDER_CONFIG[provider] || { displayName: provider, bgClass: 'bg-gray-500' };
+                            const isConfigured = configuredProviders.includes(provider);
+                            return (
+                                <div key={provider}>
+                                    <div className="flex items-center gap-2 mb-1">
+                                        <span className={`w-2 h-2 rounded-full ${config.bgClass}`} />
+                                        <span className="text-xs font-semibold text-gray-500 uppercase">{config.displayName}</span>
+                                        {!isConfigured && (
+                                            <span className="text-xs text-yellow-600 dark:text-yellow-400 flex items-center gap-1">
+                                                <ExclamationTriangleIcon className="h-3 w-3" />Not configured
+                                            </span>
+                                        )}
                                     </div>
-                                ))}
+                                    <div className="flex flex-wrap gap-1">
+                                        {models.map((model) => {
+                                            const isSelected = selectedModels.has(model.id);
+                                            return (
+                                                <button
+                                                    key={model.id}
+                                                    onClick={() => model.is_configured && onToggleModel(model.id)}
+                                                    disabled={!model.is_configured}
+                                                    className={`px-2 py-1 rounded text-xs font-medium transition-colors ${
+                                                        !model.is_configured ? 'bg-gray-100 dark:bg-gray-700 text-gray-400 cursor-not-allowed'
+                                                        : isSelected ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 ring-1 ring-blue-500'
+                                                        : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200'
+                                                    }`}
+                                                >
+                                                    {model.display_name}
+                                                </button>
+                                            );
+                                        })}
+                                    </div>
+                                </div>
+                            );
+                        })}
+                    </div>
+                )}
+            </div>
+
+            {/* Context */}
+            <div>
+                <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Context</h3>
+                <div className="p-3 bg-gray-50 dark:bg-gray-700/50 rounded-lg text-sm text-gray-700 dark:text-gray-300 whitespace-pre-wrap max-h-40 overflow-auto">
+                    {template.context}
+                </div>
+            </div>
+
+            {/* Questions */}
+            <div>
+                <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Questions</h3>
+                <div className="space-y-1">
+                    {template.questions.map((q, i) => (
+                        <div key={q.id} className="flex gap-2 p-2 bg-gray-50 dark:bg-gray-700/50 rounded text-sm">
+                            <span className="text-gray-500 font-medium">{i + 1}.</span>
+                            <div className="flex-1">
+                                <p className="text-gray-900 dark:text-white">{q.question}</p>
+                                {q.expectedAnswer && <p className="text-xs text-gray-500 mt-0.5">Expected: <span className="font-mono">{q.expectedAnswer}</span></p>}
                             </div>
                         </div>
+                    ))}
+                </div>
+            </div>
+        </div>
+    );
+}
+
+// ============================================================================
+// Result Detail
+// ============================================================================
+
+function ResultDetail({ result, questions }: { result: ModelResult; questions: TestQuestion[] }) {
+    const [showRaw, setShowRaw] = useState(false);
+    const scorePercent = result.totalQuestions > 0 ? Math.round((result.totalCorrect / result.totalQuestions) * 100) : 0;
+
+    return (
+        <div className="p-3 space-y-3">
+            {/* Stats Header */}
+            <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                    <span className={`text-2xl font-bold ${scorePercent >= 80 ? 'text-green-600' : scorePercent >= 50 ? 'text-yellow-600' : 'text-red-600'}`}>
+                        {result.status === 'complete' ? `${scorePercent}%` : result.status === 'running' ? '...' : '--'}
+                    </span>
+                    <span className="text-sm text-gray-500">{result.totalCorrect}/{result.totalQuestions} correct</span>
+                </div>
+                {result.status === 'complete' && (
+                    <div className="flex items-center gap-1 text-xs text-gray-500">
+                        <ClockIcon className="h-3 w-3" />
+                        {result.latencyMs}ms
                     </div>
+                )}
+            </div>
+
+            {result.status === 'error' && (
+                <div className="p-2 bg-red-50 dark:bg-red-900/20 rounded text-sm text-red-600 dark:text-red-400">
+                    {result.error}
                 </div>
             )}
 
-            {/* Results */}
-            {results.length > 0 && (
-                <div className="bg-white dark:bg-gray-800 rounded-lg shadow">
-                    <div className="p-6 border-b border-gray-200 dark:border-gray-700">
-                        <h2 className="text-xl font-semibold text-gray-900 dark:text-white">
-                            Results
-                        </h2>
-                    </div>
-
-                    <div className="p-6">
-                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                            {results.map((modelResult) => (
-                                <ModelResultCard
-                                    key={modelResult.modelId}
-                                    result={modelResult}
-                                    questions={selectedTemplate?.questions || []}
-                                />
-                            ))}
-                        </div>
-                    </div>
+            {result.status === 'running' && (
+                <div className="flex items-center gap-2 text-sm text-blue-600">
+                    <ArrowPathIcon className="h-4 w-4 animate-spin" />
+                    Running...
                 </div>
+            )}
+
+            {result.status === 'complete' && (
+                <>
+                    {/* Toggle Raw */}
+                    <button onClick={() => setShowRaw(!showRaw)} className="text-xs text-blue-600 hover:underline">
+                        {showRaw ? 'Hide' : 'Show'} raw response
+                    </button>
+
+                    {showRaw && (
+                        <pre className="text-xs p-2 bg-gray-100 dark:bg-gray-900 rounded overflow-auto max-h-32 text-gray-700 dark:text-gray-300">
+                            {result.rawResponse || '(empty)'}
+                        </pre>
+                    )}
+
+                    {/* Question Results */}
+                    <div className="space-y-2">
+                        {result.results.map((r, i) => {
+                            const q = questions.find(q => q.id === r.questionId);
+                            return (
+                                <div key={r.questionId} className="flex gap-2 text-sm">
+                                    <div className="flex-shrink-0 mt-0.5">
+                                        {r.isCorrect === true && <CheckCircleIcon className="h-4 w-4 text-green-500" />}
+                                        {r.isCorrect === false && <XCircleIcon className="h-4 w-4 text-red-500" />}
+                                        {r.isCorrect === null && <QuestionMarkCircleIcon className="h-4 w-4 text-gray-400" />}
+                                    </div>
+                                    <div className="flex-1 min-w-0">
+                                        <p className="text-gray-700 dark:text-gray-300"><span className="font-medium">Q{i + 1}:</span> {q?.question}</p>
+                                        <div className="flex flex-wrap gap-x-3 text-xs mt-0.5">
+                                            <span className="text-gray-500">Got: <span className="font-mono text-gray-900 dark:text-white">{r.response || '(empty)'}</span></span>
+                                            {r.isCorrect === false && r.expectedAnswer && (
+                                                <span className="text-red-500">Expected: <span className="font-mono">{r.expectedAnswer}</span></span>
+                                            )}
+                                        </div>
+                                    </div>
+                                </div>
+                            );
+                        })}
+                    </div>
+                </>
             )}
         </div>
     );
 }
 
 // ============================================================================
-// Result Card Component
+// Custom Test Form
 // ============================================================================
 
-function ModelResultCard({ result, questions }: { result: ModelResult; questions: TestQuestion[] }) {
-    const [showRawResponse, setShowRawResponse] = useState(false);
-    const scorePercentage = result.totalQuestions > 0
-        ? Math.round((result.totalCorrect / result.totalQuestions) * 100)
-        : 0;
-
+function CustomTestForm({
+    context, questions, onContextChange, onAddQuestion, onUpdateQuestion, onRemoveQuestion, onCreate, onCancel
+}: {
+    context: string;
+    questions: TestQuestion[];
+    onContextChange: (v: string) => void;
+    onAddQuestion: () => void;
+    onUpdateQuestion: (id: string, updates: Partial<TestQuestion>) => void;
+    onRemoveQuestion: (id: string) => void;
+    onCreate: () => void;
+    onCancel: () => void;
+}) {
     return (
-        <div className="border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
-            {/* Header */}
-            <div className="p-4 bg-gray-50 dark:bg-gray-700/50 border-b border-gray-200 dark:border-gray-700">
-                <div className="flex items-center justify-between">
-                    <h3 className="font-semibold text-gray-900 dark:text-white">
-                        {result.modelName}
-                    </h3>
-                    <div className="flex items-center gap-3">
-                        {result.status === 'running' && (
-                            <ArrowPathIcon className="h-5 w-5 text-blue-500 animate-spin" />
-                        )}
-                        {result.status === 'complete' && (
-                            <span className={`text-lg font-bold ${
-                                scorePercentage >= 80
-                                    ? 'text-green-600 dark:text-green-400'
-                                    : scorePercentage >= 50
-                                        ? 'text-yellow-600 dark:text-yellow-400'
-                                        : 'text-red-600 dark:text-red-400'
-                            }`}>
-                                {result.totalCorrect}/{result.totalQuestions} ({scorePercentage}%)
-                            </span>
-                        )}
-                        {result.status === 'error' && (
-                            <span className="text-red-600 dark:text-red-400 text-sm">
-                                Error
-                            </span>
-                        )}
-                    </div>
-                </div>
-                {result.status === 'complete' && (
-                    <div className="flex items-center justify-between mt-1">
-                        <p className="text-xs text-gray-500 dark:text-gray-400">
-                            Total latency: {result.latencyMs}ms
-                        </p>
-                        <button
-                            onClick={() => setShowRawResponse(!showRawResponse)}
-                            className="text-xs text-blue-600 dark:text-blue-400 hover:underline"
-                        >
-                            {showRawResponse ? 'Hide' : 'Show'} raw response
-                        </button>
-                    </div>
-                )}
-                {result.status === 'error' && result.error && (
-                    <p className="text-xs text-red-500 mt-1">{result.error}</p>
-                )}
+        <div className="p-4 space-y-4">
+            <div className="flex items-center justify-between">
+                <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Create Custom Test</h2>
+                <button onClick={onCancel} className="text-sm text-gray-500 hover:text-gray-700">Cancel</button>
             </div>
 
-            {/* Raw Response (collapsible) */}
-            {showRawResponse && result.rawResponse && (
-                <div className="p-3 bg-gray-100 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700">
-                    <p className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Raw Response:</p>
-                    <pre className="text-xs text-gray-700 dark:text-gray-300 whitespace-pre-wrap font-mono bg-white dark:bg-gray-900 p-2 rounded border border-gray-200 dark:border-gray-700">
-                        {result.rawResponse}
-                    </pre>
-                </div>
-            )}
+            <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Context / Instructions</label>
+                <textarea
+                    value={context}
+                    onChange={(e) => onContextChange(e.target.value)}
+                    rows={4}
+                    placeholder="Enter the context..."
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
+                />
+            </div>
 
-            {/* Results */}
-            <div className="divide-y divide-gray-200 dark:divide-gray-700">
-                {result.results.map((r, index) => {
-                    const question = questions.find(q => q.id === r.questionId);
-                    return (
-                        <div key={r.questionId} className="p-3">
-                            <div className="flex items-start gap-2">
-                                {r.isCorrect === true && (
-                                    <CheckCircleIcon className="h-5 w-5 text-green-500 flex-shrink-0 mt-0.5" />
-                                )}
-                                {r.isCorrect === false && (
-                                    <XCircleIcon className="h-5 w-5 text-red-500 flex-shrink-0 mt-0.5" />
-                                )}
-                                {r.isCorrect === null && (
-                                    <QuestionMarkCircleIcon className="h-5 w-5 text-gray-400 flex-shrink-0 mt-0.5" />
-                                )}
-                                <div className="flex-1 min-w-0">
-                                    <p className="text-sm text-gray-700 dark:text-gray-300">
-                                        <span className="font-medium">Q{index + 1}:</span> {question?.question}
-                                    </p>
-                                    <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
-                                        <span className="text-gray-500">
-                                            Response: <span className="font-mono text-gray-900 dark:text-white">{r.response || '(empty)'}</span>
-                                        </span>
-                                        {r.expectedAnswer && r.isCorrect === false && (
-                                            <span className="text-red-500">
-                                                Expected: <span className="font-mono">{r.expectedAnswer}</span>
-                                            </span>
-                                        )}
-                                    </div>
-                                </div>
+            <div>
+                <div className="flex items-center justify-between mb-2">
+                    <label className="text-sm font-medium text-gray-700 dark:text-gray-300">Questions</label>
+                    <button onClick={onAddQuestion} className="text-sm text-blue-600 flex items-center gap-1"><PlusIcon className="h-4 w-4" />Add</button>
+                </div>
+                <div className="space-y-2">
+                    {questions.map((q, i) => (
+                        <div key={q.id} className="flex gap-2 items-start p-2 bg-gray-50 dark:bg-gray-700/50 rounded">
+                            <span className="text-sm text-gray-500 mt-2">{i + 1}.</span>
+                            <div className="flex-1 space-y-1">
+                                <input
+                                    type="text" value={q.question} onChange={(e) => onUpdateQuestion(q.id, { question: e.target.value })}
+                                    placeholder="Question..." className="w-full px-2 py-1 border border-gray-300 dark:border-gray-600 rounded text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
+                                />
+                                <input
+                                    type="text" value={q.expectedAnswer || ''} onChange={(e) => onUpdateQuestion(q.id, { expectedAnswer: e.target.value })}
+                                    placeholder="Expected answer (optional)" className="w-full px-2 py-1 border border-gray-300 dark:border-gray-600 rounded text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
+                                />
                             </div>
+                            <button onClick={() => onRemoveQuestion(q.id)} className="p-1 text-gray-400 hover:text-red-500"><TrashIcon className="h-4 w-4" /></button>
                         </div>
-                    );
-                })}
-
-                {result.results.length === 0 && result.status === 'pending' && (
-                    <div className="p-4 text-center text-gray-400 dark:text-gray-500 text-sm">
-                        Waiting to start...
-                    </div>
-                )}
+                    ))}
+                    {questions.length === 0 && <p className="text-sm text-gray-400 text-center py-2">No questions yet</p>}
+                </div>
             </div>
+
+            <button
+                onClick={onCreate}
+                disabled={!context.trim() || questions.length === 0}
+                className="w-full px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 text-sm font-medium"
+            >
+                Create Test
+            </button>
         </div>
     );
 }
