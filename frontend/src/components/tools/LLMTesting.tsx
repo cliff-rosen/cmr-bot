@@ -364,8 +364,8 @@ export default function LLMTesting() {
 
             {/* Main Content Area: Two Columns */}
             <div className="flex-1 flex gap-4 min-h-0">
-                {/* Left Column: Test Setup */}
-                <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+                {/* Left Column: Test Setup - fixed max width since it's just readable text */}
+                <div className="w-[700px] flex-shrink-0 flex flex-col min-w-0 overflow-hidden">
                     <div className="flex-1 bg-white dark:bg-gray-800 rounded-lg shadow overflow-auto">
                         {showCustomForm ? (
                             <CustomTestForm
@@ -398,8 +398,8 @@ export default function LLMTesting() {
                     </div>
                 </div>
 
-                {/* Right Column: Results */}
-                <div className="w-96 flex flex-col bg-white dark:bg-gray-800 rounded-lg shadow overflow-hidden">
+                {/* Right Column: Results - expands to fill remaining space */}
+                <div className="flex-1 min-w-[400px] flex flex-col bg-white dark:bg-gray-800 rounded-lg shadow overflow-hidden">
                     <div className="p-3 border-b border-gray-200 dark:border-gray-700">
                         <h3 className="font-semibold text-gray-900 dark:text-white">Results</h3>
                     </div>

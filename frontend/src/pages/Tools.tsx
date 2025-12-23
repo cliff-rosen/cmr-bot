@@ -59,7 +59,7 @@ export default function Tools() {
         <div className="h-full flex flex-col">
             {/* Header with tabs */}
             <div className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700">
-                <div className="max-w-7xl mx-auto px-6">
+                <div className="px-6">
                     <div className="flex items-center justify-between py-4">
                         <div>
                             <h1 className="text-2xl font-bold text-gray-900 dark:text-white">
@@ -95,9 +95,9 @@ export default function Tools() {
                 </div>
             </div>
 
-            {/* Content area */}
-            <div className="flex-1 overflow-y-auto bg-gray-50 dark:bg-gray-900">
-                <div className="max-w-7xl mx-auto p-6">
+            {/* Content area - full width, no max-width constraint */}
+            <div className="flex-1 overflow-hidden bg-gray-50 dark:bg-gray-900">
+                <div className="h-full p-6">
                     {renderContent()}
                 </div>
             </div>
