@@ -123,8 +123,23 @@ _register(ModelConfig(
 ))
 
 # -----------------------------------------------------------------------------
-# OpenAI GPT-5 Models
+# OpenAI Models
 # -----------------------------------------------------------------------------
+
+_register(ModelConfig(
+    id="gpt-4.1",
+    display_name="GPT-4.1",
+    provider=Provider.OPENAI,
+    description="Flagship GPT-4 model for complex tasks",
+    context_window=1047576,
+    max_output_tokens=32768,
+    family=ModelFamily.FLAGSHIP_CHAT,
+    is_reasoning=False,
+    supports_temperature=True,
+    uses_max_completion_tokens=False,
+    features=["vision", "json_mode", "function_calling"],
+    training_data_cutoff="Dec 2024"
+))
 
 _register(ModelConfig(
     id="gpt-5.2",
