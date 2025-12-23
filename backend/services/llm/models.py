@@ -135,7 +135,8 @@ _register(ModelConfig(
     max_output_tokens=128000,
     family=ModelFamily.FLAGSHIP_CHAT,
     is_reasoning=True,
-    supports_temperature=True,
+    supports_temperature=False,
+    uses_max_completion_tokens=True,
     features=["vision", "json_mode", "function_calling", "reasoning"],
     training_data_cutoff="Aug 2025"
 ))
@@ -149,7 +150,8 @@ _register(ModelConfig(
     max_output_tokens=128000,
     family=ModelFamily.FLAGSHIP_CHAT,
     is_reasoning=True,
-    supports_temperature=True,
+    supports_temperature=False,
+    uses_max_completion_tokens=True,
     features=["vision", "json_mode", "function_calling", "reasoning"],
     training_data_cutoff="Sep 2025"
 ))
@@ -163,7 +165,8 @@ _register(ModelConfig(
     max_output_tokens=128000,
     family=ModelFamily.FLAGSHIP_CHAT,
     is_reasoning=True,
-    supports_temperature=True,
+    supports_temperature=False,
+    uses_max_completion_tokens=True,
     features=["vision", "json_mode", "function_calling", "reasoning"],
     training_data_cutoff="Sep 2024"
 ))
@@ -177,7 +180,8 @@ _register(ModelConfig(
     max_output_tokens=64000,
     family=ModelFamily.COST_OPTIMIZED,
     is_reasoning=True,
-    supports_temperature=True,
+    supports_temperature=False,
+    uses_max_completion_tokens=True,
     features=["vision", "json_mode", "function_calling", "reasoning"],
     training_data_cutoff="Sep 2024"
 ))
@@ -191,7 +195,8 @@ _register(ModelConfig(
     max_output_tokens=16000,
     family=ModelFamily.COST_OPTIMIZED,
     is_reasoning=False,
-    supports_temperature=True,
+    supports_temperature=False,
+    uses_max_completion_tokens=True,
     features=["json_mode", "function_calling"],
     training_data_cutoff="Sep 2024"
 ))
