@@ -15,7 +15,7 @@ class OpenAIProvider(LLMProvider):
         self.client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
 
     def get_default_model(self) -> str:
-        return "gpt-4.1"
+        return "gpt-5.2"
 
     def _resolve_model(self, model_id: str) -> tuple[str, Optional[ModelConfig]]:
         """

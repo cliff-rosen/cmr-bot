@@ -123,63 +123,77 @@ _register(ModelConfig(
 ))
 
 # -----------------------------------------------------------------------------
-# OpenAI Models
+# OpenAI GPT-5 Models
 # -----------------------------------------------------------------------------
 
 _register(ModelConfig(
-    id="gpt-4.1",
-    display_name="GPT-4.1",
+    id="gpt-5.2",
+    display_name="GPT-5.2",
     provider=Provider.OPENAI,
-    description="Latest flagship model with best performance",
-    context_window=128000,
-    max_output_tokens=32768,
+    description="Latest flagship model for coding, reasoning, and agentic tasks",
+    context_window=400000,
+    max_output_tokens=128000,
     family=ModelFamily.FLAGSHIP_CHAT,
-    is_reasoning=False,
+    is_reasoning=True,
     supports_temperature=True,
-    features=["vision", "json_mode", "function_calling"],
-    training_data_cutoff="Dec 2024"
+    features=["vision", "json_mode", "function_calling", "reasoning"],
+    training_data_cutoff="Aug 2025"
 ))
 
 _register(ModelConfig(
-    id="gpt-4.1-mini",
-    display_name="GPT-4.1 Mini",
+    id="gpt-5.1",
+    display_name="GPT-5.1",
     provider=Provider.OPENAI,
-    description="Fast and cost-effective version of GPT-4.1",
+    description="Previous flagship reasoning model",
+    context_window=400000,
+    max_output_tokens=128000,
+    family=ModelFamily.FLAGSHIP_CHAT,
+    is_reasoning=True,
+    supports_temperature=True,
+    features=["vision", "json_mode", "function_calling", "reasoning"],
+    training_data_cutoff="Sep 2025"
+))
+
+_register(ModelConfig(
+    id="gpt-5",
+    display_name="GPT-5",
+    provider=Provider.OPENAI,
+    description="Base GPT-5 model for coding and reasoning",
+    context_window=400000,
+    max_output_tokens=128000,
+    family=ModelFamily.FLAGSHIP_CHAT,
+    is_reasoning=True,
+    supports_temperature=True,
+    features=["vision", "json_mode", "function_calling", "reasoning"],
+    training_data_cutoff="Sep 2024"
+))
+
+_register(ModelConfig(
+    id="gpt-5-mini",
+    display_name="GPT-5 Mini",
+    provider=Provider.OPENAI,
+    description="Faster, cost-efficient version of GPT-5",
+    context_window=400000,
+    max_output_tokens=64000,
+    family=ModelFamily.COST_OPTIMIZED,
+    is_reasoning=True,
+    supports_temperature=True,
+    features=["vision", "json_mode", "function_calling", "reasoning"],
+    training_data_cutoff="Sep 2024"
+))
+
+_register(ModelConfig(
+    id="gpt-5-nano",
+    display_name="GPT-5 Nano",
+    provider=Provider.OPENAI,
+    description="Fastest, cheapest GPT-5 for summarization and classification",
     context_window=128000,
-    max_output_tokens=16384,
+    max_output_tokens=16000,
     family=ModelFamily.COST_OPTIMIZED,
     is_reasoning=False,
     supports_temperature=True,
-    features=["vision", "json_mode", "function_calling"],
-    training_data_cutoff="Dec 2024"
-))
-
-_register(ModelConfig(
-    id="gpt-4o",
-    display_name="GPT-4o",
-    provider=Provider.OPENAI,
-    description="Multimodal model optimized for speed",
-    context_window=128000,
-    max_output_tokens=16384,
-    family=ModelFamily.FLAGSHIP_CHAT,
-    is_reasoning=False,
-    supports_temperature=True,
-    features=["vision", "json_mode", "function_calling", "audio"],
-    training_data_cutoff="Oct 2023"
-))
-
-_register(ModelConfig(
-    id="gpt-4o-mini",
-    display_name="GPT-4o Mini",
-    provider=Provider.OPENAI,
-    description="Small, fast, and affordable multimodal model",
-    context_window=128000,
-    max_output_tokens=16384,
-    family=ModelFamily.COST_OPTIMIZED,
-    is_reasoning=False,
-    supports_temperature=True,
-    features=["vision", "json_mode", "function_calling"],
-    training_data_cutoff="Oct 2023"
+    features=["json_mode", "function_calling"],
+    training_data_cutoff="Sep 2024"
 ))
 
 # -----------------------------------------------------------------------------
@@ -325,13 +339,13 @@ def get_models_by_family(family: ModelFamily) -> List[ModelConfig]:
 
 DEFAULT_MODELS: Dict[str, str] = {
     "anthropic": "claude-4-opus-20250514",
-    "openai": "gpt-4.1",
+    "openai": "gpt-5.2",
     "google": "gemini-2.5-flash"
 }
 
 FAST_MODELS: Dict[str, str] = {
     "anthropic": "claude-3-5-haiku-20241022",
-    "openai": "gpt-4o-mini",
+    "openai": "gpt-5-nano",
     "google": "gemini-2.0-flash"
 }
 
