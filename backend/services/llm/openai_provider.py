@@ -60,15 +60,9 @@ class OpenAIProvider(LLMProvider):
             else:
                 params["max_tokens"] = max_tokens
 
-        # Temperature - some models don't support it or only support default
+        # Temperature - only add if model supports it
         if temperature is not None:
-            if config and not config.supports_temperature:
-                if temperature != 1.0:
-                    logger.warning(
-                        f"Model {model} doesn't support temperature={temperature}, ignoring"
-                    )
-                # Don't set temperature at all for models that don't support it
-            else:
+            if not config or config.supports_temperature:
                 params["temperature"] = temperature
 
         if stream:

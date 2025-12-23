@@ -276,6 +276,7 @@ from services.llm import (
     get_available_models,
     get_configured_providers,
     get_model_provider,
+    get_model,
     ModelInfo
 )
 
@@ -422,6 +423,10 @@ async def test_llm(
                 error=f"Provider '{provider_name}' is not configured. Please set the API key in your .env file."
             )
 
+        # Check model config for temperature support
+        model_config = get_model(request.model)
+        temperature = 0.0 if (model_config and model_config.supports_temperature) else None
+
         # Call the provider
         # Use 2000 tokens to allow room for multi-question responses
         # (Reasoning models will auto-boost this further in their providers)
@@ -430,7 +435,7 @@ async def test_llm(
             context=request.context,
             questions=request.questions,
             max_tokens=2000,
-            temperature=0.0
+            temperature=temperature
         )
 
         # Parse individual answers
