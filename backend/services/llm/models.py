@@ -123,141 +123,63 @@ _register(ModelConfig(
 ))
 
 # -----------------------------------------------------------------------------
-# OpenAI Reasoning Models (o-series)
-# -----------------------------------------------------------------------------
-
-_register(ModelConfig(
-    id="o3",
-    display_name="o3",
-    provider=Provider.OPENAI,
-    description="Powerful reasoning model for complex tasks",
-    context_window=8192,
-    max_output_tokens=4096,
-    family=ModelFamily.REASONING,
-    is_reasoning=True,
-    supports_temperature=False,  # Only supports temperature=1.0
-    uses_max_completion_tokens=True,
-    features=["function_calling"],
-    aliases=["gpt-4"],
-    training_data_cutoff="Sep 2021"
-))
-
-_register(ModelConfig(
-    id="o3-mini",
-    display_name="o3 Mini",
-    provider=Provider.OPENAI,
-    description="Small model alternative to o3",
-    context_window=4096,
-    max_output_tokens=4096,
-    family=ModelFamily.REASONING,
-    is_reasoning=True,
-    supports_temperature=False,
-    uses_max_completion_tokens=True,
-    features=["function_calling"],
-    training_data_cutoff="Sep 2021"
-))
-
-_register(ModelConfig(
-    id="o4-mini",
-    display_name="o4 Mini",
-    provider=Provider.OPENAI,
-    description="Faster, more affordable reasoning model",
-    context_window=8192,
-    max_output_tokens=4096,
-    family=ModelFamily.REASONING,
-    is_reasoning=True,
-    supports_temperature=False,
-    uses_max_completion_tokens=True,
-    features=["function_calling"],
-    aliases=["gpt-4-mini"],
-    training_data_cutoff="Apr 2023"
-))
-
-_register(ModelConfig(
-    id="o1",
-    display_name="o1",
-    provider=Provider.OPENAI,
-    description="Legacy model for basic tasks",
-    context_window=2048,
-    max_output_tokens=2048,
-    family=ModelFamily.COST_OPTIMIZED,
-    is_reasoning=False,
-    supports_temperature=True,
-    training_data_cutoff="Jun 2020"
-))
-
-_register(ModelConfig(
-    id="o1-pro",
-    display_name="o1 Pro",
-    provider=Provider.OPENAI,
-    description="Legacy professional model",
-    context_window=4096,
-    max_output_tokens=2048,
-    family=ModelFamily.COST_OPTIMIZED,
-    is_reasoning=False,
-    supports_temperature=True,
-    training_data_cutoff="Jun 2020"
-))
-
-# -----------------------------------------------------------------------------
-# OpenAI Flagship Chat Models
+# OpenAI Models
 # -----------------------------------------------------------------------------
 
 _register(ModelConfig(
     id="gpt-4.1",
     display_name="GPT-4.1",
     provider=Provider.OPENAI,
-    description="Flagship GPT model for complex tasks",
+    description="Latest flagship model with best performance",
     context_window=128000,
-    max_output_tokens=4096,
+    max_output_tokens=32768,
     family=ModelFamily.FLAGSHIP_CHAT,
     is_reasoning=False,
     supports_temperature=True,
     features=["vision", "json_mode", "function_calling"],
-    aliases=["gpt-4-turbo-preview"],
-    training_data_cutoff="Apr 2023"
+    training_data_cutoff="Dec 2024"
+))
+
+_register(ModelConfig(
+    id="gpt-4.1-mini",
+    display_name="GPT-4.1 Mini",
+    provider=Provider.OPENAI,
+    description="Fast and cost-effective version of GPT-4.1",
+    context_window=128000,
+    max_output_tokens=16384,
+    family=ModelFamily.COST_OPTIMIZED,
+    is_reasoning=False,
+    supports_temperature=True,
+    features=["vision", "json_mode", "function_calling"],
+    training_data_cutoff="Dec 2024"
 ))
 
 _register(ModelConfig(
     id="gpt-4o",
     display_name="GPT-4o",
     provider=Provider.OPENAI,
-    description="Fast, intelligent, flexible GPT model",
+    description="Multimodal model optimized for speed",
     context_window=128000,
-    max_output_tokens=4096,
-    family=ModelFamily.FLAGSHIP_CHAT,
-    is_reasoning=False,
-    supports_temperature=True,
-    features=["vision", "json_mode", "function_calling"],
-    training_data_cutoff="Apr 2023"
-))
-
-_register(ModelConfig(
-    id="gpt-4.5-preview",
-    display_name="GPT-4.5 Preview",
-    provider=Provider.OPENAI,
-    description="Latest preview model with enhanced capabilities",
-    context_window=128000,
-    max_output_tokens=4096,
+    max_output_tokens=16384,
     family=ModelFamily.FLAGSHIP_CHAT,
     is_reasoning=False,
     supports_temperature=True,
     features=["vision", "json_mode", "function_calling", "audio"],
-    training_data_cutoff="Apr 2024"
+    training_data_cutoff="Oct 2023"
 ))
 
 _register(ModelConfig(
-    id="gpt-4.1-nano",
-    display_name="GPT-4.1 Nano",
+    id="gpt-4o-mini",
+    display_name="GPT-4o Mini",
     provider=Provider.OPENAI,
-    description="Compact version of GPT-4.1 for quick tasks",
-    context_window=8192,
-    max_output_tokens=2048,
+    description="Small, fast, and affordable multimodal model",
+    context_window=128000,
+    max_output_tokens=16384,
     family=ModelFamily.COST_OPTIMIZED,
     is_reasoning=False,
     supports_temperature=True,
-    features=["function_calling"],
-    training_data_cutoff="Apr 2023"
+    features=["vision", "json_mode", "function_calling"],
+    training_data_cutoff="Oct 2023"
 ))
 
 # -----------------------------------------------------------------------------
@@ -409,7 +331,7 @@ DEFAULT_MODELS: Dict[str, str] = {
 
 FAST_MODELS: Dict[str, str] = {
     "anthropic": "claude-3-5-haiku-20241022",
-    "openai": "gpt-4.1-nano",
+    "openai": "gpt-4o-mini",
     "google": "gemini-2.0-flash"
 }
 

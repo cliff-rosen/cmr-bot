@@ -83,20 +83,22 @@ class OpenAIProvider(LLMProvider):
         max_tokens: Optional[int] = None,
         temperature: Optional[float] = None
     ) -> str:
+        """Generate using chat completions API (all modern OpenAI models are chat models)."""
         try:
             model = model or self.get_default_model()
             resolved_model, config = self._resolve_model(model)
 
+            messages = [{"role": "user", "content": prompt}]
             params = self._build_params(
                 model=resolved_model,
                 config=config,
-                prompt=prompt,
+                messages=messages,
                 max_tokens=max_tokens,
                 temperature=temperature
             )
 
-            response = await self.client.completions.create(**params)
-            return response.choices[0].text.strip()
+            response = await self.client.chat.completions.create(**params)
+            return response.choices[0].message.content.strip()
         except Exception as e:
             logger.error(f"Error generating OpenAI response with model {model}: {str(e)}")
             raise
@@ -108,23 +110,25 @@ class OpenAIProvider(LLMProvider):
         max_tokens: Optional[int] = None,
         temperature: Optional[float] = None
     ) -> AsyncGenerator[str, None]:
+        """Stream using chat completions API."""
         try:
             model = model or self.get_default_model()
             resolved_model, config = self._resolve_model(model)
 
+            messages = [{"role": "user", "content": prompt}]
             params = self._build_params(
                 model=resolved_model,
                 config=config,
-                prompt=prompt,
+                messages=messages,
                 max_tokens=max_tokens,
                 temperature=temperature,
                 stream=True
             )
 
-            stream = await self.client.completions.create(**params)
+            stream = await self.client.chat.completions.create(**params)
             async for chunk in stream:
-                if chunk.choices[0].text:
-                    yield chunk.choices[0].text
+                if chunk.choices[0].delta.content:
+                    yield chunk.choices[0].delta.content
         except Exception as e:
             logger.error(f"Error generating streaming OpenAI response with model {model}: {str(e)}")
             raise
