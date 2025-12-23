@@ -433,11 +433,13 @@ async def test_llm(
             )
 
         # Call the provider
+        # Use 2000 tokens to allow room for multi-question responses
+        # (Reasoning models will auto-boost this further in their providers)
         response = await provider.complete_multi_question(
             model_id=model_config.api_model_id,
             context=request.context,
             questions=request.questions,
-            max_tokens=500,
+            max_tokens=2000,
             temperature=0.0
         )
 
