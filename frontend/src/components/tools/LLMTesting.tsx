@@ -15,7 +15,12 @@ import {
     ExclamationCircleIcon,
     ChevronDownIcon,
     ChevronRightIcon,
-    ClockIcon
+    ClockIcon,
+    XMarkIcon,
+    InformationCircleIcon,
+    CpuChipIcon,
+    BoltIcon,
+    CheckIcon
 } from '@heroicons/react/24/solid';
 import { toolsApi, LLMModelInfo } from '../../lib/api/toolsApi';
 
@@ -147,6 +152,7 @@ export default function LLMTesting() {
     // UI State
     const [templatesExpanded, setTemplatesExpanded] = useState(true);
     const [selectedResultId, setSelectedResultId] = useState<string | null>(null);
+    const [showModelBrowser, setShowModelBrowser] = useState(false);
 
     // Test State
     const [selectedTemplate, setSelectedTemplate] = useState<TestTemplate | null>(null);
@@ -314,6 +320,15 @@ export default function LLMTesting() {
 
     return (
         <div className="h-full flex flex-col">
+            {/* Model Browser Modal */}
+            {showModelBrowser && (
+                <ModelBrowserModal
+                    models={availableModels}
+                    configuredProviders={configuredProviders}
+                    onClose={() => setShowModelBrowser(false)}
+                />
+            )}
+
             {/* Collapsible Templates Section */}
             <div className="bg-white dark:bg-gray-800 rounded-lg shadow mb-4">
                 <button
@@ -395,6 +410,7 @@ export default function LLMTesting() {
                                 isRunning={isRunning}
                                 onToggleModel={handleToggleModel}
                                 onRunTest={handleRunTest}
+                                onOpenModelBrowser={() => setShowModelBrowser(true)}
                             />
                         ) : (
                             <div className="flex items-center justify-center h-full text-gray-400 dark:text-gray-500">
@@ -469,7 +485,7 @@ export default function LLMTesting() {
 
 function TestSetupPanel({
     template, modelsByProvider, configuredProviders, selectedModels,
-    isLoadingModels, modelLoadError, isRunning, onToggleModel, onRunTest
+    isLoadingModels, modelLoadError, isRunning, onToggleModel, onRunTest, onOpenModelBrowser
 }: {
     template: TestTemplate;
     modelsByProvider: Record<string, LLMModelInfo[]>;
@@ -480,6 +496,7 @@ function TestSetupPanel({
     isRunning: boolean;
     onToggleModel: (id: string) => void;
     onRunTest: () => void;
+    onOpenModelBrowser: () => void;
 }) {
     return (
         <div className="p-4 space-y-4">
@@ -500,7 +517,16 @@ function TestSetupPanel({
 
             {/* Model Selection */}
             <div>
-                <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Select Models</h3>
+                <div className="flex items-center justify-between mb-2">
+                    <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300">Select Models</h3>
+                    <button
+                        onClick={onOpenModelBrowser}
+                        className="text-xs text-blue-600 hover:text-blue-700 flex items-center gap-1"
+                    >
+                        <InformationCircleIcon className="h-3.5 w-3.5" />
+                        Browse All Models
+                    </button>
+                </div>
                 {isLoadingModels ? (
                     <div className="flex items-center gap-2 text-gray-500 text-sm"><ArrowPathIcon className="h-4 w-4 animate-spin" />Loading...</div>
                 ) : modelLoadError ? (
@@ -723,6 +749,187 @@ function CustomTestForm({
             >
                 Create Test
             </button>
+        </div>
+    );
+}
+
+// ============================================================================
+// Model Browser Modal
+// ============================================================================
+
+function ModelBrowserModal({
+    models,
+    configuredProviders,
+    onClose
+}: {
+    models: LLMModelInfo[];
+    configuredProviders: string[];
+    onClose: () => void;
+}) {
+    const [selectedProvider, setSelectedProvider] = useState<string | null>(null);
+
+    // Group models by provider
+    const modelsByProvider = useMemo(() => {
+        const grouped: Record<string, LLMModelInfo[]> = {};
+        for (const model of models) {
+            if (!grouped[model.provider]) grouped[model.provider] = [];
+            grouped[model.provider].push(model);
+        }
+        return grouped;
+    }, [models]);
+
+    const providers = Object.keys(modelsByProvider);
+    const displayedModels = selectedProvider
+        ? modelsByProvider[selectedProvider] || []
+        : models;
+
+    const formatNumber = (n: number) => {
+        if (n >= 1000000) return `${(n / 1000000).toFixed(1)}M`;
+        if (n >= 1000) return `${(n / 1000).toFixed(0)}K`;
+        return n.toString();
+    };
+
+    return (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-8" onClick={onClose}>
+            <div
+                className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl w-full max-w-[1200px] h-[90vh] flex flex-col"
+                onClick={e => e.stopPropagation()}
+            >
+                {/* Header */}
+                <div className="flex items-center justify-between p-4 border-b border-gray-200 dark:border-gray-700">
+                    <div className="flex items-center gap-3">
+                        <CpuChipIcon className="h-6 w-6 text-blue-600" />
+                        <h2 className="text-xl font-semibold text-gray-900 dark:text-white">Model Browser</h2>
+                        <span className="text-sm text-gray-500">{models.length} models</span>
+                    </div>
+                    <button
+                        onClick={onClose}
+                        className="p-2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700"
+                    >
+                        <XMarkIcon className="h-5 w-5" />
+                    </button>
+                </div>
+
+                {/* Provider Filter */}
+                <div className="flex gap-2 p-4 border-b border-gray-200 dark:border-gray-700">
+                    <button
+                        onClick={() => setSelectedProvider(null)}
+                        className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+                            selectedProvider === null
+                                ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300'
+                                : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200'
+                        }`}
+                    >
+                        All
+                    </button>
+                    {providers.map(provider => {
+                        const config = PROVIDER_CONFIG[provider] || { displayName: provider, bgClass: 'bg-gray-500' };
+                        const isConfigured = configuredProviders.includes(provider);
+                        return (
+                            <button
+                                key={provider}
+                                onClick={() => setSelectedProvider(provider)}
+                                className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors flex items-center gap-2 ${
+                                    selectedProvider === provider
+                                        ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300'
+                                        : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200'
+                                }`}
+                            >
+                                <span className={`w-2 h-2 rounded-full ${config.bgClass}`} />
+                                {config.displayName}
+                                {isConfigured && <CheckIcon className="h-3 w-3 text-green-500" />}
+                            </button>
+                        );
+                    })}
+                </div>
+
+                {/* Model List */}
+                <div className="flex-1 overflow-auto p-4">
+                    <div className="grid gap-3">
+                        {displayedModels.map(model => {
+                            const providerConfig = PROVIDER_CONFIG[model.provider] || { displayName: model.provider, bgClass: 'bg-gray-500' };
+                            const isConfigured = model.is_configured;
+
+                            return (
+                                <div
+                                    key={model.id}
+                                    className={`p-4 rounded-lg border ${
+                                        isConfigured
+                                            ? 'border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800'
+                                            : 'border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50 opacity-60'
+                                    }`}
+                                >
+                                    <div className="flex items-start justify-between">
+                                        <div className="flex-1">
+                                            <div className="flex items-center gap-2 mb-1">
+                                                <span className={`w-2 h-2 rounded-full ${providerConfig.bgClass}`} />
+                                                <h3 className="font-semibold text-gray-900 dark:text-white">
+                                                    {model.display_name}
+                                                </h3>
+                                                {model.is_reasoning && (
+                                                    <span className="px-1.5 py-0.5 text-xs rounded bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300">
+                                                        Reasoning
+                                                    </span>
+                                                )}
+                                                {!isConfigured && (
+                                                    <span className="px-1.5 py-0.5 text-xs rounded bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-300">
+                                                        Not Configured
+                                                    </span>
+                                                )}
+                                            </div>
+                                            <p className="text-sm text-gray-500 dark:text-gray-400 mb-3">
+                                                {model.notes || 'No description available'}
+                                            </p>
+                                            <div className="flex flex-wrap gap-4 text-xs">
+                                                <div className="flex items-center gap-1.5">
+                                                    <span className="text-gray-400">Context:</span>
+                                                    <span className="font-medium text-gray-700 dark:text-gray-300">
+                                                        {formatNumber(model.context_window)} tokens
+                                                    </span>
+                                                </div>
+                                                <div className="flex items-center gap-1.5">
+                                                    <span className="text-gray-400">Provider:</span>
+                                                    <span className="font-medium text-gray-700 dark:text-gray-300">
+                                                        {providerConfig.displayName}
+                                                    </span>
+                                                </div>
+                                                <div className="flex items-center gap-1.5">
+                                                    <span className="text-gray-400">Model ID:</span>
+                                                    <code className="font-mono text-gray-600 dark:text-gray-400 bg-gray-100 dark:bg-gray-700 px-1.5 py-0.5 rounded">
+                                                        {model.id}
+                                                    </code>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            );
+                        })}
+                    </div>
+                </div>
+
+                {/* Footer */}
+                <div className="p-4 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50">
+                    <div className="flex items-center justify-between text-xs text-gray-500">
+                        <div className="flex items-center gap-4">
+                            <span className="flex items-center gap-1">
+                                <CheckIcon className="h-3 w-3 text-green-500" />
+                                Configured providers have API keys set
+                            </span>
+                            <span className="flex items-center gap-1">
+                                <BoltIcon className="h-3 w-3 text-purple-500" />
+                                Reasoning models use internal thinking
+                            </span>
+                        </div>
+                        <button
+                            onClick={onClose}
+                            className="px-4 py-2 bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-300 dark:hover:bg-gray-600 font-medium"
+                        >
+                            Close
+                        </button>
+                    </div>
+                </div>
+            </div>
         </div>
     );
 }
