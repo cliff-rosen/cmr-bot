@@ -77,11 +77,58 @@ def _register(config: ModelConfig) -> ModelConfig:
 # Anthropic Models
 # -----------------------------------------------------------------------------
 
+# Claude 4.5 Series (Latest)
+_register(ModelConfig(
+    id="claude-opus-4-5-20251101",
+    display_name="Claude Opus 4.5",
+    provider=Provider.ANTHROPIC,
+    description="Most capable model for complex reasoning and analysis",
+    context_window=200000,
+    max_output_tokens=32000,
+    family=ModelFamily.FLAGSHIP_CHAT,
+    is_reasoning=False,
+    supports_temperature=True,
+    features=["vision", "extended_thinking", "priority_tier"],
+    aliases=["claude-opus-4.5"],
+    training_data_cutoff="Nov 2025"
+))
+
+_register(ModelConfig(
+    id="claude-sonnet-4-5-20250929",
+    display_name="Claude Sonnet 4.5",
+    provider=Provider.ANTHROPIC,
+    description="Best balance of speed and intelligence, 1M context beta available",
+    context_window=200000,
+    max_output_tokens=64000,
+    family=ModelFamily.FLAGSHIP_CHAT,
+    is_reasoning=False,
+    supports_temperature=True,
+    features=["vision", "extended_thinking", "priority_tier"],
+    aliases=["claude-sonnet-4.5"],
+    training_data_cutoff="Sep 2025"
+))
+
+_register(ModelConfig(
+    id="claude-haiku-4-5-20251001",
+    display_name="Claude Haiku 4.5",
+    provider=Provider.ANTHROPIC,
+    description="Fast and cost-effective for everyday tasks",
+    context_window=200000,
+    max_output_tokens=8192,
+    family=ModelFamily.COST_OPTIMIZED,
+    is_reasoning=False,
+    supports_temperature=True,
+    features=["vision", "priority_tier"],
+    aliases=["claude-haiku-4.5"],
+    training_data_cutoff="Oct 2025"
+))
+
+# Claude 4 Series
 _register(ModelConfig(
     id="claude-4-opus-20250514",
     display_name="Claude 4 Opus",
     provider=Provider.ANTHROPIC,
-    description="Best model for complex reasoning and analysis",
+    description="Complex reasoning and analysis",
     context_window=200000,
     max_output_tokens=32000,
     family=ModelFamily.FLAGSHIP_CHAT,
@@ -96,7 +143,7 @@ _register(ModelConfig(
     id="claude-4-sonnet-20250514",
     display_name="Claude 4 Sonnet",
     provider=Provider.ANTHROPIC,
-    description="High-performance model for general chat and analysis",
+    description="High-performance for general chat and analysis",
     context_window=200000,
     max_output_tokens=64000,
     family=ModelFamily.FLAGSHIP_CHAT,
@@ -107,11 +154,12 @@ _register(ModelConfig(
     training_data_cutoff="Mar 2025"
 ))
 
+# Claude 3.5 Series
 _register(ModelConfig(
     id="claude-3-5-haiku-20241022",
     display_name="Claude 3.5 Haiku",
     provider=Provider.ANTHROPIC,
-    description="Fastest and most cost-effective model for quick tasks",
+    description="Fast and cost-effective for quick tasks",
     context_window=200000,
     max_output_tokens=8192,
     family=ModelFamily.COST_OPTIMIZED,
@@ -368,13 +416,13 @@ def get_models_by_family(family: ModelFamily) -> List[ModelConfig]:
 # =============================================================================
 
 DEFAULT_MODELS: Dict[str, str] = {
-    "anthropic": "claude-4-opus-20250514",
+    "anthropic": "claude-opus-4-5-20251101",
     "openai": "gpt-5.2",
     "google": "gemini-2.5-flash"
 }
 
 FAST_MODELS: Dict[str, str] = {
-    "anthropic": "claude-3-5-haiku-20241022",
+    "anthropic": "claude-haiku-4-5-20251001",
     "openai": "gpt-5-nano",
     "google": "gemini-2.0-flash"
 }
