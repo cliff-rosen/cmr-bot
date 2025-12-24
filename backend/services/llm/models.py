@@ -249,9 +249,9 @@ _register(ModelConfig(
     max_output_tokens=64000,
     family=ModelFamily.COST_OPTIMIZED,
     is_reasoning=True,
-    supports_temperature=True,
+    supports_temperature=False,  # No 'none' reasoning = no temperature support
     supports_reasoning_effort=True,
-    default_reasoning_effort="none",
+    default_reasoning_effort="minimal",  # mini doesn't support 'none'
     uses_max_completion_tokens=True,
     features=["vision", "json_mode", "function_calling", "reasoning"],
     training_data_cutoff="Sep 2024"
@@ -266,9 +266,9 @@ _register(ModelConfig(
     max_output_tokens=16000,
     family=ModelFamily.COST_OPTIMIZED,
     is_reasoning=False,
-    supports_temperature=True,
+    supports_temperature=False,  # No 'none' reasoning = no temperature support
     supports_reasoning_effort=True,
-    default_reasoning_effort="none",
+    default_reasoning_effort="minimal",  # nano doesn't support 'none'
     uses_max_completion_tokens=True,
     features=["json_mode", "function_calling"],
     training_data_cutoff="Sep 2024"
