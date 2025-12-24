@@ -576,7 +576,7 @@ function TestSetupPanel({
             {/* Context */}
             <div>
                 <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Context</h3>
-                <div className="p-3 bg-gray-50 dark:bg-gray-700/50 rounded-lg text-sm text-gray-700 dark:text-gray-300 whitespace-pre-wrap max-h-40 overflow-auto">
+                <div className="p-3 bg-gray-50 dark:bg-gray-700/50 rounded-lg text-sm text-gray-700 dark:text-gray-300 whitespace-pre-wrap max-h-84 overflow-auto">
                     {template.context}
                 </div>
             </div>

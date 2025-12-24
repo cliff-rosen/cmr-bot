@@ -57,22 +57,18 @@ export default function Tools() {
 
     return (
         <div className="h-full flex flex-col">
-            {/* Header with tabs */}
+            {/* Header with tabs on same row */}
             <div className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700">
-                <div className="px-6">
-                    <div className="flex items-center justify-between py-4">
-                        <div>
-                            <h1 className="text-2xl font-bold text-gray-900 dark:text-white">
-                                Tools
-                            </h1>
-                            <p className="text-sm text-gray-500 dark:text-gray-400">
-                                Test and debug backend services
-                            </p>
-                        </div>
+                <div className="px-6 flex items-center gap-6">
+                    {/* Title */}
+                    <div className="py-3 flex-shrink-0">
+                        <h1 className="text-xl font-bold text-gray-900 dark:text-white">
+                            Tools
+                        </h1>
                     </div>
 
                     {/* Tab navigation */}
-                    <div className="flex gap-1 -mb-px">
+                    <div className="flex gap-1 flex-1">
                         {TABS.map((tab) => {
                             const Icon = tab.icon;
                             const isActive = activeTab === tab.id;
